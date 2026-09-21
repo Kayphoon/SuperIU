@@ -6,8 +6,9 @@
   "scripts": {
     "build": "pnpm --filter \"@agent/*\" run build",
     "typecheck": "pnpm --filter \"@agent/*\" run typecheck",
-    "dev": "pnpm --filter \"@agent/cli\" run dev",
     "cli": "pnpm --filter \"@agent/cli\" run start",
+    "ui": "pnpm --filter \"@agent/ui\" run start",
+    "desktop": "pnpm --filter \"@agent/desktop\" run start",
     "test": "node scripts/smoke-test.ts"
   },
   "devDependencies": {

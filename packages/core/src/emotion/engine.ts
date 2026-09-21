@@ -1,4 +1,9 @@
-import type { EmotionState } from '../types.js';
+export interface EmotionState {
+  valence: number;
+  arousal: number;
+  fatigue: number;
+  lastUpdate: number;
+}
 
 export function createInitialEmotion(): EmotionState {
   return {

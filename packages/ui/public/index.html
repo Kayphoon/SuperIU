@@ -1,0 +1,4140 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark light" />
+    <title>SuperIU · Agent Console</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%230a0c11'/%3E%3Cpath d='M54 14 26 56h22l-6 30 34-46H52l2-26Z' fill='%232fe3cb'/%3E%3C/svg%3E"
+    />
+    <script>
+      // Set before the first paint so the translucent layers never flash opaque
+      // in the desktop shell (and never render translucent in a browser tab,
+      // where there is no vibrancy material behind the window).
+      document.documentElement.dataset.vibrancy = window.superiuDesktop ? 'under-window' : 'none';
+
+      // The `[data-color-scheme]` attribute is the single switch the token
+      // blocks key off; default it to the OS appearance so a macOS app follows
+      // the system setting. An explicit value already on the element wins.
+      if (!document.documentElement.dataset.colorScheme) {
+        document.documentElement.dataset.colorScheme = window.matchMedia('(prefers-color-scheme: light)')
+          .matches
+          ? 'light'
+          : 'dark';
+      }
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: [
+                '-apple-system',
+                'BlinkMacSystemFont',
+                'SF Pro Text',
+                'Helvetica Neue',
+                'Segoe UI',
+                'Roboto',
+                'Noto Sans',
+                'sans-serif'
+              ],
+              mono: [
+                'ui-monospace',
+                'SFMono-Regular',
+                'SF Mono',
+                'Menlo',
+                'Monaco',
+                'JetBrains Mono',
+                'Cascadia Mono',
+                'Liberation Mono',
+                'monospace'
+              ]
+            },
+            colors: {
+              accent: {
+                DEFAULT: '#2fe3cb',
+                hover: '#5aebd8',
+                press: '#24c2ad',
+                // Scheme-aware variants: the raw accent is unreadable as text on
+                // a light panel (1.62:1), so text/border/tint go through tokens.
+                text: 'var(--siu-accent-text)',
+                border: 'var(--siu-accent-border)',
+                weak: 'var(--siu-accent-weak)'
+              },
+              line: 'var(--siu-border)',
+              'line-subtle': 'var(--siu-border-subtle)',
+              fill: 'var(--siu-bg-hover)',
+              'fill-subtle': 'var(--siu-bg-inset)',
+              // Token-backed text colours: these resolve per colour scheme, so
+              // light mode never inherits a mid-grey tuned for a near-black
+              // background.
+              primary: 'var(--siu-text-primary)',
+              secondary: 'var(--siu-text-secondary)',
+              muted: 'var(--siu-text-muted)',
+              disabled: 'var(--siu-text-disabled)'
+            }
+          }
+        }
+      };
+    </script>
+    <style>
+      /* =====================================================================
+         SuperIU · design tokens
+
+         Dark is the default; light is applied with [data-color-scheme='light']
+         on <html>. The translucent background layers are gated on
+         html[data-vibrancy='under-window'], which the boot script sets from the
+         desktop bridge: only the Electron shell has a macOS material behind the
+         window, so a plain browser tab keeps the opaque fallbacks.
+         ===================================================================== */
+      :root {
+        color-scheme: dark;
+
+        /* ── Background layers ───────────────────────────────────────────── */
+        --siu-bg-app-opaque: #0a0c11;
+        --siu-bg-panel-opaque: #0e1016;
+        --siu-bg-elevated-opaque: #14171f;
+
+        /* Opaque by default: correct in a browser tab, where there is no
+           vibrancy material for a translucent layer to composite over. */
+        --siu-bg-app: var(--siu-bg-app-opaque);
+        --siu-bg-panel: var(--siu-bg-panel-opaque);
+        --siu-bg-elevated: var(--siu-bg-elevated-opaque);
+
+        --siu-bg-inset: rgba(0, 0, 0, 0.28);
+        --siu-bg-hover: rgba(255, 255, 255, 0.055);
+        --siu-bg-active: rgba(255, 255, 255, 0.085);
+        --siu-bg-selected: rgba(47, 227, 203, 0.1);
+        --siu-bg-scrim: rgba(0, 0, 0, 0.46);
+
+        /* ── Borders ─────────────────────────────────────────────────────── */
+        --siu-border-subtle: rgba(255, 255, 255, 0.06);
+        --siu-border: rgba(255, 255, 255, 0.1);
+        --siu-border-strong: rgba(255, 255, 255, 0.16);
+        --siu-border-focus: rgba(47, 227, 203, 0.65);
+
+        /* ── Text ────────────────────────────────────────────────────────── */
+        --siu-text-primary: #e9edf4;
+        --siu-text-secondary: #a9b1c2;
+        --siu-text-muted: #7e8798;
+        /* Below AA by design: WCAG exempts inactive controls, and a disabled
+           state that passes AA stops reading as disabled. */
+        --siu-text-disabled: #6b7488;
+        --siu-text-inverse: #06070b;
+
+        /* ── Accent ──────────────────────────────────────────────────────── */
+        --siu-accent: #2fe3cb;
+        --siu-accent-hover: #5aebd8;
+        --siu-accent-press: #24c2ad;
+        --siu-accent-weak: rgba(47, 227, 203, 0.12);
+        --siu-accent-border: rgba(47, 227, 203, 0.3);
+        --siu-accent-text: #2fe3cb;
+
+        /* ── Semantic state triples ──────────────────────────────────────── */
+        --siu-success-fg: #34d399;
+        --siu-success-bg: rgba(52, 211, 153, 0.12);
+        --siu-success-bd: rgba(52, 211, 153, 0.3);
+        --siu-warn-fg: #fbbf24;
+        --siu-warn-bg: rgba(251, 191, 36, 0.12);
+        --siu-warn-bd: rgba(251, 191, 36, 0.3);
+        --siu-danger-fg: #fb7185;
+        --siu-danger-bg: rgba(251, 113, 133, 0.12);
+        --siu-danger-bd: rgba(251, 113, 133, 0.3);
+        --siu-info-fg: #7dd3fc;
+        --siu-info-bg: rgba(125, 211, 252, 0.12);
+        --siu-info-bd: rgba(125, 211, 252, 0.3);
+        --siu-think-fg: #a78bfa;
+        --siu-think-bg: rgba(167, 139, 250, 0.1);
+        --siu-think-bd: rgba(167, 139, 250, 0.26);
+        /* One calm, monochrome fill for every meter in the rail. */
+        --siu-meter-fill: var(--siu-text-secondary);
+        --siu-chain-fg: #e879f9;
+        --siu-chain-bg: rgba(232, 121, 249, 0.1);
+        --siu-chain-bd: rgba(232, 121, 249, 0.26);
+
+        /* ── Spacing ─────────────────────────────────────────────────────── */
+        --siu-space-1: 4px;
+        --siu-space-2: 8px;
+        --siu-space-3: 12px;
+        --siu-space-4: 16px;
+        --siu-space-5: 20px;
+        --siu-space-6: 24px;
+        --siu-space-8: 32px;
+        --siu-space-10: 40px;
+        --siu-space-12: 48px;
+
+        /* ── Radius ──────────────────────────────────────────────────────── */
+        --siu-radius-xs: 4px;
+        --siu-radius-sm: 6px;
+        --siu-radius-md: 8px;
+        --siu-radius-lg: 10px;
+        --siu-radius-xl: 14px;
+        --siu-radius-full: 999px;
+
+        /* Total chrome height (titlebar 44 + sessionbar 45 + 1px divider). The
+           toast stack and any fixed overlay offset off this so they never sit
+           on top of window controls. */
+        --siu-chrome-h: 90px;
+
+        /* ── Motion ──────────────────────────────────────────────────────── */
+        --siu-dur-fast: 90ms;
+        --siu-dur-base: 150ms;
+        --siu-dur-slow: 220ms;
+        --siu-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+        --siu-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+        /* ── Typography ──────────────────────────────────────────────────── */
+        --siu-font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'Segoe UI',
+          Roboto, 'Noto Sans', sans-serif;
+        --siu-font-display: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Helvetica Neue',
+          'Segoe UI', Roboto, sans-serif;
+        --siu-font-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Monaco, 'JetBrains Mono',
+          'Cascadia Mono', 'Liberation Mono', monospace;
+
+        --siu-text-micro: 10px;
+        --siu-text-tiny: 11px;
+        --siu-text-mono-sm: 11.5px;
+        --siu-text-sm: 12px;
+        --siu-text-body: 13px;
+        --siu-text-title: 15px;
+        --siu-text-display: 18px;
+
+        /* ── Layout ──────────────────────────────────────────────────────── */
+        --siu-rail-w: 320px;
+        --siu-content-w: 46rem;
+
+        /* ── Elevation ───────────────────────────────────────────────────── */
+        --siu-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28), 0 0 0 0.5px rgba(255, 255, 255, 0.04);
+        --siu-shadow-lg: 0 1px 2px rgba(0, 0, 0, 0.32), 0 8px 24px rgba(0, 0, 0, 0.42),
+          0 0 0 0.5px rgba(255, 255, 255, 0.07);
+      }
+
+      /* Only the Electron shell has a macOS material behind it; a translucent
+         layer over a plain browser page would just look washed out. */
+      html[data-vibrancy='under-window'] {
+        --siu-bg-app: rgba(10, 12, 17, 0.62);
+        --siu-bg-panel: rgba(14, 16, 22, 0.86);
+        --siu-bg-elevated: rgba(20, 23, 31, 0.94);
+      }
+
+      [data-color-scheme='light'] {
+        color-scheme: light;
+        --siu-bg-app-opaque: #f6f7f9;
+        --siu-bg-panel-opaque: #ffffff;
+        --siu-bg-elevated-opaque: #ffffff;
+        --siu-bg-app: var(--siu-bg-app-opaque);
+        --siu-bg-panel: var(--siu-bg-panel-opaque);
+        --siu-bg-elevated: var(--siu-bg-elevated-opaque);
+        --siu-bg-inset: rgba(0, 0, 0, 0.045);
+        --siu-bg-hover: rgba(0, 0, 0, 0.045);
+        --siu-bg-active: rgba(0, 0, 0, 0.075);
+        --siu-bg-selected: rgba(15, 118, 110, 0.1);
+        --siu-bg-scrim: rgba(0, 0, 0, 0.28);
+
+        --siu-border-subtle: rgba(0, 0, 0, 0.055);
+        --siu-border: rgba(0, 0, 0, 0.1);
+        --siu-border-strong: rgba(0, 0, 0, 0.18);
+        --siu-border-focus: rgba(15, 118, 110, 0.75);
+
+        --siu-text-primary: #16181d;
+        --siu-text-secondary: #4a5361;
+        /* The spec flags this as 4.44:1 (just under AA). Raising the app-layer
+           alpha to 0.72 does not fix it — a light window material leaves the
+           ratio at 4.60:1 either way, and no alpha helps over a dark wallpaper.
+           Darkening the text is the fix that holds in every case: 5.64:1 on the
+           panel, 5.40:1 on the app layer over a light window. */
+        --siu-text-muted: #5f6875;
+        --siu-text-disabled: #868e9b;
+        --siu-text-inverse: #ffffff;
+
+        --siu-accent: #0f766e;
+        --siu-accent-hover: #115e59;
+        --siu-accent-press: #134e4a;
+        --siu-accent-weak: rgba(15, 118, 110, 0.1);
+        --siu-accent-border: rgba(15, 118, 110, 0.28);
+        --siu-accent-text: #0f766e;
+
+        --siu-success-fg: #047857;
+        --siu-success-bg: rgba(4, 120, 87, 0.1);
+        --siu-success-bd: rgba(4, 120, 87, 0.26);
+        --siu-warn-fg: #b45309;
+        --siu-warn-bg: rgba(180, 83, 9, 0.1);
+        --siu-warn-bd: rgba(180, 83, 9, 0.26);
+        --siu-danger-fg: #be123c;
+        --siu-danger-bg: rgba(190, 18, 60, 0.1);
+        --siu-danger-bd: rgba(190, 18, 60, 0.26);
+        --siu-info-fg: #0369a1;
+        --siu-info-bg: rgba(3, 105, 161, 0.1);
+        --siu-info-bd: rgba(3, 105, 161, 0.26);
+        --siu-think-fg: #6d28d9;
+        --siu-think-bg: rgba(109, 40, 217, 0.09);
+        --siu-think-bd: rgba(109, 40, 217, 0.24);
+        --siu-chain-fg: #a21caf;
+        --siu-chain-bg: rgba(162, 28, 175, 0.09);
+        --siu-chain-bd: rgba(162, 28, 175, 0.24);
+
+        --siu-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06), 0 0 0 0.5px rgba(0, 0, 0, 0.05);
+        --siu-shadow-lg: 0 1px 2px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.14),
+          0 0 0 0.5px rgba(0, 0, 0, 0.06);
+      }
+
+      /* Light + vibrancy must come last: both selectors have the same
+         specificity, so source order decides the winner. */
+      html[data-vibrancy='under-window'][data-color-scheme='light'] {
+        --siu-bg-app: rgba(246, 247, 249, 0.62);
+        --siu-bg-panel: rgba(255, 255, 255, 0.86);
+        --siu-bg-elevated: rgba(255, 255, 255, 0.94);
+      }
+
+      /* =====================================================================
+         Base
+         ===================================================================== */
+      html,
+      body {
+        height: 100%;
+        /* Transparent so the macOS `under-window` material is the base layer.
+           The opaque fallback lives on the token, not on the element. */
+        background: transparent;
+      }
+      /* `html body` outranks Tailwind's preflight `body` rule (which sets
+         `line-height: inherit`); both are single-class specificity otherwise. */
+      html body {
+        margin: 0;
+        color: var(--siu-text-secondary);
+        font-family: var(--siu-font-sans);
+        font-size: var(--siu-text-body);
+        line-height: 21px;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      ::selection {
+        background: var(--siu-accent-weak);
+        color: var(--siu-text-primary);
+      }
+
+      ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--siu-border-strong);
+        border-radius: 999px;
+        border: 2px solid transparent;
+        background-clip: content-box;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: var(--siu-text-disabled);
+        background-clip: content-box;
+      }
+      .siu-no-scrollbar {
+        scrollbar-width: none;
+      }
+      .siu-no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+
+      :where(a, button, input, select, textarea, summary, [role='switch'], [tabindex]):focus-visible {
+        outline: 2px solid var(--siu-border-focus);
+        outline-offset: 2px;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      /* The `hidden` attribute is the single show/hide switch in the SPA; the
+         `!important` keeps it from losing to a component's own `display`. */
+      [hidden] {
+        display: none !important;
+      }
+
+      details > summary {
+        list-style: none;
+        cursor: pointer;
+      }
+      details > summary::-webkit-details-marker {
+        display: none;
+      }
+      .siu-chev {
+        display: inline-block;
+        flex: none;
+        line-height: 0;
+        transition: transform var(--siu-dur-base) var(--siu-ease-out);
+      }
+      details[open] > summary .siu-chev {
+        transform: rotate(90deg);
+      }
+
+      /* =====================================================================
+         Motion
+         ===================================================================== */
+      @keyframes siu-enter {
+        from {
+          opacity: 0;
+          transform: translateY(4px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      .siu-enter {
+        animation: siu-enter var(--siu-dur-slow) var(--siu-ease-out);
+      }
+
+      @keyframes siu-pop {
+        from {
+          opacity: 0;
+          transform: scale(0.98);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      .siu-pop {
+        animation: siu-pop 180ms var(--siu-ease-out);
+      }
+
+      @keyframes siu-pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.45;
+        }
+      }
+      .siu-pulse {
+        animation: siu-pulse 1.4s var(--siu-ease-in-out) infinite;
+      }
+
+      @keyframes siu-caret {
+        0%,
+        45% {
+          opacity: 1;
+        }
+        55%,
+        100% {
+          opacity: 0.15;
+        }
+      }
+      .siu-cursor::after {
+        content: '';
+        display: inline-block;
+        width: 2px;
+        height: 1.05em;
+        margin-left: 2px;
+        vertical-align: text-bottom;
+        border-radius: 1px;
+        background: var(--siu-accent);
+        animation: siu-caret 1.1s var(--siu-ease-in-out) infinite;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+          scroll-behavior: auto !important;
+        }
+        /* These two would otherwise freeze mid-keyframe — the caret's last
+           frame is 15% opacity, so a blanket override would hide it entirely. */
+        .siu-cursor::after {
+          animation: none !important;
+          opacity: 1 !important;
+        }
+        .siu-pulse {
+          animation: none !important;
+          opacity: 1 !important;
+        }
+      }
+
+      /* =====================================================================
+         App shell
+         ===================================================================== */
+      .siu-app {
+        display: flex;
+        flex-direction: column;
+        height: 100vh;
+        background: var(--siu-bg-app);
+      }
+      /* The whole chrome strip is a drag region; interactive children opt out. */
+      .siu-chrome {
+        -webkit-app-region: drag;
+        flex: none;
+        z-index: 30;
+        background: var(--siu-bg-app);
+        border-bottom: 1px solid var(--siu-border);
+      }
+      .siu-titlebar {
+        position: relative;
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-3);
+        height: 44px;
+        padding: 0 var(--siu-space-4);
+      }
+      /* Centred document title; never intercepts drags. */
+      .siu-titlebar-center {
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-2);
+        pointer-events: none;
+      }
+      .siu-titlebar-actions {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-2);
+        margin-left: auto;
+      }
+      .siu-divider {
+        width: 1px;
+        height: 18px;
+        flex: none;
+        background: var(--siu-border);
+      }
+      /* `hiddenInset` draws the native lights at x = 20/40/60 (right edge 72px);
+         84px clears them with a 12px gutter. */
+      html[data-vibrancy='under-window'] .siu-titlebar {
+        padding-left: 84px;
+      }
+      .siu-chrome button,
+      .siu-chrome select,
+      .siu-chrome input,
+      .siu-chrome textarea,
+      .siu-chrome [role='switch'],
+      .no-drag {
+        -webkit-app-region: no-drag;
+      }
+
+      .siu-sessionbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--siu-space-2);
+        min-height: 36px;
+        padding: var(--siu-space-1) var(--siu-space-4);
+        border-top: 1px solid var(--siu-border);
+      }
+
+      .siu-workspace {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        flex: 1;
+      }
+      @media (min-width: 1024px) {
+        .siu-workspace {
+          flex-direction: row;
+        }
+      }
+
+      .siu-main {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+        flex: 1;
+        background: var(--siu-bg-app);
+      }
+
+      .siu-transcript {
+        display: flex;
+        flex-direction: column;
+        gap: var(--siu-space-4);
+        flex: 1 1 0%;
+        min-height: 0;
+        overflow-y: auto;
+        padding: var(--siu-space-6);
+        /* Keep the first row clear of the scroll edge, and give keyboard-driven
+           scrolling the same breathing room at the top and bottom. Without
+           scroll-padding the first message hard-cuts against the header. */
+        scroll-padding-block: var(--siu-space-6);
+      }
+      /* A partially-scrolled row otherwise hard-cuts against the chrome. The
+         fade only appears on the edge that actually has content beyond it, so
+         the first message is never dimmed when the transcript is at the top. */
+      .siu-transcript[data-overflow-top='true'] {
+        mask-image: linear-gradient(to bottom, transparent 0, #000 var(--siu-space-8));
+        -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--siu-space-8));
+      }
+      .siu-transcript[data-overflow-bottom='true'] {
+        mask-image: linear-gradient(to top, transparent 0, #000 var(--siu-space-8));
+        -webkit-mask-image: linear-gradient(to top, transparent 0, #000 var(--siu-space-8));
+      }
+      .siu-transcript[data-overflow-top='true'][data-overflow-bottom='true'] {
+        mask-image: linear-gradient(
+          to bottom,
+          transparent 0,
+          #000 var(--siu-space-8),
+          #000 calc(100% - var(--siu-space-8)),
+          transparent 100%
+        );
+        -webkit-mask-image: linear-gradient(
+          to bottom,
+          transparent 0,
+          #000 var(--siu-space-8),
+          #000 calc(100% - var(--siu-space-8)),
+          transparent 100%
+        );
+      }
+      /* One fixed measure for every row: ~85 characters at 13px. */
+      .siu-transcript > * {
+        flex: none;
+        width: 100%;
+        max-width: var(--siu-content-w);
+        margin-inline: auto;
+      }
+      .siu-transcript > .siu-empty {
+        flex: 1 1 auto;
+      }
+
+      .siu-rail {
+        display: flex;
+        flex-direction: column;
+        gap: var(--siu-space-4);
+        flex: none;
+        width: 100%;
+        overflow-y: auto;
+        padding: var(--siu-space-5);
+        border-top: 1px solid var(--siu-border);
+        background: var(--siu-bg-app);
+      }
+      @media (min-width: 1024px) {
+        .siu-rail {
+          width: var(--siu-rail-w);
+          border-top: none;
+          border-left: 1px solid var(--siu-border);
+        }
+      }
+      .siu-rail[hidden] {
+        display: none;
+      }
+
+      .siu-section {
+        background: var(--siu-bg-panel);
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-lg);
+        padding: var(--siu-space-4);
+        box-shadow: var(--siu-shadow-sm);
+      }
+      .siu-section-title {
+        font-size: var(--siu-text-micro);
+        line-height: 14px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        font-weight: 600;
+        color: var(--siu-text-muted);
+      }
+
+      /* ── Typographic primitives ──────────────────────────────────────── */
+      .siu-label {
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
+        line-height: 15px;
+        font-variant-numeric: tabular-nums;
+        color: var(--siu-text-muted);
+      }
+      .siu-history-item {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-2);
+        padding: var(--siu-space-2) var(--siu-space-2);
+        border: 1px solid transparent;
+        border-radius: var(--siu-radius-sm);
+        color: var(--siu-text-secondary);
+        font-size: var(--siu-text-tiny);
+        line-height: 15px;
+        cursor: pointer;
+        text-align: left;
+        width: 100%;
+        transition: background var(--siu-dur-base) var(--siu-ease-out),
+          border-color var(--siu-dur-base) var(--siu-ease-out),
+          color var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-history-item:hover {
+        background: var(--siu-bg-hover);
+        border-color: var(--siu-border);
+        color: var(--siu-text-primary);
+      }
+      .siu-history-item:focus-visible {
+        outline: 2px solid var(--siu-border-focus);
+        outline-offset: 1px;
+      }
+      .siu-history-icon {
+        flex: none;
+        color: var(--siu-text-disabled);
+        transition: color var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-history-item:hover .siu-history-icon {
+        color: var(--siu-accent-text);
+      }
+      .siu-history-text {
+        flex: 1 1 auto;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .siu-value {
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
+        line-height: 15px;
+        font-variant-numeric: tabular-nums;
+        color: var(--siu-text-secondary);
+      }
+
+      /* =====================================================================
+         Buttons
+         ===================================================================== */
+      .siu-btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-height: 28px;
+        padding: 0 var(--siu-space-3);
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-md);
+        background: var(--siu-bg-inset);
+        color: var(--siu-text-secondary);
+        font-family: var(--siu-font-sans);
+        font-size: var(--siu-text-sm);
+        font-weight: 500;
+        white-space: nowrap;
+        cursor: pointer;
+        transition: background var(--siu-dur-base) var(--siu-ease-out),
+          border-color var(--siu-dur-base) var(--siu-ease-out),
+          color var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-btn:hover:not(:disabled) {
+        background: var(--siu-bg-hover);
+        border-color: var(--siu-border-strong);
+        color: var(--siu-text-primary);
+      }
+      .siu-btn:active:not(:disabled) {
+        background: var(--siu-bg-active);
+      }
+      .siu-btn:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+      }
+      .siu-btn--accent {
+        background: var(--siu-accent-weak);
+        border-color: var(--siu-accent-border);
+        color: var(--siu-accent-text);
+      }
+      .siu-btn--accent:hover:not(:disabled) {
+        background: var(--siu-accent-weak);
+        border-color: var(--siu-accent);
+        color: var(--siu-accent-hover);
+      }
+      .siu-btn--primary {
+        background: var(--siu-accent);
+        border-color: transparent;
+        color: var(--siu-text-inverse);
+        font-weight: 600;
+        transition: filter var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-btn--primary:hover:not(:disabled) {
+        background: var(--siu-accent);
+        border-color: transparent;
+        color: var(--siu-text-inverse);
+        filter: brightness(1.1);
+      }
+      .siu-btn--primary:active:not(:disabled) {
+        filter: brightness(0.94);
+      }
+      .siu-btn--primary:disabled {
+        filter: none;
+      }
+      .siu-btn--danger {
+        background: var(--siu-danger-bg);
+        border-color: var(--siu-danger-bd);
+        color: var(--siu-danger-fg);
+      }
+      .siu-btn--danger:hover:not(:disabled) {
+        background: rgba(251, 113, 133, 0.2);
+        border-color: var(--siu-danger-bd);
+        color: var(--siu-danger-fg);
+      }
+      .siu-btn--mono {
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
+      }
+
+      /* =====================================================================
+         Fields, selects, switches, kbd
+         ===================================================================== */
+      .siu-field {
+        width: 100%;
+        height: 32px;
+        padding: 0 var(--siu-space-3);
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-md);
+        background: var(--siu-bg-inset);
+        color: var(--siu-text-primary);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-sm);
+        outline: none;
+        transition: border-color var(--siu-dur-base) var(--siu-ease-out),
+          box-shadow var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-field::placeholder {
+        color: var(--siu-text-disabled);
+      }
+      .siu-field:hover {
+        border-color: var(--siu-border-strong);
+      }
+      .siu-field:focus-visible {
+        border-color: var(--siu-border-focus);
+        box-shadow: 0 0 0 3px var(--siu-accent-weak);
+      }
+      .siu-field:disabled {
+        background: var(--siu-bg-panel);
+        color: var(--siu-text-disabled);
+        cursor: not-allowed;
+      }
+      .siu-field[aria-invalid='true'] {
+        border-color: var(--siu-danger-bd);
+        box-shadow: 0 0 0 3px var(--siu-danger-bg);
+      }
+      textarea.siu-field {
+        height: auto;
+        padding: var(--siu-space-2) var(--siu-space-3);
+        line-height: 21px;
+        scrollbar-width: thin;
+      }
+
+      .siu-select {
+        height: 26px;
+        max-width: 100%;
+        padding: 0 var(--siu-space-2);
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-sm);
+        background: var(--siu-bg-inset);
+        color: var(--siu-text-secondary);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
+        font-variant-numeric: tabular-nums;
+        outline: none;
+        transition: border-color var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-select:hover {
+        border-color: var(--siu-border-strong);
+      }
+      .siu-select:focus-visible {
+        border-color: var(--siu-border-focus);
+        /* Native selects sit next to .siu-field controls; give them the same
+           ring so the focus affordance is uniform across the form. */
+        box-shadow: 0 0 0 3px var(--siu-accent-weak);
+      }
+
+      .siu-switch {
+        position: relative;
+        flex: none;
+        width: 36px;
+        height: 20px;
+        border-radius: var(--siu-radius-full);
+        background: var(--siu-bg-active);
+        border: 1px solid var(--siu-border);
+        cursor: pointer;
+        transition: background var(--siu-dur-fast) var(--siu-ease-out),
+          border-color var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-switch[data-on='true'] {
+        background: var(--siu-accent);
+        border-color: transparent;
+      }
+      .siu-switch::after {
+        content: '';
+        position: absolute;
+        top: 1px;
+        left: 1px;
+        width: 16px;
+        height: 16px;
+        border-radius: var(--siu-radius-full);
+        background: #fff;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+        transition: transform var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-switch[data-on='true']::after {
+        transform: translateX(16px);
+      }
+
+      .siu-kbd {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 4px;
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-xs);
+        background: var(--siu-bg-inset);
+        color: var(--siu-text-muted);
+        font-family: var(--siu-font-mono);
+        font-size: 10px;
+        line-height: 1;
+        box-shadow: 0 1px 0 rgba(0, 0, 0, 0.28);
+      }
+
+      /* =====================================================================
+         Chips and badges
+         ===================================================================== */
+      .siu-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        height: 18px;
+        padding: 0 var(--siu-space-1);
+        border: 1px solid;
+        border-radius: var(--siu-radius-xs);
+        font-family: var(--siu-font-mono);
+        font-size: 10px;
+        line-height: 1;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+        font-variant-numeric: tabular-nums;
+      }
+      .siu-chip--tool {
+        border-color: var(--siu-border);
+        background: var(--siu-bg-inset);
+        color: var(--siu-text-muted);
+      }
+      .siu-chip--effort {
+        border-color: var(--siu-info-bd);
+        background: var(--siu-info-bg);
+        color: var(--siu-info-fg);
+      }
+      .siu-chip--effort[data-level='high'] {
+        border-color: var(--siu-warn-bd);
+        background: var(--siu-warn-bg);
+        color: var(--siu-warn-fg);
+      }
+      .siu-chip--effort[data-level='medium'] {
+        border-color: var(--siu-info-bd);
+        background: var(--siu-info-bg);
+        color: var(--siu-info-fg);
+      }
+      .siu-chip--effort[data-level='low'],
+      .siu-chip--effort[data-level='unset'] {
+        border-color: var(--siu-border);
+        background: var(--siu-bg-inset);
+        color: var(--siu-text-muted);
+      }
+      .siu-chip--risk-high {
+        border-color: var(--siu-danger-bd);
+        background: var(--siu-danger-bg);
+        color: var(--siu-danger-fg);
+        font-weight: 600;
+      }
+      .siu-chip--risk-medium {
+        border-color: var(--siu-warn-bd);
+        background: var(--siu-warn-bg);
+        color: var(--siu-warn-fg);
+        font-weight: 600;
+      }
+      .siu-chip--risk-low {
+        border-color: var(--siu-border);
+        background: var(--siu-bg-inset);
+        color: var(--siu-text-muted);
+      }
+
+      .siu-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 1px var(--siu-space-1);
+        border: 1px solid;
+        border-radius: var(--siu-radius-xs);
+        font-family: var(--siu-font-mono);
+        font-size: 9.5px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        line-height: 1.4;
+        white-space: nowrap;
+      }
+      .siu-badge[data-state='running'] {
+        border-color: var(--siu-warn-bd);
+        background: var(--siu-warn-bg);
+        color: var(--siu-warn-fg);
+      }
+      .siu-badge[data-state='done'] {
+        border-color: var(--siu-success-bd);
+        background: var(--siu-success-bg);
+        color: var(--siu-success-fg);
+      }
+      .siu-badge[data-state='error'] {
+        border-color: var(--siu-danger-bd);
+        background: var(--siu-danger-bg);
+        color: var(--siu-danger-fg);
+      }
+      .siu-badge[data-state='denied'] {
+        border-color: var(--siu-border);
+        background: var(--siu-bg-inset);
+        color: var(--siu-text-muted);
+      }
+      .siu-badge[data-state='pending'] {
+        border-color: var(--siu-warn-bd);
+        background: var(--siu-warn-bg);
+        color: var(--siu-warn-fg);
+      }
+
+      /* =====================================================================
+         Status dot
+         ===================================================================== */
+      .siu-status-dot {
+        flex: none;
+        width: 8px;
+        height: 8px;
+        border-radius: var(--siu-radius-full);
+        background: var(--siu-text-disabled);
+      }
+      .siu-status-dot[data-status='running'] {
+        background: var(--siu-accent);
+      }
+      .siu-status-dot[data-status='thinking'] {
+        background: var(--siu-info-fg);
+      }
+      .siu-status-dot[data-status='streaming'],
+      .siu-status-dot[data-status='completed'] {
+        background: var(--siu-success-fg);
+      }
+      .siu-status-dot[data-status='tool_calling'],
+      .siu-status-dot[data-status='aborted'] {
+        background: var(--siu-warn-fg);
+      }
+      .siu-status-dot[data-status='error'] {
+        background: var(--siu-danger-fg);
+      }
+
+      /* =====================================================================
+         Meters
+         ===================================================================== */
+      .siu-meter {
+        position: relative;
+        height: 6px;
+        overflow: hidden;
+        border-radius: var(--siu-radius-full);
+        /* One calm neutral track for all three meters, so the rail reads as a
+           single instrument rather than three unrelated gauges. */
+        background: var(--siu-bg-inset);
+        border: 1px solid var(--siu-border-subtle);
+      }
+      .siu-meter-center {
+        position: absolute;
+        left: 50%;
+        top: 0;
+        height: 100%;
+        width: 1px;
+        background: var(--siu-border-strong);
+      }
+      .siu-meter-fill {
+        position: absolute;
+        top: 0;
+        height: 100%;
+        border-radius: var(--siu-radius-full);
+        /* Explicit properties only: `transition-all` would animate `left` on
+           the bipolar valence bar and make it jitter. */
+        transition: width 500ms var(--siu-ease-out), left 500ms var(--siu-ease-out);
+      }
+      /* All three meters share one fill colour. The old scheme gave each a
+         different hue (danger->success gradient, blue, amber), which read as
+         three unrelated gauges rather than one calm instrument. */
+      .siu-meter--valence .siu-meter-fill,
+      .siu-meter--arousal .siu-meter-fill,
+      .siu-meter--fatigue .siu-meter-fill {
+        background: var(--siu-meter-fill);
+      }
+
+      /* =====================================================================
+         Transcript: messages
+         ===================================================================== */
+      .siu-msg-row {
+        display: flex;
+      }
+      .siu-msg-row--user {
+        justify-content: flex-end;
+      }
+      .siu-msg-row--assistant {
+        justify-content: flex-start;
+      }
+      .siu-bubble {
+        position: relative;
+        max-width: 100%;
+        padding: var(--siu-space-3) var(--siu-space-4);
+        font-size: var(--siu-text-body);
+        line-height: 21px;
+        border: 1px solid var(--siu-border);
+        /* Matches the tool cards and step groups; the asymmetric bottom corner
+           is the only bubble-specific flourish. */
+        border-radius: var(--siu-radius-xl);
+        color: var(--siu-text-primary);
+      }
+      .siu-bubble--user {
+        background: var(--siu-accent-weak);
+        border-color: var(--siu-accent-border);
+        border-bottom-right-radius: var(--siu-radius-xs);
+        white-space: pre-wrap;
+      }
+      .siu-bubble--assistant {
+        background: var(--siu-bg-panel);
+        border-bottom-left-radius: var(--siu-radius-xs);
+      }
+      .siu-bubble-copy {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        padding: 0;
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-xs);
+        background: var(--siu-bg-elevated);
+        color: var(--siu-text-muted);
+        cursor: pointer;
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity var(--siu-dur-base) var(--siu-ease-out),
+          background var(--siu-dur-base) var(--siu-ease-out),
+          color var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-bubble:hover .siu-bubble-copy,
+      .siu-bubble:focus-within .siu-bubble-copy {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .siu-bubble-copy:hover {
+        background: var(--siu-bg-hover);
+        color: var(--siu-text-primary);
+      }
+      .siu-bubble-copy:focus-visible {
+        outline: 2px solid var(--siu-border-focus);
+        outline-offset: 1px;
+      }
+
+      /* Assistant turn: bubble + tool cards share one column. */
+      .siu-turn {
+        display: flex;
+        flex-direction: column;
+        gap: var(--siu-space-3);
+      }
+      .siu-note {
+        align-self: center;
+        max-width: 100%;
+        padding: 2px var(--siu-space-3);
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-full);
+        background: var(--siu-bg-inset);
+        color: var(--siu-text-muted);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
+      }
+      .siu-note--error {
+        border-color: var(--siu-danger-bd);
+        background: var(--siu-danger-bg);
+        color: var(--siu-danger-fg);
+      }
+
+      /* =====================================================================
+         Transcript: thinking block
+         ===================================================================== */
+      .siu-think {
+        border: 1px solid var(--siu-border-subtle);
+        border-radius: var(--siu-radius-md);
+        background: transparent;
+      }
+      .siu-think > summary {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-2);
+        height: 28px;
+        padding: 0 var(--siu-space-3);
+        border-radius: var(--siu-radius-md);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
+        color: var(--siu-text-muted);
+        transition: background var(--siu-dur-base) var(--siu-ease-out),
+          color var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-think > summary:hover {
+        background: var(--siu-bg-hover);
+        color: var(--siu-text-secondary);
+      }
+      .siu-think > summary:focus-visible {
+        outline-offset: -2px;
+      }
+      .siu-think[open] {
+        background: var(--siu-think-bg);
+        border-color: var(--siu-think-bd);
+      }
+      .siu-think-body {
+        margin-left: var(--siu-space-3);
+        padding: var(--siu-space-2) var(--siu-space-3) var(--siu-space-3) var(--siu-space-4);
+        border-top: 1px solid var(--siu-border-subtle);
+        border-left: 2px solid var(--siu-think-fg);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-mono-sm);
+        line-height: 18px;
+        color: var(--siu-text-muted);
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      /* =====================================================================
+         Transcript: step group
+         ===================================================================== */
+      .siu-step {
+        border: 1px solid var(--siu-border-subtle);
+        border-radius: var(--siu-radius-md);
+        background: transparent;
+      }
+      .siu-step[open] {
+        border-color: var(--siu-border);
+      }
+      .siu-step > summary {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-2);
+        height: 28px;
+        padding: 0 var(--siu-space-3);
+        border-radius: var(--siu-radius-md);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
+        color: var(--siu-text-muted);
+        transition: background var(--siu-dur-base) var(--siu-ease-out),
+          color var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-step > summary:hover {
+        background: var(--siu-bg-hover);
+        color: var(--siu-text-secondary);
+      }
+      .siu-step > summary:focus-visible {
+        outline-offset: -2px;
+      }
+      .siu-step[data-phase='review'] > summary {
+        color: var(--siu-chain-fg);
+      }
+      .siu-step-meta {
+        font-variant-numeric: tabular-nums;
+        color: var(--siu-text-disabled);
+      }
+      .siu-step-body {
+        display: flex;
+        flex-direction: column;
+        gap: var(--siu-space-2);
+        padding: var(--siu-space-3);
+        border-top: 1px solid var(--siu-border-subtle);
+      }
+
+      /* =====================================================================
+         Transcript: tool card
+         ===================================================================== */
+      .siu-tool {
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-md);
+        background: var(--siu-bg-panel);
+        overflow: hidden;
+        transition: border-color var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-tool > summary {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-2);
+        height: 32px;
+        padding: 0 var(--siu-space-3);
+        user-select: none;
+        transition: background var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-tool > summary:hover {
+        background: var(--siu-bg-hover);
+      }
+      .siu-tool > summary:focus-visible {
+        outline-offset: -2px;
+      }
+      .siu-tool[data-state='error'] {
+        border-color: var(--siu-danger-bd);
+      }
+      .siu-tool[data-state='error'] > summary {
+        background: rgba(251, 113, 133, 0.05);
+      }
+      .siu-tool[data-state='pending'] {
+        border-color: var(--siu-warn-bd);
+      }
+      .siu-tool[data-state='pending'] > summary {
+        background: rgba(251, 191, 36, 0.06);
+      }
+      .siu-tool[data-state='denied'] > summary {
+        opacity: 0.72;
+      }
+      .siu-tool-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: none;
+        width: 20px;
+        height: 20px;
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-xs);
+        background: var(--siu-bg-inset);
+        color: var(--siu-accent-text);
+      }
+      .siu-tool-name {
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-sm);
+        font-weight: 500;
+        color: var(--siu-text-primary);
+        white-space: nowrap;
+      }
+      .siu-tool-meta {
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
+        font-variant-numeric: tabular-nums;
+        color: var(--siu-text-muted);
+        white-space: nowrap;
+      }
+      .siu-tool-wait {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
+        font-family: var(--siu-font-mono);
+        font-size: 10px;
+        font-variant-numeric: tabular-nums;
+        color: var(--siu-warn-fg);
+        white-space: nowrap;
+      }
+      .siu-tool-spacer {
+        flex: 1;
+      }
+      .siu-tool-body {
+        border-top: 1px solid var(--siu-border-subtle);
+      }
+      .siu-tool-body > details + details {
+        border-top: 1px solid var(--siu-border-subtle);
+      }
+      .siu-tool-body > details > summary {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-2);
+        height: 26px;
+        padding: 0 var(--siu-space-3);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
+        color: var(--siu-text-muted);
+        transition: color var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-tool-body > details > summary:hover {
+        color: var(--siu-text-secondary);
+      }
+      .siu-tool-body > details > summary:focus-visible {
+        outline-offset: -2px;
+      }
+      .siu-tool-body > details > .siu-tool-well {
+        margin: 0 var(--siu-space-3) var(--siu-space-3);
+      }
+      .siu-tool-well {
+        display: block;
+        background: var(--siu-bg-inset);
+        border: 1px solid var(--siu-border-subtle);
+        border-radius: var(--siu-radius-md);
+        padding: var(--siu-space-3);
+        margin: 0;
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-mono-sm);
+        line-height: 18px;
+        color: var(--siu-text-secondary);
+        white-space: pre-wrap;
+        word-break: break-word;
+        tab-size: 2;
+        font-variant-numeric: tabular-nums;
+        max-height: 320px;
+        overflow: auto;
+      }
+      .siu-tool-well--block {
+        width: 100%;
+        max-height: none;
+        margin-top: var(--siu-space-2);
+      }
+
+      .siu-tool-chain {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        max-width: 20rem;
+        padding: 2px var(--siu-space-2);
+        border: 1px solid var(--siu-chain-bd);
+        border-radius: var(--siu-radius-xs);
+        background: var(--siu-chain-bg);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
+        color: var(--siu-chain-fg);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .siu-tool-chain svg {
+        flex: none;
+      }
+
+      /* =====================================================================
+         Transcript: approval card
+         ===================================================================== */
+      .siu-approval {
+        padding: var(--siu-space-3);
+        border: 1px solid var(--siu-warn-bd);
+        border-left: 3px solid var(--siu-warn-fg);
+        border-radius: var(--siu-radius-lg);
+        background: var(--siu-bg-panel);
+        box-shadow: var(--siu-shadow-sm);
+      }
+      .siu-approval[data-state='approved'] {
+        border-color: var(--siu-success-bd);
+        border-left-color: var(--siu-success-fg);
+      }
+      .siu-approval[data-state='rejected'] {
+        border-color: var(--siu-danger-bd);
+        border-left-color: var(--siu-danger-fg);
+      }
+      .siu-approval[data-state='stale'] {
+        border-color: var(--siu-border);
+        border-left-color: var(--siu-text-disabled);
+        opacity: 0.72;
+      }
+      .siu-approval-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--siu-space-2);
+      }
+      .siu-approval-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: none;
+        width: 20px;
+        height: 20px;
+        border: 1px solid var(--siu-warn-bd);
+        border-radius: var(--siu-radius-xs);
+        background: var(--siu-warn-bg);
+        color: var(--siu-warn-fg);
+      }
+      .siu-approval-title {
+        font-size: var(--siu-text-body);
+        font-weight: 600;
+        color: var(--siu-warn-fg);
+      }
+      .siu-approval-name {
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-sm);
+        color: var(--siu-text-primary);
+      }
+      .siu-approval-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--siu-space-2);
+        margin-top: var(--siu-space-3);
+      }
+      .siu-approval-status {
+        margin-left: auto;
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
+        color: var(--siu-text-muted);
+      }
+      .siu-approval-status[data-tone='ok'] {
+        color: var(--siu-success-fg);
+      }
+      .siu-approval-status[data-tone='error'] {
+        color: var(--siu-danger-fg);
+      }
+      .siu-btn-approve,
+      .siu-btn-reject {
+        height: 30px;
+        min-width: 128px;
+        padding: 0 var(--siu-space-4);
+        border-radius: var(--siu-radius-md);
+        font-size: var(--siu-text-sm);
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .siu-btn-approve {
+        border: none;
+        background: var(--siu-success-fg);
+        color: var(--siu-text-inverse);
+        font-weight: 600;
+        transition: filter var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-btn-approve:hover:not(:disabled) {
+        filter: brightness(1.1);
+      }
+      .siu-btn-approve:active:not(:disabled) {
+        filter: brightness(0.94);
+      }
+      .siu-btn-reject {
+        border: 1px solid var(--siu-border);
+        background: transparent;
+        color: var(--siu-text-secondary);
+        font-weight: 500;
+        transition: background var(--siu-dur-fast) var(--siu-ease-out),
+          color var(--siu-dur-fast) var(--siu-ease-out),
+          border-color var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-btn-reject:hover:not(:disabled) {
+        background: var(--siu-danger-bg);
+        border-color: var(--siu-danger-bd);
+        color: var(--siu-danger-fg);
+      }
+      .siu-btn-reject:active:not(:disabled) {
+        background: var(--siu-bg-active);
+      }
+      .siu-btn-approve:disabled,
+      .siu-btn-reject:disabled {
+        opacity: 0.45;
+        cursor: not-allowed;
+        filter: none;
+      }
+
+      /* =====================================================================
+         Composer
+         ===================================================================== */
+      .siu-composer {
+        position: sticky;
+        bottom: 0;
+        flex: none;
+        padding: var(--siu-space-3) var(--siu-space-6) var(--siu-space-4);
+        border-top: 1px solid var(--siu-border);
+        background: var(--siu-bg-app);
+        /* The one in-shell blur: this layer floats over the scrolling transcript. */
+        backdrop-filter: blur(24px) saturate(150%);
+        -webkit-backdrop-filter: blur(24px) saturate(150%);
+      }
+      .siu-composer-inner {
+        max-width: var(--siu-content-w);
+        margin-inline: auto;
+      }
+      .siu-composer-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--siu-space-2);
+        margin-bottom: var(--siu-space-2);
+      }
+      .siu-composer-footer {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: var(--siu-space-3);
+        margin-top: var(--siu-space-2);
+        padding-inline: var(--siu-space-1);
+      }
+      .siu-composer-hints {
+        display: inline-flex;
+        align-items: center;
+        gap: 5px;
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-micro);
+        color: var(--siu-text-muted);
+      }
+      .siu-slash-pill {
+        height: 22px;
+        padding: 0 var(--siu-space-3);
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-full);
+        background: var(--siu-bg-inset);
+        color: var(--siu-text-muted);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
+        cursor: pointer;
+        transition: background var(--siu-dur-base) var(--siu-ease-out),
+          border-color var(--siu-dur-base) var(--siu-ease-out),
+          color var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-slash-pill:hover {
+        border-color: var(--siu-border-strong);
+        background: var(--siu-bg-hover);
+        color: var(--siu-text-primary);
+      }
+      .siu-composer-well {
+        display: flex;
+        align-items: flex-end;
+        gap: var(--siu-space-2);
+        padding: var(--siu-space-2);
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-xl);
+        background: var(--siu-bg-panel);
+        transition: border-color var(--siu-dur-base) var(--siu-ease-out),
+          box-shadow var(--siu-dur-base) var(--siu-ease-out);
+      }
+      /* The ring goes on the well, not the borderless textarea inside it. */
+      .siu-composer-well:focus-within {
+        border-color: var(--siu-border-focus);
+        box-shadow: 0 0 0 3px var(--siu-accent-weak);
+      }
+      .siu-composer-input {
+        flex: 1;
+        min-height: 40px;
+        max-height: 192px;
+        resize: none;
+        padding: var(--siu-space-2) var(--siu-space-3);
+        border: none;
+        background: transparent;
+        outline: none;
+        color: var(--siu-text-primary);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-body);
+        line-height: 21px;
+        scrollbar-width: thin;
+      }
+      .siu-composer-input::placeholder {
+        color: var(--siu-text-disabled);
+      }
+      .siu-composer-input:focus-visible {
+        outline: none;
+      }
+      .siu-btn-send {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 36px;
+        padding: 0 var(--siu-space-4);
+        border: none;
+        border-radius: var(--siu-radius-md);
+        background: var(--siu-accent);
+        color: var(--siu-text-inverse);
+        font-size: var(--siu-text-sm);
+        font-weight: 600;
+        cursor: pointer;
+        transition: filter var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-btn-send:hover:not(:disabled) {
+        filter: brightness(1.1);
+      }
+      .siu-btn-send:active:not(:disabled) {
+        filter: brightness(0.94);
+      }
+      .siu-btn-send:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+        filter: none;
+      }
+      .siu-btn-stop {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 36px;
+        padding: 0 var(--siu-space-4);
+        border: 1px solid var(--siu-danger-bd);
+        border-radius: var(--siu-radius-md);
+        background: var(--siu-danger-bg);
+        color: var(--siu-danger-fg);
+        font-size: var(--siu-text-sm);
+        font-weight: 500;
+        cursor: pointer;
+        transition: background var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-btn-stop:hover {
+        background: rgba(251, 113, 133, 0.2);
+      }
+      .siu-stop-glyph {
+        width: 10px;
+        height: 10px;
+        border-radius: 2px;
+        background: currentColor;
+      }
+
+      /* =====================================================================
+         Empty state
+         ===================================================================== */
+      .siu-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--siu-space-3);
+        text-align: center;
+      }
+      .siu-empty-eyebrow {
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-micro);
+        text-transform: uppercase;
+        letter-spacing: 0.28em;
+        color: var(--siu-text-muted);
+      }
+      .siu-empty-title {
+        font-family: var(--siu-font-display);
+        font-size: var(--siu-text-display);
+        font-weight: 600;
+        letter-spacing: -0.32px;
+        color: var(--siu-text-primary);
+      }
+      .siu-empty-body {
+        max-width: 30rem;
+        font-size: var(--siu-text-sm);
+        line-height: 19px;
+        color: var(--siu-text-secondary);
+      }
+      .siu-empty-chips {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: var(--siu-space-2);
+        margin-top: var(--siu-space-1);
+      }
+      .siu-empty-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        height: 28px;
+        padding: 0 var(--siu-space-3);
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-md);
+        background: var(--siu-bg-inset);
+        color: var(--siu-text-secondary);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-sm);
+        cursor: pointer;
+        transition: background var(--siu-dur-base) var(--siu-ease-out),
+          border-color var(--siu-dur-base) var(--siu-ease-out),
+          color var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-empty-chip:hover {
+        background: var(--siu-bg-hover);
+        border-color: var(--siu-border-strong);
+        color: var(--siu-text-primary);
+      }
+      .siu-empty-chip span {
+        color: var(--siu-text-muted);
+      }
+
+      /* =====================================================================
+         Overlay, modal, palette
+         ===================================================================== */
+      .siu-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 50;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        padding: var(--siu-space-4);
+        background: var(--siu-bg-scrim);
+        backdrop-filter: blur(6px) saturate(140%);
+        -webkit-backdrop-filter: blur(6px) saturate(140%);
+      }
+      .siu-overlay[data-open='true'] {
+        display: flex;
+      }
+      .siu-overlay--top {
+        align-items: flex-start;
+        padding-top: 12vh;
+      }
+
+      .siu-modal {
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        max-width: 34rem;
+        max-height: min(78vh, 640px);
+        overflow: hidden;
+        border: 1px solid var(--siu-border-strong);
+        border-radius: var(--siu-radius-xl);
+        background: var(--siu-bg-elevated);
+        box-shadow: var(--siu-shadow-lg);
+      }
+      .siu-modal--sm {
+        max-width: 24rem;
+      }
+      .siu-modal-header {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-3);
+        flex: none;
+        height: 48px;
+        padding: 0 var(--siu-space-4);
+        border-bottom: 1px solid var(--siu-border);
+      }
+      .siu-modal-title {
+        font-size: var(--siu-text-body);
+        font-weight: 600;
+        color: var(--siu-text-primary);
+      }
+      .siu-modal-body {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding: var(--siu-space-5);
+        display: flex;
+        flex-direction: column;
+        gap: var(--siu-space-5);
+      }
+      .siu-modal-footer {
+        display: flex;
+        align-items: center;
+        justify-content: flex-end;
+        gap: var(--siu-space-2);
+        flex: none;
+        height: 56px;
+        padding: 0 var(--siu-space-5);
+        border-top: 1px solid var(--siu-border);
+      }
+      .siu-modal-close {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex: none;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        margin-left: auto;
+        border: none;
+        border-radius: var(--siu-radius-xs);
+        background: transparent;
+        color: var(--siu-text-muted);
+        cursor: pointer;
+        transition: background var(--siu-dur-base) var(--siu-ease-out),
+          color var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-modal-close:hover {
+        background: var(--siu-bg-hover);
+        color: var(--siu-text-primary);
+      }
+      .siu-field-label {
+        display: block;
+        margin-bottom: 6px;
+        font-size: var(--siu-text-sm);
+        font-weight: 500;
+        color: var(--siu-text-secondary);
+      }
+      .siu-field-hint {
+        margin-top: var(--siu-space-1);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-micro);
+        line-height: 15px;
+        color: var(--siu-text-muted);
+      }
+      .siu-field-hint[data-tone='warn'] {
+        color: var(--siu-warn-fg);
+      }
+      .siu-toggle-row {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-3);
+        padding: var(--siu-space-3) var(--siu-space-4);
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-lg);
+        background: var(--siu-bg-inset);
+      }
+      .siu-toggle-row-title {
+        font-size: var(--siu-text-sm);
+        font-weight: 500;
+        color: var(--siu-text-primary);
+      }
+      .siu-toggle-row-hint {
+        margin-top: 2px;
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-micro);
+        line-height: 15px;
+        color: var(--siu-text-muted);
+      }
+
+      .siu-palette {
+        width: 100%;
+        max-width: 36rem;
+        overflow: hidden;
+        border: 1px solid var(--siu-border-strong);
+        border-radius: var(--siu-radius-xl);
+        background: var(--siu-bg-elevated);
+        box-shadow: var(--siu-shadow-lg);
+      }
+      .siu-palette-input-row {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-2);
+        height: 48px;
+        padding: 0 var(--siu-space-4);
+        border-bottom: 1px solid var(--siu-border);
+      }
+      .siu-palette-input {
+        flex: 1;
+        border: none;
+        background: transparent;
+        outline: none;
+        color: var(--siu-text-primary);
+        font-family: var(--siu-font-sans);
+        font-size: var(--siu-text-body);
+      }
+      .siu-palette-input::placeholder {
+        color: var(--siu-text-disabled);
+      }
+      .siu-palette-input:focus-visible {
+        outline: none;
+      }
+      .siu-palette-list {
+        max-height: 20rem;
+        overflow-y: auto;
+        padding: var(--siu-space-1) 0;
+        margin: 0;
+        list-style: none;
+      }
+      .siu-palette-item {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-3);
+        height: 34px;
+        padding: 0 var(--siu-space-4);
+        font-size: var(--siu-text-body);
+        color: var(--siu-text-secondary);
+        cursor: pointer;
+        user-select: none;
+      }
+      .siu-palette-item:hover {
+        background: var(--siu-bg-hover);
+      }
+      /* One source of truth: the row Enter will run. */
+      .siu-palette-item[data-active='true'] {
+        background: var(--siu-bg-selected);
+        color: var(--siu-text-primary);
+        box-shadow: inset 2px 0 0 var(--siu-accent);
+      }
+      .siu-palette-item-label {
+        flex: 1;
+      }
+      .siu-palette-empty {
+        padding: var(--siu-space-3) var(--siu-space-4);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-sm);
+        color: var(--siu-text-muted);
+      }
+
+      /* =====================================================================
+         Toast (in-page). Mirrors notifications.js so the two stay coherent.
+         ===================================================================== */
+      .siu-toastbar-host {
+        position: fixed;
+        bottom: var(--siu-space-6);
+        left: 50%;
+        z-index: 60;
+        transform: translateX(-50%);
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity var(--siu-dur-slow) var(--siu-ease-out);
+      }
+      .siu-toastbar-host[data-open='true'] {
+        opacity: 1;
+      }
+      .siu-toastbar {
+        padding: var(--siu-space-3) var(--siu-space-4);
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-xl);
+        background: var(--siu-bg-elevated);
+        backdrop-filter: blur(24px) saturate(150%);
+        -webkit-backdrop-filter: blur(24px) saturate(150%);
+        box-shadow: var(--siu-shadow-lg);
+        color: var(--siu-text-primary);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-sm);
+        line-height: 17px;
+        max-width: min(40rem, calc(100vw - 32px));
+      }
+      .siu-toastbar[data-kind='error'] {
+        border-color: var(--siu-danger-bd);
+        color: var(--siu-danger-fg);
+      }
+      .siu-toastbar[data-kind='ok'] {
+        border-color: var(--siu-success-bd);
+        color: var(--siu-success-fg);
+      }
+
+      /* =====================================================================
+         Markdown
+         ===================================================================== */
+      .siu-md h1,
+      .siu-md h2,
+      .siu-md h3,
+      .siu-md h4 {
+        font-weight: 600;
+        color: var(--siu-text-primary);
+        margin: 0.9em 0 0.42em;
+      }
+      .siu-md h1 {
+        font-size: 1.14rem;
+      }
+      .siu-md h2 {
+        font-size: 1.04rem;
+      }
+      .siu-md h3,
+      .siu-md h4 {
+        font-size: 0.97rem;
+      }
+      .siu-md > :first-child {
+        margin-top: 0;
+      }
+      .siu-md > :last-child {
+        margin-bottom: 0;
+      }
+      .siu-md p {
+        margin: 0.5em 0;
+      }
+      .siu-md ul,
+      .siu-md ol {
+        margin: 0.5em 0 0.5em 1.2em;
+      }
+      .siu-md ul {
+        list-style: disc;
+      }
+      .siu-md ol {
+        list-style: decimal;
+      }
+      .siu-md li {
+        margin: 0.22em 0;
+      }
+      .siu-md code {
+        font-family: var(--siu-font-mono);
+        font-size: 0.88em;
+        background: var(--siu-bg-inset);
+        padding: 0.13em 0.4em;
+        border-radius: var(--siu-radius-xs);
+        color: var(--siu-accent-text);
+      }
+      .siu-md pre {
+        background: var(--siu-bg-inset);
+        border: 1px solid var(--siu-border-subtle);
+        border-radius: var(--siu-radius-lg);
+        padding: var(--siu-space-3);
+        overflow-x: auto;
+        margin: 0.62em 0;
+        font-size: var(--siu-text-mono-sm);
+        line-height: 18px;
+        tab-size: 2;
+      }
+      .siu-md pre code {
+        background: transparent;
+        padding: 0;
+        color: var(--siu-text-secondary);
+        font-size: inherit;
+      }
+      .siu-md a {
+        color: var(--siu-info-fg);
+        text-decoration: underline;
+      }
+      .siu-md strong {
+        color: var(--siu-text-primary);
+      }
+      .siu-md blockquote {
+        margin: 0.62em 0;
+        padding-left: 0.78rem;
+        border-left: 2px solid var(--siu-think-fg);
+        color: var(--siu-text-secondary);
+      }
+
+      /* =====================================================================
+         macOS traffic lights — browser-tab fallback only.
+         The Electron shell's `hiddenInset` draws the real ones; the boot script
+         removes this set when the desktop bridge is present.
+         ===================================================================== */
+      .traffic-group {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-2);
+      }
+      .traffic {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 12px;
+        height: 12px;
+        padding: 0;
+        border: none;
+        border-radius: var(--siu-radius-full);
+        cursor: pointer;
+        transition: filter var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      /* Native lights are 12px; pad the hit area out to 20px. */
+      .traffic::before {
+        content: '';
+        position: absolute;
+        inset: -4px;
+      }
+      .traffic-close {
+        background: linear-gradient(180deg, #ff6159, #ec4b41);
+        box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.22);
+      }
+      .traffic-min {
+        background: linear-gradient(180deg, #ffbd2e, #e0a11f);
+        box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.22);
+      }
+      .traffic-max {
+        background: linear-gradient(180deg, #28c840, #1aa82f);
+        box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.22);
+      }
+      .traffic-glyph {
+        display: flex;
+        opacity: 0;
+        line-height: 0;
+        color: rgba(0, 0, 0, 0.6);
+        transition: opacity var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .traffic-group:hover .traffic-glyph {
+        opacity: 1;
+      }
+      .traffic:active {
+        filter: brightness(0.82);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="siu-app">
+      <!-- ===================== TITLEBAR ===================== -->
+      <header class="siu-chrome">
+        <div class="siu-titlebar">
+          <!--
+            In the Electron shell macOS draws the real traffic lights at
+            x = 20/40/60 via `titleBarStyle: 'hiddenInset'`; the titlebar is
+            padded 84px to clear them and this fake set is removed at boot.
+            A plain browser tab has no native lights, so it keeps this fallback.
+          -->
+          <div class="traffic-group no-drag" id="fake-traffic">
+            <button id="tl-close" class="traffic traffic-close" title="Close window" aria-label="Close window">
+              <span class="traffic-glyph">
+                <svg viewBox="0 0 10 10" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 2l6 6M8 2l-6 6" stroke-linecap="round" /></svg>
+              </span>
+            </button>
+            <button id="tl-min" class="traffic traffic-min" title="Collapse the right rail" aria-label="Collapse the right rail">
+              <span class="traffic-glyph">
+                <svg viewBox="0 0 10 10" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 5h6" stroke-linecap="round" /></svg>
+              </span>
+            </button>
+            <button id="tl-max" class="traffic traffic-max" title="Enter fullscreen" aria-label="Enter fullscreen">
+              <span class="traffic-glyph">
+                <svg viewBox="0 0 10 10" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3.2 3.2h3.6v3.6H3.2z" stroke-linejoin="round" /></svg>
+              </span>
+            </button>
+          </div>
+
+          <div class="siu-titlebar-center">
+            <span class="text-[12.5px] font-medium text-primary">SuperIU</span>
+            <span class="siu-divider"></span>
+            <span id="title-status" class="font-mono text-[11px] text-muted">idle</span>
+          </div>
+
+          <div class="siu-titlebar-actions">
+            <button id="btn-notify" class="siu-btn no-drag" title="Enable desktop notifications">
+              <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.9">
+                <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" stroke-linejoin="round" />
+                <path d="M13.7 21a2 2 0 0 1-3.4 0" stroke-linecap="round" />
+              </svg>
+              <span id="notify-label" class="hidden sm:inline">Notify</span>
+            </button>
+            <button id="btn-palette" class="siu-btn no-drag" title="Command Palette (⌘K)">
+              <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.9">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" stroke-linecap="round" />
+              </svg>
+              <span class="hidden sm:inline">Commands</span>
+              <span class="siu-kbd">⌘K</span>
+            </button>
+            <button id="btn-settings" class="siu-btn no-drag" title="Settings (⌘,)" aria-label="Settings">
+              <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.9">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 3 15a1.7 1.7 0 0 0-1.2-2.9H1.7a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 3.6 7a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 3.6a1.7 1.7 0 0 0 1-1.53V1.7a2 2 0 1 1 4 0v.1A1.7 1.7 0 0 0 15 3.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 20.4 9v.1a1.7 1.7 0 0 0 1.53 1h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.53 1Z" />
+              </svg>
+              <span class="hidden sm:inline">Settings</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- ============ live workstation / session bar ============ -->
+        <div class="siu-sessionbar">
+          <div
+            id="workstation-badge"
+            class="flex items-center gap-2 rounded-lg border border-line bg-fill-subtle px-2.5 py-1 font-mono text-[11px] text-muted"
+            title="Live workstation snapshot"
+          >
+            <svg viewBox="0 0 10 10" class="h-2.5 w-2.5 text-accent" fill="currentColor" aria-hidden="true">
+              <path d="M5 0l5 5-5 5-5-5z" />
+            </svg>
+            <span id="ws-text">detecting…</span>
+          </div>
+
+          <div class="flex items-center gap-2 rounded-lg border border-line bg-fill-subtle px-2.5 py-1">
+            <span id="status-dot" class="siu-status-dot siu-pulse" data-status="idle"></span>
+            <span id="status-text" class="font-mono text-[11px] uppercase tracking-wider text-secondary">idle</span>
+          </div>
+
+          <!-- main model selector lives in the chat header -->
+          <div class="flex items-center gap-2 rounded-lg border border-line bg-fill-subtle px-2 py-1">
+            <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 text-muted" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <rect x="4" y="4" width="16" height="16" rx="4" />
+              <path d="M9 9h6v6H9z" />
+            </svg>
+            <select id="model-select" class="siu-select max-w-[13rem]" title="Main model (agent loop)"></select>
+            <span id="model-effort-chip" class="siu-chip siu-chip--effort" title="Reasoning effort (main route)"></span>
+            <span id="tool-model-chip" class="siu-chip siu-chip--tool" title="Tool / review model"></span>
+          </div>
+
+          <div class="ml-auto flex flex-wrap items-center gap-2">
+            <select id="session-select" class="siu-select max-w-[22rem]" title="Active session"></select>
+            <button id="btn-new" class="siu-btn siu-btn--mono" title="New session (⌘N)">+ New</button>
+            <button id="btn-clear" class="siu-btn siu-btn--mono" title="Append reset_boundary">/clear</button>
+          </div>
+        </div>
+      </header>
+
+      <!-- ===================== BODY ===================== -->
+      <div class="siu-workspace">
+        <main class="siu-main">
+          <div id="transcript" class="siu-transcript"></div>
+
+          <div class="siu-composer">
+            <div class="siu-composer-inner">
+              <div class="siu-composer-row">
+                <button class="siu-slash-pill" data-cmd="/clear">/clear</button>
+                <button class="siu-slash-pill" data-cmd="/status">/status</button>
+                <button class="siu-slash-pill" data-cmd="/sessions">/sessions</button>
+              </div>
+              <div class="siu-composer-well">
+                <textarea
+                  id="prompt"
+                  rows="1"
+                  placeholder="Describe a task for the autonomous agent…"
+                  class="siu-composer-input"
+                ></textarea>
+                <button id="btn-abort" class="siu-btn-stop hidden" title="Abort (⌘. / Esc)">
+                  <span class="siu-stop-glyph"></span> Stop
+                </button>
+                <button id="btn-send" class="siu-btn-send" title="Send (⌘↵ or ↵)">
+                  Send
+                  <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.2">
+                    <path d="M5 12h13M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
+                  </svg>
+                </button>
+              </div>
+              <!-- Anchored to the composer, not floating above it. -->
+              <div class="siu-composer-footer">
+                <span class="siu-composer-hints">
+                  <span class="siu-kbd">⌘↵</span> send · <span class="siu-kbd">↑↓</span> history ·
+                  <span class="siu-kbd">⌘.</span> stop
+                </span>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        <aside id="rail" class="siu-rail">
+          <section class="siu-section">
+            <header class="mb-3 flex items-center justify-between">
+              <h2 class="siu-section-title">Emotion State</h2>
+              <span class="font-mono text-[10px] text-muted">VA · τ 5m</span>
+            </header>
+            <div class="space-y-3">
+              <div>
+                <div class="mb-1 flex items-center justify-between">
+                  <span class="siu-label">Valence</span>
+                  <span id="valence-value" class="siu-value">0.00</span>
+                </div>
+                <div class="siu-meter siu-meter--valence">
+                  <div class="siu-meter-center"></div>
+                  <div id="valence-bar" class="siu-meter-fill" style="left: 50%; width: 0%"></div>
+                </div>
+                <div class="mt-1 flex justify-between font-mono text-[9px] text-secondary"><span>-1 negative</span><span>positive +1</span></div>
+              </div>
+              <div>
+                <div class="mb-1 flex items-center justify-between">
+                  <span class="siu-label">Arousal</span>
+                  <span id="arousal-value" class="siu-value">0.00</span>
+                </div>
+                <div class="siu-meter siu-meter--arousal">
+                  <div id="arousal-bar" class="siu-meter-fill" style="width: 0%"></div>
+                </div>
+                <div class="mt-1 flex justify-between font-mono text-[9px] text-secondary"><span>calm</span><span>alert</span></div>
+              </div>
+              <div>
+                <div class="mb-1 flex items-center justify-between">
+                  <span class="siu-label">Fatigue</span>
+                  <span id="fatigue-value" class="siu-value">0.00</span>
+                </div>
+                <div class="siu-meter siu-meter--fatigue">
+                  <div id="fatigue-bar" class="siu-meter-fill" style="width: 0%"></div>
+                </div>
+                <div class="mt-1 flex justify-between font-mono text-[9px] text-secondary"><span>energetic</span><span>tired</span></div>
+              </div>
+            </div>
+          </section>
+
+          <section class="siu-section">
+            <h2 class="siu-section-title mb-2">Operational Posture</h2>
+            <div id="posture-badge" class="inline-flex items-center gap-2 rounded-lg border border-accent-border bg-accent-weak px-3 py-1.5 text-[12px] font-medium text-accent-text">
+              <span class="h-1.5 w-1.5 rounded-full bg-accent-text"></span>
+              <span id="posture-label">Pragmatic &amp; Rigorous</span>
+            </div>
+            <div id="posture-modifier" class="mt-3 space-y-1.5 font-mono text-[10.5px] leading-relaxed text-muted"></div>
+          </section>
+
+          <section class="siu-section">
+            <h2 class="siu-section-title mb-3">Session Info</h2>
+            <dl class="space-y-2">
+              <div class="flex items-start justify-between gap-3"><dt class="siu-label">Session ID</dt><dd id="info-session" class="siu-value truncate">—</dd></div>
+              <div class="flex items-start justify-between gap-3"><dt class="siu-label">Leaf ID</dt><dd id="info-leaf" class="siu-value truncate">—</dd></div>
+              <div class="flex items-start justify-between gap-3"><dt class="siu-label">Active msgs</dt><dd id="info-count" class="siu-value">0</dd></div>
+              <div class="flex items-start justify-between gap-3"><dt class="siu-label">Step</dt><dd id="info-step" class="siu-value">0</dd></div>
+              <div class="flex items-start gap-3"><dt class="siu-label shrink-0">Log file</dt><dd id="info-file" class="siu-value min-w-0 flex-1 truncate text-right">—</dd></div>
+            </dl>
+          </section>
+
+          <section class="siu-section">
+            <h2 class="siu-section-title mb-2">Prompt History</h2>
+            <ul id="history-list" class="siu-no-scrollbar max-h-56 space-y-1 overflow-y-auto"></ul>
+          </section>
+        </aside>
+      </div>
+    </div>
+
+    <!-- Live region: announces status transitions without reading the transcript. -->
+    <div id="status-live" class="sr-only" role="status" aria-live="polite"></div>
+
+    <!-- ===================== SETTINGS MODAL (⌘,) ===================== -->
+    <div id="settings-modal" class="siu-overlay" data-open="false">
+      <div class="siu-modal siu-pop" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div class="siu-modal-header">
+          <h2 id="settings-title" class="siu-modal-title">Settings</h2>
+          <span class="min-w-0 flex-1 truncate font-mono text-[10.5px] text-muted" id="settings-file-label"></span>
+          <button class="siu-modal-close" data-close="settings" aria-label="Close settings">
+            <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke-linecap="round" /></svg>
+          </button>
+        </div>
+
+        <div class="siu-modal-body">
+          <div>
+            <label class="siu-field-label" for="set-api-key">OPENAI_API_KEY</label>
+            <input id="set-api-key" type="password" class="siu-field" placeholder="sk-…" autocomplete="off" spellcheck="false" />
+            <p class="siu-field-hint">Stored locally in <code>.myagent/ui-settings.json</code> (0600). Leave blank to keep the current key.</p>
+          </div>
+
+          <div>
+            <label class="siu-field-label" for="set-base-url">OPENAI_BASE_URL</label>
+            <input id="set-base-url" type="text" class="siu-field" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false" />
+            <p class="siu-field-hint">Any OpenAI-compatible endpoint (DeepSeek, SiliconFlow, Ollama, Moonshot…).</p>
+          </div>
+
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label class="siu-field-label" for="set-model">Main Model Name</label>
+              <input id="set-model" type="text" class="siu-field" list="model-choices" placeholder="gpt-4o" autocomplete="off" spellcheck="false" />
+              <p class="siu-field-hint">Also switchable from the chat header.</p>
+            </div>
+            <div>
+              <label class="siu-field-label" for="set-review-model">Tool / Review Model Name</label>
+              <input id="set-review-model" type="text" class="siu-field" list="model-choices" placeholder="gpt-4o-mini" autocomplete="off" spellcheck="false" />
+              <p class="siu-field-hint">Used for AutoReview verdicts.</p>
+            </div>
+          </div>
+          <datalist id="model-choices"></datalist>
+
+          <div>
+            <label class="siu-field-label" for="set-reasoning-effort">Reasoning Effort</label>
+            <select id="set-reasoning-effort" class="siu-field">
+              <option value="">Unset — derive from OPENAI_REASONING_EFFORT</option>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+            </select>
+            <p class="siu-field-hint" id="set-reasoning-hint">
+              Only sent to reasoning models (o-series, gpt-5+); higher effort reasons longer and raises the output budget.
+            </p>
+          </div>
+
+          <div class="siu-toggle-row">
+            <div class="flex-1">
+              <div class="siu-toggle-row-title">AutoReview</div>
+              <p class="siu-toggle-row-hint">
+                Gate every tool call through the tool model. Escalated calls surface an interactive approval card.
+              </p>
+            </div>
+            <button id="set-auto-review" class="siu-switch" data-on="false" role="switch" aria-checked="false" aria-label="Toggle AutoReview"></button>
+          </div>
+
+          <div class="siu-toggle-row">
+            <div class="flex-1">
+              <div class="siu-toggle-row-title">Desktop notifications &amp; chime</div>
+              <p class="siu-toggle-row-hint">Alert on approval requests and task completion.</p>
+            </div>
+            <button id="set-notifications" class="siu-switch" data-on="false" role="switch" aria-checked="false" aria-label="Toggle notifications"></button>
+          </div>
+
+          <div class="rounded-lg border border-line bg-fill-subtle px-4 py-3 font-mono text-[10.5px] leading-relaxed text-muted">
+            <div class="mb-1 uppercase tracking-wider text-muted">Environment</div>
+            <div id="set-env-info">—</div>
+          </div>
+        </div>
+
+        <div class="siu-modal-footer">
+          <span id="settings-msg" class="mr-auto font-mono text-[11px]"></span>
+          <button data-close="settings" class="siu-btn">Cancel</button>
+          <button id="settings-save" class="siu-btn siu-btn--primary">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== QUIT CONFIRM MODAL (⌘Q) ===================== -->
+    <div id="quit-modal" class="siu-overlay" data-open="false">
+      <div class="siu-modal siu-modal--sm siu-pop text-center" role="dialog" aria-modal="true" aria-labelledby="quit-title">
+        <div class="px-6 pt-6">
+          <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl border border-accent/30 bg-accent/10">
+            <svg viewBox="0 0 24 24" class="h-6 w-6 text-accent" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z" stroke-linejoin="round" />
+            </svg>
+          </div>
+          <h2 id="quit-title" class="text-[14px] font-semibold text-primary">Quit SuperIU?</h2>
+          <p class="mt-2 text-[12px] leading-relaxed text-muted">
+            The web shell will shut down and the agent session is saved to its JSONL log.
+          </p>
+        </div>
+        <div class="mt-5 flex gap-2 px-6 pb-6">
+          <button data-close="quit" class="siu-btn flex-1">Cancel</button>
+          <button id="quit-confirm" class="siu-btn siu-btn--danger flex-1">Quit</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===================== COMMAND PALETTE (⌘K) ===================== -->
+    <div id="palette-modal" class="siu-overlay siu-overlay--top" data-open="false">
+      <div class="siu-palette siu-pop" role="dialog" aria-modal="true" aria-label="Command palette">
+        <div class="siu-palette-input-row">
+          <svg viewBox="0 0 24 24" class="h-4 w-4 text-muted" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" stroke-linecap="round" />
+          </svg>
+          <input id="palette-input" class="siu-palette-input" placeholder="Type a command…" autocomplete="off" spellcheck="false" />
+          <span class="siu-kbd">esc</span>
+        </div>
+        <ul id="palette-list" class="siu-palette-list siu-no-scrollbar" role="listbox" aria-label="Commands"></ul>
+      </div>
+    </div>
+
+    <div id="toast" class="siu-toastbar-host" data-open="false">
+      <div id="toast-body" class="siu-toastbar"></div>
+    </div>
+
+    <script type="module" src="/notifications.js"></script>
+    <script type="module">
+      const Notifications = window.SuperIUNotifications;
+      if (!Notifications) console.warn('notifications.js unavailable — desktop alerts disabled');
+
+      // =======================================================================
+      // State
+      // =======================================================================
+      const state = {
+        running: false,
+        status: 'idle',
+        step: 0,
+        controller: null,
+        history: [],
+        historyIndex: -1,
+        historyDraft: '',
+        promptsSent: [],
+        settings: null,
+        notifyEnabled: false
+      };
+
+      const $ = (id) => document.getElementById(id);
+      const transcript = $('transcript');
+      const promptInput = $('prompt');
+
+      // =======================================================================
+      // Utilities
+      // =======================================================================
+      function escapeHtml(value) {
+        return String(value ?? '')
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&#39;');
+      }
+
+      /**
+       * Flatten markdown to a single plain-text line for surfaces that cannot
+       * render it (toasts, titles). Without this the notification body shows
+       * literal `##`, backticks, and `[label](url)`.
+       */
+      function plainText(source) {
+        return String(source || '')
+          .replace(/```[\s\S]*?```/g, ' ')
+          .replace(/`([^`]*)`/g, '$1')
+          .replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+          .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+          .replace(/^\s{0,3}#{1,6}\s+/gm, '')
+          .replace(/^\s{0,3}>\s?/gm, '')
+          .replace(/^\s{0,3}[-*+]\s+/gm, '· ')
+          .replace(/\*\*([^*]+)\*\*/g, '$1')
+          .replace(/(^|\s)[*_]([^*_]+)[*_]/g, '$1$2')
+          .replace(/\s+/g, ' ')
+          .trim();
+      }
+
+      /** Truncate on a word boundary so a toast never ends mid-word. */
+      function truncateWords(text, max) {
+        if (text.length <= max) return text;
+        const cut = text.slice(0, max);
+        const boundary = cut.lastIndexOf(' ');
+        return (boundary > max * 0.6 ? cut.slice(0, boundary) : cut).replace(/[.,;:·—-]+$/, '') + '…';
+      }
+
+      /** Minimal, safe markdown: escaped first, so raw HTML can never reach the DOM. */
+      function renderMarkdown(source) {
+        const escaped = escapeHtml(source);
+        const blocks = [];
+        let text = escaped.replace(/```(\w*)\n?([\s\S]*?)```/g, (_m, lang, code) => {
+          blocks.push('<pre><code data-lang="' + lang + '">' + code.replace(/\n$/, '') + '</code></pre>');
+          return '\u0000B' + (blocks.length - 1) + '\u0000';
+        });
+
+        text = text
+          .replace(/^#{1,6} (.*)$/gm, '<h3>$1</h3>')
+          .replace(/^&gt; (.*)$/gm, '<blockquote>$1</blockquote>')
+          .replace(/^\s*[-*] (.*)$/gm, '<li>$1</li>')
+          .replace(/^\s*\d+\. (.*)$/gm, '<li>$1</li>')
+          .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+          .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+          .replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noreferrer">$1</a>');
+
+        text = text.replace(/(?:^|\n)((?:\s*<li>.*<\/li>\n?)+)/g, (_m, list) => '\n<ul>' + list + '</ul>');
+
+        text = text
+          .split(/\n{2,}/)
+          .map((chunk) => {
+            const trimmed = chunk.trim();
+            if (!trimmed) return '';
+            if (/^(<h\d|<ul|<pre|<blockquote)/.test(trimmed)) return trimmed;
+            return '<p>' + trimmed.replace(/\n/g, '<br />') + '</p>';
+          })
+          .join('');
+
+        return text.replace(/\u0000B(\d+)\u0000/g, (_m, i) => blocks[Number(i)]);
+      }
+
+      function el(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined) node.textContent = text;
+        return node;
+      }
+
+      /** Entry animation only while the transcript is at rest — during a fast
+       *  turn this would fire dozens of overlapping animations. */
+      function enterClass() {
+        return state.running ? '' : 'siu-enter';
+      }
+
+      /** `< 1000 ms` → `840 ms`; `≥ 1000 ms` → `1.24 s`. */
+      function formatDuration(ms) {
+        if (typeof ms !== 'number' || !(ms > 0)) return '';
+        if (ms < 1000) return Math.round(ms) + ' ms';
+        return (ms / 1000).toFixed(2) + ' s';
+      }
+
+      let toastTimer = 0;
+      function toast(message, kind) {
+        const host = $('toast');
+        const body = $('toast-body');
+        body.textContent = message;
+        body.dataset.kind = kind === 'error' ? 'error' : kind === 'ok' ? 'ok' : 'info';
+        host.dataset.open = 'true';
+        clearTimeout(toastTimer);
+        toastTimer = setTimeout(() => {
+          host.dataset.open = 'false';
+        }, 4000);
+      }
+
+      /**
+       * Drives the transcript's scroll-edge fade. The attributes are the single
+       * source of truth for whether each edge is faded, so the first message is
+       * only dimmed once content has actually scrolled past the top.
+       */
+      function syncScrollEdges() {
+        const top = transcript.scrollTop > 1;
+        const bottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight > 1;
+        if (top) transcript.dataset.overflowTop = 'true';
+        else delete transcript.dataset.overflowTop;
+        if (bottom) transcript.dataset.overflowBottom = 'true';
+        else delete transcript.dataset.overflowBottom;
+      }
+
+      function scrollToBottom(force) {
+        const nearBottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight < 180;
+        if (force || nearBottom) transcript.scrollTop = transcript.scrollHeight;
+        syncScrollEdges();
+      }
+
+      async function api(path, options) {
+        const response = await fetch(path, options);
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(payload.error || response.status + ' ' + response.statusText);
+        return payload;
+      }
+
+      const postJson = (path, body) =>
+        api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
+      // =======================================================================
+      // Modal plumbing
+      // =======================================================================
+      const MODALS = { settings: 'settings-modal', quit: 'quit-modal', palette: 'palette-modal' };
+
+      function openModal(name) {
+        const node = $(MODALS[name]);
+        node.dataset.open = 'true';
+        if (name === 'palette') {
+          $('palette-input').value = '';
+          renderPalette('');
+          $('palette-input').focus();
+        }
+        if (name === 'settings') $('set-api-key').focus();
+      }
+
+      function closeModal(name) {
+        $(MODALS[name]).dataset.open = 'false';
+      }
+
+      function closeAllModals() {
+        Object.keys(MODALS).forEach(closeModal);
+      }
+
+      function anyModalOpen() {
+        return Object.values(MODALS).some((id) => $(id).dataset.open === 'true');
+      }
+
+      Object.values(MODALS).forEach((id) => {
+        $(id).addEventListener('mousedown', (event) => {
+          if (event.target === $(id)) closeAllModals();
+        });
+      });
+
+      document.querySelectorAll('[data-close]').forEach((node) => {
+        node.addEventListener('click', () => closeModal(node.dataset.close));
+      });
+
+      // =======================================================================
+      // macOS keyboard shortcuts
+      // =======================================================================
+      window.addEventListener(
+        'keydown',
+        (event) => {
+          const meta = event.metaKey || event.ctrlKey;
+          const key = event.key;
+
+          // ⌘, — Settings
+          if (meta && key === ',') {
+            event.preventDefault();
+            anyModalOpen() ? closeAllModals() : openSettings();
+            return;
+          }
+
+          // ⌘Q — Quit confirmation
+          if (meta && (key === 'q' || key === 'Q')) {
+            event.preventDefault();
+            openModal('quit');
+            return;
+          }
+
+          // ⌘N — New session (modals own the keyboard while open)
+          if (meta && (key === 'n' || key === 'N')) {
+            event.preventDefault();
+            if (!anyModalOpen()) void createNewSession();
+            return;
+          }
+
+          // ⌘K — Command palette
+          if (meta && (key === 'k' || key === 'K')) {
+            event.preventDefault();
+            anyModalOpen() ? closeAllModals() : openModal('palette');
+            return;
+          }
+
+          // ⌘. — Abort the running turn
+          if (meta && key === '.') {
+            event.preventDefault();
+            if (!anyModalOpen() && state.running) void abortTurn();
+            return;
+          }
+
+          // ⌘M — Toggle the right rail
+          if (meta && (key === 'm' || key === 'M')) {
+            event.preventDefault();
+            if (!anyModalOpen()) toggleRail();
+            return;
+          }
+
+          // ⌘↵ — Submit
+          if (meta && key === 'Enter') {
+            event.preventDefault();
+            if (!anyModalOpen()) submit();
+            return;
+          }
+
+          // Esc — close modal, else abort the running turn
+          if (key === 'Escape') {
+            if (anyModalOpen()) {
+              event.preventDefault();
+              closeAllModals();
+              return;
+            }
+            if (state.running) {
+              event.preventDefault();
+              void abortTurn();
+            }
+            return;
+          }
+
+          // ⌘/ — shortcut help
+          if (meta && key === '/') {
+            event.preventDefault();
+            toast('⌘, settings · ⌘N new · ⌘K palette · ⌘↵ send · ⌘. stop · ⌘Q quit', 'ok');
+          }
+        },
+        { capture: true }
+      );
+
+      // =======================================================================
+      // Electron desktop bridge
+      // =======================================================================
+      // In the desktop shell, menu accelerators are consumed by the native
+      // application Menu BEFORE the page sees a keydown, so ⌘, / ⌘N / ⌘. never
+      // reach the handlers above. The preload forwards the resolved action on
+      // this bridge instead. Absent in a plain browser tab, where the in-page
+      // shortcuts above remain the whole story.
+      if (window.superiuDesktop?.onMenu) {
+        window.superiuDesktop.onMenu(({ action }) => {
+          switch (action) {
+            case 'settings':
+              anyModalOpen() ? closeAllModals() : openSettings();
+              break;
+            case 'new-session':
+              if (!anyModalOpen()) void createNewSession();
+              break;
+            case 'abort':
+              if (!anyModalOpen() && state.running) void abortTurn();
+              break;
+            case 'focus-input':
+              closeAllModals();
+              promptInput.focus();
+              break;
+            case 'about':
+              toast('SuperIU · One Core, Two Shells — autonomous agent console', 'ok');
+              break;
+            case 'docs':
+              // No hosted docs URL is configured for this repo, so point at the
+              // local guides rather than opening a dead placeholder link.
+              toast('Docs: docs/shells-guide.md · docs/agent-loop-and-context-architecture.md', 'ok');
+              break;
+          }
+        });
+      }
+
+      window.addEventListener('beforeunload', (event) => {
+        if (state.running) {
+          event.preventDefault();
+          event.returnValue = '';
+        }
+      });
+
+      // =======================================================================
+      // Inline SVG set
+      // =======================================================================
+      const ICONS = {
+        bash: '<path d="M4 17l6-5-6-5M12 19h8"/>',
+        read_file: '<path d="M14 3v5h5M6 3h9l5 5v13H6z"/>',
+        write_file: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+        default:
+          '<path d="M12 3v3m0 12v3M3 12h3m12 0h3M6.3 6.3l2.1 2.1m7.2 7.2 2.1 2.1m0-11.4-2.1 2.1m-7.2 7.2-2.1 2.1"/>'
+      };
+
+      const CHEVRON = '<svg class="siu-chev" viewBox="0 0 10 10" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.5 1.5L7 5l-3.5 3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+      function iconSvg(name, size) {
+        const path = ICONS[name] || ICONS.default;
+        const px = size || 13;
+        return (
+          '<svg viewBox="0 0 24 24" width="' + px + '" height="' + px + '" ' +
+          'fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>'
+        );
+      }
+
+      /** Chain glyph: a double chevron reads as "then" without emoji metrics. */
+      const CHAIN_GLYPH =
+        '<svg viewBox="0 0 12 10" width="10" height="9" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">' +
+        '<path d="M2 1.5L5 5 2 8.5M6.5 1.5L9.5 5l-3 3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+      const THINK_GLYPH =
+        '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">' +
+        '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.5.4.8 1 .8 1.6v.5h5.4v-.5c0-.6.3-1.2.8-1.6A6 6 0 0 0 12 3Z" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+      const COPY_GLYPH =
+        '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8">' +
+        '<rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10" stroke-linecap="round"/></svg>';
+
+      const WARN_GLYPH =
+        '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.9">' +
+        '<path d="M12 9v4m0 4h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+      const CLOCK_GLYPH =
+        '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">' +
+        '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2" stroke-linecap="round"/></svg>';
+
+      // =======================================================================
+      // Transcript primitives
+      // =======================================================================
+      function renderEmptyState() {
+        transcript.innerHTML = '';
+        const wrap = el('div', 'siu-empty ' + enterClass());
+        wrap.appendChild(el('div', 'siu-empty-eyebrow', 'Autonomous Agent Loop'));
+        wrap.appendChild(el('h2', 'siu-empty-title', 'SuperIU is standing by'));
+        wrap.appendChild(
+          el(
+            'p',
+            'siu-empty-body',
+            'Describe a task below. The agent plans, executes bash / read_file / write_file in an unbounded loop, and streams every step here.'
+          )
+        );
+        // Reuses commands the composer already exposes — no new capability.
+        const chips = el('div', 'siu-empty-chips');
+        for (const [cmd, hint] of [
+          ['/status', 'current state'],
+          ['/sessions', 'past sessions'],
+          ['/clear', 'reset context']
+        ]) {
+          const chip = el('button', 'siu-empty-chip');
+          chip.appendChild(el('span', '', cmd));
+          chip.appendChild(el('span', '', hint));
+          chip.addEventListener('click', () => void runSlash(cmd));
+          chips.appendChild(chip);
+        }
+        wrap.appendChild(chips);
+        transcript.appendChild(wrap);
+      }
+
+      function userBubble(text) {
+        const row = el('div', 'siu-msg-row siu-msg-row--user ' + enterClass());
+        row.appendChild(el('div', 'siu-bubble siu-bubble--user', text));
+        return row;
+      }
+
+      function systemNote(text, kind) {
+        const row = el('div', 'siu-msg-row ' + enterClass());
+        row.style.justifyContent = 'center';
+        row.appendChild(el('div', 'siu-note' + (kind === 'error' ? ' siu-note--error' : ''), text));
+        return row;
+      }
+
+      /** A copy affordance on the assistant's answer, revealed on hover. */
+      function attachCopy(bubble, getText) {
+        const button = el('button', 'siu-bubble-copy');
+        button.type = 'button';
+        button.title = 'Copy message';
+        button.setAttribute('aria-label', 'Copy message');
+        button.innerHTML = COPY_GLYPH;
+        button.addEventListener('click', async () => {
+          try {
+            await navigator.clipboard.writeText(getText());
+            button.innerHTML = '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>';
+            setTimeout(() => {
+              button.innerHTML = COPY_GLYPH;
+            }, 1200);
+          } catch {
+            toast('Clipboard unavailable', 'error');
+          }
+        });
+        bubble.appendChild(button);
+      }
+
+      function statusBadge(status) {
+        const labels = { running: 'RUNNING', done: 'DONE', error: 'ERROR', denied: 'DENIED', pending: 'AWAITING' };
+        const badge = el('span', 'siu-badge', labels[status] || String(status).toUpperCase());
+        badge.dataset.state = status;
+        badge.dataset.role = 'badge';
+        if (status === 'pending') badge.classList.add('siu-pulse');
+        return badge;
+      }
+
+      /**
+       * Tool execution card. It IS the collapsible: while the tool runs it stays
+       * open (active); once finished it auto-collapses into a one-line summary
+       * `✔ tool_name (duration)` that the user can click to expand.
+       */
+      function toolCard(name, args) {
+        const details = el('details', 'siu-tool ' + enterClass());
+        details.open = true;
+        details.dataset.kind = 'tool';
+        details.dataset.state = 'running';
+
+        const summary = el('summary');
+        const icon = el('span', 'siu-tool-icon');
+        icon.innerHTML = iconSvg(name, 13);
+        summary.appendChild(icon);
+        summary.appendChild(el('span', 'siu-tool-name', name));
+
+        // write_file with then_run fuses write + verification into one step.
+        if (args && typeof args.then_run === 'string' && args.then_run.trim()) {
+          const command = args.then_run.trim();
+          const chained = el('span', 'siu-tool-chain');
+          chained.innerHTML = CHAIN_GLYPH;
+          chained.appendChild(el('span', '', 'THEN RUN: ' + command));
+          chained.title = 'Chained command executed immediately after the write: ' + command;
+          summary.appendChild(chained);
+        }
+
+        summary.appendChild(el('span', 'siu-tool-spacer'));
+        const wait = el('span', 'siu-tool-wait');
+        wait.hidden = true;
+        summary.appendChild(wait);
+        const duration = el('span', 'siu-tool-meta', '');
+        summary.appendChild(duration);
+        summary.appendChild(statusBadge('running'));
+        details.appendChild(summary);
+
+        const body = el('div', 'siu-tool-body');
+
+        if (args && Object.keys(args).length > 0) {
+          const argDetails = el('details');
+          const argSummary = el('summary');
+          argSummary.innerHTML = CHEVRON + '<span>arguments</span>';
+          argDetails.appendChild(argSummary);
+          const pre = el('pre', 'siu-tool-well');
+          pre.textContent = JSON.stringify(args, null, 2);
+          argDetails.appendChild(pre);
+          body.appendChild(argDetails);
+        }
+
+        const outDetails = el('details');
+        outDetails.open = true;
+        const outSummary = el('summary');
+        outSummary.innerHTML = CHEVRON + '<span>output</span>';
+        outDetails.appendChild(outSummary);
+        const outPre = el('pre', 'siu-tool-well', '…');
+        outDetails.appendChild(outPre);
+        body.appendChild(outDetails);
+
+        details.appendChild(body);
+        return { details, duration, outPre, summary, wait };
+      }
+
+      function setToolStatus(card, status, durationMs) {
+        const badge = card.summary.querySelector('[data-role="badge"]');
+        if (badge) badge.replaceWith(statusBadge(status));
+        card.details.dataset.state = status;
+        card.duration.textContent = formatDuration(durationMs);
+        // Finished tools fold themselves away; a click re-opens the detail.
+        card.details.open = false;
+      }
+
+      /** Collapsible reasoning block; visible while the model thinks, folded after. */
+      function thinkingBlock() {
+        const details = el('details', 'siu-think ' + enterClass());
+        details.open = true;
+        details.dataset.kind = 'thinking';
+        const summary = el('summary');
+        summary.innerHTML = CHEVRON + THINK_GLYPH + '<span data-role="label">Thinking…</span>';
+        details.appendChild(summary);
+        const body = el('div', 'siu-think-body');
+        details.appendChild(body);
+        return { details, body, label: summary.querySelector('[data-role="label"]') };
+      }
+
+      /** A step is a foldable container so the whole loop can collapse after a turn. */
+      function stepGroup(step, phase) {
+        const details = el('details', 'siu-step ' + enterClass());
+        details.open = true;
+        details.dataset.kind = 'step';
+        details.dataset.phase = phase;
+        const summary = el('summary');
+        summary.innerHTML =
+          CHEVRON +
+          '<span data-role="label">' +
+          (phase === 'review' ? 'review · step ' + step : 'step ' + step) +
+          '</span>' +
+          '<span class="siu-tool-spacer"></span>' +
+          '<span data-role="meta" class="siu-step-meta"></span>';
+        details.appendChild(summary);
+        const body = el('div', 'siu-step-body');
+        details.appendChild(body);
+        return { details, body, label: summary.querySelector('[data-role="label"]'), meta: summary.querySelector('[data-role="meta"]') };
+      }
+
+      // =======================================================================
+      // Approval card
+      // =======================================================================
+      function riskChip(risk) {
+        if (!risk) return null;
+        const chip = el('span', 'siu-chip', String(risk).toUpperCase());
+        chip.classList.add(risk === 'high' || risk === 'critical' ? 'siu-chip--risk-high' : risk === 'medium' ? 'siu-chip--risk-medium' : 'siu-chip--risk-low');
+        return chip;
+      }
+
+      function approvalCard(event) {
+        const card = el('div', 'siu-approval ' + enterClass());
+        card.dataset.state = 'pending';
+
+        const head = el('div', 'siu-approval-head');
+        const icon = el('span', 'siu-approval-icon');
+        icon.innerHTML = WARN_GLYPH;
+        head.appendChild(icon);
+        head.appendChild(el('span', 'siu-approval-title', 'Approval required'));
+        head.appendChild(el('span', 'siu-approval-name', event.name));
+        const risk = riskChip(event.riskLevel);
+        if (risk) head.appendChild(risk);
+        if (event.reviewedBy) head.appendChild(el('span', 'siu-label', 'via ' + event.reviewedBy));
+        card.appendChild(head);
+
+        if (event.reason) {
+          card.appendChild(el('p', 'mt-2 text-[12px] leading-relaxed text-secondary', event.reason));
+        }
+
+        if (event.args && Object.keys(event.args).length) {
+          const pre = el('pre', 'siu-tool-well siu-tool-well--block');
+          pre.textContent = JSON.stringify(event.args, null, 2);
+          card.appendChild(pre);
+        }
+
+        const actions = el('div', 'siu-approval-actions');
+        const approve = el('button', 'siu-btn-approve', '允许执行 · Approve');
+        const reject = el('button', 'siu-btn-reject', '拒绝 · Reject');
+        approve.type = 'button';
+        reject.type = 'button';
+        actions.appendChild(approve);
+        actions.appendChild(reject);
+        const status = el('span', 'siu-approval-status', 'waiting for your decision…');
+        actions.appendChild(status);
+        card.appendChild(actions);
+
+        const setNote = (text, tone) => {
+          status.textContent = text;
+          if (tone) status.dataset.tone = tone;
+          else delete status.dataset.tone;
+        };
+
+        const settle = async (approved) => {
+          approve.disabled = true;
+          reject.disabled = true;
+          card.dataset.state = approved ? 'approved' : 'rejected';
+          setNote(
+            approved ? '✓ approved — executing' : '✕ rejected — agent will adapt',
+            approved ? 'ok' : 'error'
+          );
+          try {
+            await postJson('/api/approve', { toolCallId: event.toolCallId, approved });
+          } catch (err) {
+            setNote('✕ ' + err.message, 'error');
+          }
+        };
+
+        approve.addEventListener('click', () => void settle(true));
+        reject.addEventListener('click', () => void settle(false));
+
+        return { card, approve, reject, settle, setNote };
+      }
+
+      /** Retire an unanswered card: a dead tool call must not keep live buttons. */
+      function retireApproval(approval) {
+        approval.approve.disabled = true;
+        approval.reject.disabled = true;
+        approval.approve.replaceWith(el('span', 'siu-chip', 'Retired'));
+        approval.reject.remove();
+        approval.card.dataset.state = 'stale';
+        approval.setNote('Turn ended before a decision was made');
+      }
+
+      // =======================================================================
+      // History rendering (from the JSONL session branch)
+      // =======================================================================
+      function renderMessages(messages) {
+        transcript.innerHTML = '';
+        if (!messages.length) {
+          renderEmptyState();
+          return;
+        }
+
+        const resultByCallId = new Map();
+        for (const message of messages) {
+          for (const result of message.toolResults || []) resultByCallId.set(result.toolCallId, result);
+        }
+
+        let lastRow = null;
+
+        for (const message of messages) {
+          if (message.role === 'user') {
+            if (message.content) transcript.appendChild(userBubble(message.content));
+            continue;
+          }
+          if (message.role !== 'assistant') continue;
+
+          const card = el('div', 'siu-turn ' + enterClass());
+          card.dataset.role = 'content';
+
+          if (message.content) {
+            const bubble = el('div', 'siu-md siu-bubble siu-bubble--assistant');
+            bubble.innerHTML = renderMarkdown(message.content);
+            attachCopy(bubble, () => message.content);
+            card.appendChild(bubble);
+          }
+
+          for (const call of message.toolCalls || []) {
+            const tool = toolCard(call.name, call.args);
+            const result = resultByCallId.get(call.id);
+            if (result) {
+              tool.outPre.textContent =
+                typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2);
+              setToolStatus(tool, result.isError ? 'error' : 'done');
+            } else {
+              setToolStatus(tool, 'done');
+            }
+            card.appendChild(tool.details);
+          }
+
+          transcript.appendChild(card);
+          lastRow = card;
+        }
+
+        // Restored history reads as a summary: only the final message stays open.
+        collapseAllButLast(lastRow);
+        scrollToBottom(true);
+      }
+
+      /** Collapse every rendered turn except the newest, whose text stays visible. */
+      function collapseAllButLast(lastRow) {
+        for (const row of transcript.querySelectorAll('[data-role="content"]')) {
+          if (row === lastRow) continue;
+          for (const fold of row.querySelectorAll('details')) fold.open = false;
+        }
+      }
+
+      // =======================================================================
+      // Status / dashboard
+      // =======================================================================
+      const STATUS_LABELS = {
+        idle: 'Idle',
+        running: 'Running',
+        thinking: 'Thinking',
+        streaming: 'Streaming',
+        tool_calling: 'Running a tool',
+        completed: 'Completed',
+        aborted: 'Aborted',
+        error: 'Error'
+      };
+
+      function setStatus(status) {
+        state.status = status;
+        const dot = $('status-dot');
+        dot.dataset.status = status in STATUS_LABELS ? status : 'idle';
+        $('status-text').textContent = status;
+        $('title-status').textContent = status;
+        // Announce transitions rather than the streaming transcript, which would
+        // produce continuous screen-reader noise.
+        $('status-live').textContent = STATUS_LABELS[status] || status;
+        // Dock badge mirrors "agent is working" in the desktop shell; no-op in a tab.
+        void window.superiuDesktop?.setBadgeCount?.(status === 'idle' ? 0 : 1).catch?.(() => {});
+      }
+
+      function renderEmotion(emotion, posture) {
+        if (!emotion) return;
+        const valence = Number(emotion.valence) || 0;
+        const arousal = Number(emotion.arousal) || 0;
+        const fatigue = Number(emotion.fatigue) || 0;
+
+        // Bipolar valence: the fill grows out of the centre line.
+        const width = Math.abs(valence) * 50;
+        const bar = $('valence-bar');
+        bar.style.width = width + '%';
+        bar.style.left = (valence >= 0 ? 50 : 50 - width) + '%';
+        $('valence-value').textContent = valence.toFixed(2);
+        $('valence-value').style.color = valence >= 0 ? 'var(--siu-success-fg)' : 'var(--siu-danger-fg)';
+
+        $('arousal-bar').style.width = Math.min(100, arousal * 100) + '%';
+        $('arousal-value').textContent = arousal.toFixed(2);
+        $('fatigue-bar').style.width = Math.min(100, fatigue * 100) + '%';
+        $('fatigue-value').textContent = fatigue.toFixed(2);
+
+        if (!posture) return;
+        $('posture-label').textContent = posture.label;
+        const host = $('posture-modifier');
+        host.innerHTML = '';
+        const lines = (posture.modifier || '')
+          .split('\n')
+          .map((line) => line.trim())
+          .filter((line) => line.startsWith('- '));
+        if (!lines.length) host.appendChild(el('div', 'text-muted', 'baseline — no active modifier'));
+        for (const line of lines) host.appendChild(el('div', '', '› ' + line.slice(2)));
+      }
+
+      function renderStatus(payload) {
+        setStatus(payload.status);
+        $('info-session').textContent = payload.sessionId || '—';
+        $('info-session').title = payload.sessionId || '';
+        $('info-leaf').textContent = payload.leafId || '(root)';
+        $('info-leaf').title = payload.leafId || '';
+        $('info-count').textContent = String(payload.messageCount ?? 0);
+        $('info-file').textContent = payload.sessionFile || '(in-memory)';
+        $('info-file').title = payload.sessionFile || '(in-memory)';
+
+        fillModelSelect(payload.model, payload.modelChoices || []);
+        const effort = payload.modelRoutes && payload.modelRoutes.main ? payload.modelRoutes.main.reasoningEffort : undefined;
+        const effortChip = $('model-effort-chip');
+        // The level drives the colour; the prefix would just repeat the chip's role.
+        // A bare em-dash for "unset" reads as a stray separator next to the model
+        // name, so spell out the one state that is not self-evident.
+        effortChip.textContent = effort || 'no effort';
+        effortChip.dataset.level = effort || 'unset';
+        effortChip.title = effort
+          ? 'Reasoning effort sent on the main route: ' + effort
+          : 'Main model does not accept reasoning_effort (or no effort configured) — nothing is sent';
+        const chip = $('tool-model-chip');
+        chip.textContent = (payload.reviewModel || '—') + (payload.autoReview === false ? ' (off)' : '');
+        chip.title = 'Tool / review model' + (payload.autoReview === false ? ' — AutoReview disabled' : '');
+
+        renderEmotion(payload.emotion, payload.posture);
+
+        const ws = payload.workstation;
+        if (ws) {
+          $('ws-text').textContent =
+            ws.os.split(' ')[0] + ' · ' + ws.arch + ' · ' + ws.nodeVersion + (ws.gitBranch ? ' · ' + ws.gitBranch : '');
+          $('workstation-badge').title =
+            'OS: ' + ws.os + '\nArch: ' + ws.arch + '\nNode: ' + ws.nodeVersion + '\nGit: ' +
+            (ws.gitBranch || 'n/a') + '\nCWD: ' + ws.cwd + '\nTime: ' + ws.timestamp;
+        }
+      }
+
+      function fillModelSelect(current, choices) {
+        const select = $('model-select');
+        const options = [...new Set([current, ...choices].filter(Boolean))];
+        const signature = options.join('|');
+        if (select.dataset.signature === signature) {
+          select.value = current || '';
+          return;
+        }
+        select.dataset.signature = signature;
+        select.innerHTML = '';
+        for (const model of options) {
+          const option = el('option', '');
+          option.value = model;
+          option.textContent = model;
+          select.appendChild(option);
+        }
+        select.value = current || '';
+      }
+
+      async function refreshStatus() {
+        try {
+          renderStatus(await api('/api/status'));
+        } catch (err) {
+          toast('Status unavailable: ' + err.message, 'error');
+        }
+      }
+
+      /** A 19-character ISO timestamp is noise in a 26px control; show HH:MM. */
+      function shortTime(timestamp) {
+        if (typeof timestamp !== 'string' || timestamp.length < 16) return timestamp || '';
+        return timestamp.slice(11, 16);
+      }
+
+      async function refreshSessions() {
+        try {
+          const sessions = await api('/api/sessions');
+          const select = $('session-select');
+          select.innerHTML = '';
+          if (!sessions.length) {
+            const option = el('option', '', '(no sessions)');
+            option.value = '';
+            select.appendChild(option);
+            return sessions;
+          }
+          for (const session of sessions) {
+            const option = el('option', '');
+            option.value = session.id;
+            option.textContent =
+              (session.active ? '● ' : '  ') + session.id.slice(0, 8) + '  ' +
+              shortTime(session.timestamp) + '  ' + (session.title || '');
+            option.title = session.timestamp + (session.title ? '  ' + session.title : '');
+            select.appendChild(option);
+            if (session.active) select.value = session.id;
+          }
+          return sessions;
+        } catch (err) {
+          toast('Sessions unavailable: ' + err.message, 'error');
+          return [];
+        }
+      }
+
+      async function refreshHistory() {
+        try {
+          state.history = await api('/api/history?limit=30');
+        } catch {
+          state.history = [];
+        }
+        renderHistoryList();
+      }
+
+      function renderHistoryList() {
+        const list = $('history-list');
+        list.innerHTML = '';
+        if (!state.history.length) {
+          list.appendChild(el('li', 'siu-label', '(empty)'));
+          return;
+        }
+        for (const entry of state.history) {
+          const item = el('li', 'siu-history-item');
+          item.title = entry.prompt;
+          // Rows are a control, not prose: give them the semantics a button has
+          // so they are reachable and activatable from the keyboard.
+          item.setAttribute('role', 'button');
+          item.tabIndex = 0;
+          const icon = el('span', 'siu-history-icon');
+          icon.innerHTML = CLOCK_GLYPH;
+          item.appendChild(icon);
+          item.appendChild(el('span', 'siu-history-text', entry.prompt));
+          const recall = () => {
+            promptInput.value = entry.prompt;
+            autosize();
+            promptInput.focus();
+          };
+          item.addEventListener('click', recall);
+          item.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+              event.preventDefault();
+              recall();
+            }
+          });
+          list.appendChild(item);
+        }
+      }
+
+      // =======================================================================
+      // Chat turn (SSE over fetch)
+      // =======================================================================
+      function setRunning(running) {
+        state.running = running;
+        $('btn-send').hidden = running;
+        $('btn-abort').hidden = !running;
+      }
+
+      function toggleRail() {
+        const rail = $('rail');
+        const collapsed = rail.hasAttribute('hidden');
+        rail.toggleAttribute('hidden', !collapsed);
+        toast(collapsed ? 'Rail shown' : 'Rail collapsed', 'ok');
+      }
+
+      async function sendPrompt(rawPrompt) {
+        if (state.running || !rawPrompt.trim()) return;
+        const text = rawPrompt.trim();
+
+        if (transcript.querySelector('.siu-empty')) transcript.innerHTML = '';
+        transcript.appendChild(userBubble(text));
+
+        // The turn's live tail: steps append here, then collapse on completion.
+        const turn = el('div', 'siu-turn');
+        transcript.appendChild(turn);
+
+        let group = null;
+        let stepText = '';
+        let activeBubble = null;
+        let thinking = null;
+        let toolCount = 0;
+        let turnStartedAt = Date.now();
+        let approvalWaitTotal = 0;
+        let stepApprovalWait = 0;
+        let currentCard = null;
+        const pendingCards = [];
+        /** Approval cards awaiting a human decision; settled when the turn ends. */
+        const openApprovals = [];
+        let phase = 'main';
+        let lastTextBubble = null;
+
+        const openStep = (step, stepPhase) => {
+          // A new step ends the previous one. Without this the old bubble keeps
+          // its streaming caret forever — `activeBubble` is about to be dropped
+          // on the floor, so `closeBubble` can never reach it again.
+          closeThinking();
+          closeBubble();
+          group = stepGroup(step, stepPhase);
+          turn.appendChild(group.details);
+          stepText = '';
+          activeBubble = null;
+          thinking = null;
+          toolCount = 0;
+          stepApprovalWait = 0;
+          group.details.addEventListener('toggle', () => {
+            // Collapsing a step must not leave a live cursor stranded.
+            if (!group.details.open && activeBubble) activeBubble.classList.remove('siu-cursor');
+          });
+        };
+
+        const ensureBubble = () => {
+          if (!activeBubble) {
+            stepText = '';
+            activeBubble = el('div', 'siu-md siu-bubble siu-bubble--assistant');
+            activeBubble.classList.add('siu-cursor');
+            group.body.appendChild(activeBubble);
+            lastTextBubble = activeBubble;
+          }
+          return activeBubble;
+        };
+
+        const closeBubble = () => {
+          if (!activeBubble) return;
+          activeBubble.classList.remove('siu-cursor');
+          if (!activeBubble.textContent.trim()) {
+            activeBubble.remove();
+          } else {
+            const answer = activeBubble;
+            const source = stepText;
+            attachCopy(answer, () => source);
+          }
+          activeBubble = null;
+        };
+
+        /** Thinking ends the moment real output starts: fold it into a summary. */
+        const closeThinking = () => {
+          if (!thinking) return;
+          thinking.details.open = false;
+          const words = thinking.body.textContent.trim().split(/\s+/).filter(Boolean).length;
+          thinking.label.textContent = 'Thinking summary (' + words + ' words)';
+          thinking = null;
+        };
+
+        /**
+         * A turn that ends while a card is still unanswered means the server
+         * already resolved that approval (abort, stream close, or a forced
+         * decision) — leaving live buttons would let the user act on a dead
+         * tool call, so retire them.
+         */
+        const settleOpenApprovals = () => {
+          for (const approval of openApprovals.splice(0)) {
+            if (approval.card.dataset.state !== 'pending') continue;
+            retireApproval(approval);
+          }
+        };
+
+        const updateStepMeta = () => {
+          if (!group) return;
+          const parts = [];
+          if (toolCount) parts.push(toolCount + (toolCount === 1 ? ' tool' : ' tools'));
+          // Human decision time is not agent work; exclude it from the elapsed clock.
+          // Clamped: a client that joins mid-turn, or a clock skew, must not show negative time.
+          const elapsed = Date.now() - turnStartedAt - stepApprovalWait;
+          const seconds = (Math.max(0, elapsed) / 1000).toFixed(1);
+          parts.push(seconds + 's');
+          group.meta.textContent = parts.join(' · ');
+        };
+
+        const handle = (event) => {
+          if (event.phase) phase = event.phase;
+
+          switch (event.type) {
+            case 'status':
+              setStatus(event.status);
+              break;
+
+            case 'step': {
+              state.step = event.step;
+              $('info-step').textContent = String(event.step);
+              turnStartedAt = Date.now();
+              openStep(event.step, phase);
+              scrollToBottom();
+              break;
+            }
+
+            case 'reasoning': {
+              if (!group) openStep(1, phase);
+              if (!thinking) thinking = thinkingBlock();
+              if (!thinking.details.parentElement) group.body.appendChild(thinking.details);
+              thinking.body.textContent += event.text;
+              thinking.details.open = true;
+              scrollToBottom();
+              break;
+            }
+
+            case 'chunk': {
+              if (!group) openStep(1, phase);
+              closeThinking();
+              const bubble = ensureBubble();
+              bubble.classList.remove('siu-cursor');
+              stepText += event.text;
+              bubble.innerHTML = renderMarkdown(stepText);
+              bubble.classList.add('siu-cursor');
+              scrollToBottom();
+              break;
+            }
+
+            case 'tool_call': {
+              if (!group) openStep(1, phase);
+              closeThinking();
+              closeBubble();
+              const tool = toolCard(event.name, event.args);
+              group.body.appendChild(tool.details);
+              currentCard = tool;
+              pendingCards.push(tool);
+              toolCount++;
+              updateStepMeta();
+              scrollToBottom();
+              break;
+            }
+
+            case 'tool_result': {
+              const target = currentCard || pendingCards.shift();
+              if (target) {
+                target.outPre.textContent =
+                  typeof event.result === 'string' ? event.result : JSON.stringify(event.result, null, 2);
+                setToolStatus(target, event.isError ? 'error' : 'done', event.durationMs);
+                if (typeof event.approvalWaitMs === 'number' && event.approvalWaitMs > 0) {
+                  approvalWaitTotal += event.approvalWaitMs;
+                  stepApprovalWait += event.approvalWaitMs;
+                  // The summary row is a fixed 32px flex row; the wait hint rides
+                  // in the right cluster rather than adding a second line.
+                  target.wait.classList.remove('hidden');
+                  target.wait.innerHTML = CLOCK_GLYPH + '<span>' + (event.approvalWaitMs / 1000).toFixed(1) + 's</span>';
+                  target.wait.title =
+                    'Blocked ' + (event.approvalWaitMs / 1000).toFixed(1) + 's waiting for your approval decision';
+                }
+                const idx = pendingCards.indexOf(target);
+                if (idx >= 0) pendingCards.splice(idx, 1);
+              }
+              currentCard = null;
+              updateStepMeta();
+              scrollToBottom();
+              break;
+            }
+
+            case 'approval_request': {
+              if (!group) openStep(1, phase);
+              closeThinking();
+              closeBubble();
+              const approval = approvalCard(event);
+              group.body.appendChild(approval.card);
+              openApprovals.push(approval);
+              if (Notifications) {
+                Notifications.notifyApprovalRequired(
+                  'SuperIU: 需要审批 / Approval required',
+                  event.name + ' — ' + (event.reason || 'flagged by AutoReview'),
+                  { tag: 'superiu-approval-' + event.toolCallId }
+                );
+              }
+              scrollToBottom(true);
+              break;
+            }
+
+            case 'error':
+              turn.appendChild(systemNote('✕ ' + event.message, 'error'));
+              if (Notifications) Notifications.notifyError('SuperIU: 执行出错 / Error', event.message);
+              scrollToBottom();
+              break;
+
+            case 'done': {
+              closeThinking();
+              closeBubble();
+              settleOpenApprovals();
+              if (group) updateStepMeta();
+
+              // "每一个 loop 结束后 除了最后的消息 其他都折叠起来":
+              // collapse every step of this turn except the newest, and inside
+              // the newest collapse thinking + tools so only the final answer shows.
+              const steps = [...turn.querySelectorAll(':scope > details[data-kind="step"]')];
+              steps.forEach((stepDetails, index) => {
+                const isLast = index === steps.length - 1;
+                stepDetails.open = isLast;
+                for (const fold of stepDetails.querySelectorAll('details')) fold.open = false;
+              });
+              for (const card of turn.querySelectorAll('details[data-kind="tool"]')) card.open = false;
+
+              if (!turn.querySelector('.siu-md')) {
+                turn.appendChild(el('div', 'siu-label', '[no output]'));
+              }
+              // The newest bubble is the answer: never leave it folded away.
+              if (lastTextBubble && !lastTextBubble.textContent.trim()) lastTextBubble.remove();
+
+              if (event.emotion) renderEmotion(event.emotion, event.posture);
+              if (typeof event.messageCount === 'number') $('info-count').textContent = String(event.messageCount);
+              if (event.leafId) $('info-leaf').textContent = event.leafId;
+              if (Notifications) {
+                // The toast cannot render markdown, and the raw text is the
+                // model's answer — flatten it rather than showing `##` and URLs.
+                Notifications.notifyTaskComplete(
+                  'SuperIU: 任务完成 / Task complete',
+                  truncateWords(plainText(event.finalText), 180) || 'The agent loop has settled.'
+                );
+              }
+              scrollToBottom();
+              break;
+            }
+          }
+        };
+
+        const controller = new AbortController();
+        state.controller = controller;
+
+        try {
+          const response = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prompt: text, model: $('model-select').value || undefined }),
+            signal: controller.signal
+          });
+
+          if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            throw new Error(payload.error || response.status + ' ' + response.statusText);
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            let boundary = buffer.indexOf('\n\n');
+            while (boundary !== -1) {
+              const frame = buffer.slice(0, boundary);
+              buffer = buffer.slice(boundary + 2);
+              for (const line of frame.split('\n')) {
+                if (!line.startsWith('data:')) continue;
+                const raw = line.slice(5).trim();
+                if (!raw) continue;
+                try {
+                  handle(JSON.parse(raw));
+                } catch {
+                  /* ignore malformed frame */
+                }
+              }
+              boundary = buffer.indexOf('\n\n');
+            }
+          }
+        } catch (err) {
+          if (err.name !== 'AbortError') {
+            turn.appendChild(systemNote('✕ ' + err.message, 'error'));
+            toast(err.message, 'error');
+          } else {
+            turn.appendChild(systemNote('■ turn aborted by user'));
+          }
+        } finally {
+          closeThinking();
+          closeBubble();
+          settleOpenApprovals();
+          state.controller = null;
+          setRunning(false);
+          await refreshStatus();
+          await refreshHistory();
+          scrollToBottom();
+        }
+      }
+
+      async function abortTurn() {
+        if (state.controller) state.controller.abort();
+        try {
+          await api('/api/abort', { method: 'POST' });
+        } catch {
+          /* stream teardown already aborted the turn */
+        }
+        toast('Aborting turn…');
+      }
+
+      // =======================================================================
+      // Slash commands
+      // =======================================================================
+      async function runSlash(command) {
+        const [cmd] = command.trim().split(/\s+/);
+
+        if (cmd === '/clear') {
+          try {
+            const payload = await postJson('/api/clear', {});
+            renderStatus(payload.status);
+            transcript.innerHTML = '';
+            transcript.appendChild(systemNote('✓ reset_boundary appended · active context truncated'));
+            toast('Context cleared', 'ok');
+          } catch (err) {
+            toast(err.message, 'error');
+          }
+          return;
+        }
+
+        if (cmd === '/status') {
+          try {
+            const payload = await api('/api/status');
+            renderStatus(payload);
+            const lines = [
+              'state:      ' + payload.status,
+              'session:    ' + payload.sessionId,
+              'leaf:       ' + (payload.leafId || '(root)'),
+              'messages:   ' + payload.messageCount,
+              'file:       ' + (payload.sessionFile || '(in-memory)'),
+              'main model: ' + payload.model,
+              'tool model: ' + payload.reviewModel + (payload.autoReview ? '' : ' (autoReview off)'),
+              'effort:     ' + ((payload.modelRoutes && payload.modelRoutes.main && payload.modelRoutes.main.reasoningEffort) || '(none sent)'),
+              'valence:    ' + Number(payload.emotion.valence).toFixed(3) +
+                '   arousal: ' + Number(payload.emotion.arousal).toFixed(3) +
+                '   fatigue: ' + Number(payload.emotion.fatigue).toFixed(3),
+              'posture:    ' + payload.posture.label
+            ];
+            const card = el('div', 'siu-turn ' + enterClass());
+            card.dataset.role = 'content';
+            card.appendChild(el('pre', 'siu-tool-well siu-tool-well--block', lines.join('\n')));
+            transcript.appendChild(card);
+            scrollToBottom(true);
+          } catch (err) {
+            toast(err.message, 'error');
+          }
+          return;
+        }
+
+        if (cmd === '/sessions') {
+          const sessions = await refreshSessions();
+          const body = sessions.length
+            ? sessions
+                .map(
+                  (s) =>
+                    (s.active ? '* ' : '  ') + s.id.slice(0, 8) + '  ' +
+                    shortTime(s.timestamp) + '  ' + (s.title || '')
+                )
+                .join('\n')
+            : '(no sessions)';
+          const card = el('div', 'siu-turn ' + enterClass());
+          card.dataset.role = 'content';
+          card.appendChild(el('pre', 'siu-tool-well siu-tool-well--block', body));
+          transcript.appendChild(card);
+          scrollToBottom(true);
+          return;
+        }
+
+        toast('Unknown command: ' + cmd, 'error');
+      }
+
+      // =======================================================================
+      // Session actions
+      // =======================================================================
+      async function createNewSession() {
+        if (state.running) return toast('Abort the running turn first', 'error');
+        try {
+          const payload = await postJson('/api/sessions/new', {});
+          renderStatus(payload.status);
+          renderMessages(payload.messages || []);
+          await refreshSessions();
+          toast('New session created', 'ok');
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      }
+
+      // =======================================================================
+      // Notifications
+      // =======================================================================
+      function renderNotifyButton() {
+        const enabled = Boolean(Notifications) && state.notifyEnabled;
+        $('notify-label').textContent = enabled ? 'Alerts on' : 'Notify';
+        $('btn-notify').className = 'siu-btn no-drag' + (enabled ? ' siu-btn--accent' : '');
+        $('set-notifications').dataset.on = String(enabled);
+        $('set-notifications').setAttribute('aria-checked', String(enabled));
+      }
+
+      async function enableNotifications() {
+        if (!Notifications) return toast('notifications.js unavailable', 'error');
+        const permission = await Notifications.requestPermission();
+        state.notifyEnabled = permission === 'granted';
+        renderNotifyButton();
+        if (state.notifyEnabled) {
+          Notifications.notifyTaskComplete('SuperIU: 通知已启用 / Alerts enabled', 'You will be notified when a task completes or an approval is needed.');
+          toast('Desktop notifications enabled', 'ok');
+        } else {
+          toast('Notification permission ' + permission, 'error');
+        }
+      }
+
+      $('btn-notify').addEventListener('click', () => void enableNotifications());
+      $('set-notifications').addEventListener('click', () => void enableNotifications());
+
+      // =======================================================================
+      // Settings modal
+      // =======================================================================
+      function fillSettingsForm(view) {
+        state.settings = view;
+        $('set-api-key').value = '';
+        $('set-api-key').placeholder = view.apiKeySet ? view.apiKeyMasked + ' (unchanged)' : 'sk-…';
+        $('set-base-url').value = view.baseURL || '';
+        $('set-model').value = view.modelName || '';
+        $('set-review-model').value = view.reviewModelName || '';
+        $('set-auto-review').dataset.on = String(view.autoReview);
+        $('set-auto-review').setAttribute('aria-checked', String(view.autoReview));
+        $('set-reasoning-effort').value = view.reasoningEffort || '';
+        renderReasoningHint(view);
+        $('settings-file-label').textContent = view.settingsFile;
+        $('set-env-info').innerHTML =
+          'OPENAI_API_KEY: ' + escapeHtml(view.env.OPENAI_API_KEY) +
+          '<br />OPENAI_BASE_URL: ' + escapeHtml(view.env.OPENAI_BASE_URL || '(unset)') +
+          '<br />OPENAI_MODEL_NAME: ' + escapeHtml(view.env.OPENAI_MODEL_NAME || '(unset)') +
+          '<br />OPENAI_REVIEW_MODEL_NAME: ' + escapeHtml(view.env.OPENAI_REVIEW_MODEL_NAME || '(unset)') +
+          '<br />OPENAI_REASONING_EFFORT: ' + escapeHtml(view.env.OPENAI_REASONING_EFFORT || '(unset)') +
+          '<br /><span class="text-muted">Saved settings override environment defaults.</span>';
+        $('settings-msg').textContent = '';
+        delete $('settings-msg').dataset.tone;
+
+        const list = $('model-choices');
+        list.innerHTML = '';
+        for (const model of view.modelChoices || []) {
+          const option = el('option', '');
+          option.value = model;
+          list.appendChild(option);
+        }
+        renderNotifyButton();
+      }
+
+      /** Effort state the provider will actually see for the main route. */
+      function renderReasoningHint(view) {
+        const hint = $('set-reasoning-hint');
+        const chosen = $('set-reasoning-effort').value;
+        const effective = view.reasoningEffortEffective;
+        const supported = view.reasoningSupported !== false;
+        const parts = [];
+        if (supported) {
+          parts.push(
+            effective
+              ? 'Main route currently sends <span class="text-secondary">reasoningEffort: ' +
+                  escapeHtml(effective) + '</span>.'
+              : 'Main route sends no reasoningEffort.'
+          );
+        } else {
+          parts.push(
+            'The current main model does not accept reasoning_effort, so nothing is sent (a non-reasoning model rejects the parameter with HTTP 400).'
+          );
+        }
+        if (chosen && !supported) {
+          parts.push('Saved anyway — it will apply once you switch to a reasoning model.');
+        }
+        hint.innerHTML = parts.join(' ');
+        if (supported) delete hint.dataset.tone;
+        else hint.dataset.tone = 'warn';
+      }
+
+      async function openSettings() {
+        try {
+          fillSettingsForm(await api('/api/settings'));
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+        openModal('settings');
+      }
+
+      $('set-auto-review').addEventListener('click', () => {
+        const toggle = $('set-auto-review');
+        const next = toggle.dataset.on !== 'true';
+        toggle.dataset.on = String(next);
+        toggle.setAttribute('aria-checked', String(next));
+      });
+
+      $('set-reasoning-effort').addEventListener('change', () => {
+        if (state.settings) renderReasoningHint(state.settings);
+      });
+
+      $('settings-save').addEventListener('click', async () => {
+        const message = $('settings-msg');
+        message.textContent = 'Saving…';
+        message.className = 'siu-approval-status mr-auto';
+        delete message.dataset.tone;
+
+        const patch = {
+          baseURL: $('set-base-url').value,
+          modelName: $('set-model').value,
+          reviewModelName: $('set-review-model').value,
+          autoReview: $('set-auto-review').dataset.on === 'true',
+          reasoningEffort: $('set-reasoning-effort').value
+        };
+        const apiKey = $('set-api-key').value.trim();
+        if (apiKey) patch.apiKey = apiKey;
+
+        try {
+          const view = await postJson('/api/settings', patch);
+          // The tool model is a routing concern: push it through the routing API too.
+          if (view.reviewModelName) {
+            await postJson('/api/model', { role: 'review', model: view.reviewModelName }).catch(() => {});
+          }
+          fillSettingsForm(view);
+          message.textContent = view.restarted ? '✓ Saved · runner restarted' : '✓ Saved';
+          message.className = 'siu-approval-status mr-auto';
+          message.dataset.tone = 'ok';
+          toast('Settings saved', 'ok');
+          await refreshStatus();
+          setTimeout(() => closeModal('settings'), 650);
+        } catch (err) {
+          message.textContent = '✕ ' + err.message;
+          message.className = 'siu-approval-status mr-auto';
+          message.dataset.tone = 'error';
+        }
+      });
+
+      // =======================================================================
+      // Command palette
+      // =======================================================================
+      const PALETTE_COMMANDS = [
+        { id: 'new', label: 'New Session', hint: '⌘N', run: () => createNewSession() },
+        { id: 'clear', label: 'Clear Context (/clear)', hint: '', run: () => runSlash('/clear') },
+        { id: 'status', label: 'Show Status (/status)', hint: '', run: () => runSlash('/status') },
+        { id: 'sessions', label: 'List Sessions (/sessions)', hint: '', run: () => runSlash('/sessions') },
+        { id: 'settings', label: 'Open Settings', hint: '⌘,', run: () => openSettings() },
+        { id: 'notify', label: 'Enable Desktop Notifications', hint: '', run: () => enableNotifications() },
+        { id: 'abort', label: 'Abort Running Turn', hint: '⌘.', run: () => (state.running ? abortTurn() : toast('Nothing is running')) },
+        { id: 'quit', label: 'Quit SuperIU', hint: '⌘Q', run: () => openModal('quit') },
+        { id: 'focus', label: 'Focus Prompt Input', hint: '', run: () => promptInput.focus() }
+      ];
+
+      let paletteItems = PALETTE_COMMANDS;
+      let paletteIndex = 0;
+
+      function renderPalette(query) {
+        const list = $('palette-list');
+        list.innerHTML = '';
+        const needle = query.trim().toLowerCase();
+        paletteItems = PALETTE_COMMANDS.filter((cmd) => cmd.label.toLowerCase().includes(needle));
+        paletteIndex = Math.min(paletteIndex, Math.max(0, paletteItems.length - 1));
+
+        if (!paletteItems.length) {
+          list.appendChild(el('li', 'siu-palette-empty', 'No matching commands'));
+          return;
+        }
+
+        // `data-active` is the single source of truth, so hover and keyboard
+        // selection can never disagree.
+        paletteItems.forEach((cmd, index) => {
+          const item = el('li', 'siu-palette-item');
+          item.dataset.active = String(index === paletteIndex);
+          item.setAttribute('role', 'option');
+          item.setAttribute('aria-selected', String(index === paletteIndex));
+          item.appendChild(el('span', 'siu-palette-item-label', cmd.label));
+          if (cmd.hint) item.appendChild(el('span', 'siu-kbd', cmd.hint));
+          item.addEventListener('mouseenter', () => setPaletteIndex(index));
+          item.addEventListener('click', () => executePalette(index));
+          list.appendChild(item);
+        });
+      }
+
+      function setPaletteIndex(index) {
+        if (index === paletteIndex) return;
+        paletteIndex = index;
+        const rows = $('palette-list').children;
+        for (let i = 0; i < rows.length; i += 1) {
+          rows[i].dataset.active = String(i === index);
+          rows[i].setAttribute('aria-selected', String(i === index));
+        }
+      }
+
+      function executePalette(index) {
+        const cmd = paletteItems[index];
+        if (!cmd) return;
+        closeModal('palette');
+        void cmd.run();
+      }
+
+      $('palette-input').addEventListener('input', (event) => {
+        paletteIndex = 0;
+        renderPalette(event.target.value);
+      });
+      $('palette-input').addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowDown') {
+          event.preventDefault();
+          setPaletteIndex(Math.min(paletteIndex + 1, paletteItems.length - 1));
+          return;
+        }
+        if (event.key === 'ArrowUp') {
+          event.preventDefault();
+          setPaletteIndex(Math.max(paletteIndex - 1, 0));
+          return;
+        }
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          executePalette(paletteIndex);
+        }
+      });
+
+      // =======================================================================
+      // Titlebar buttons
+      // =======================================================================
+      // The Electron shell's `hiddenInset` chrome already draws the three real
+      // traffic lights, so the in-page set is a duplicate there — remove it and
+      // let the native controls (and the 84px titlebar inset) take over.
+      if (window.superiuDesktop) {
+        $('fake-traffic')?.remove();
+      } else {
+        // Browser tab: no native lights exist, so these are the only ones. They
+        // are labelled for what they actually do — not for the macOS
+        // accelerators their appearance might suggest.
+        $('tl-close')?.addEventListener('click', () => openModal('quit'));
+        $('tl-min')?.addEventListener('click', () => toggleRail());
+        $('tl-max')?.addEventListener('click', () => document.documentElement.requestFullscreen?.().catch(() => {}));
+      }
+      $('quit-confirm').addEventListener('click', async () => {
+        try {
+          await postJson('/api/shutdown', {});
+        } catch {
+          /* server is going down */
+        }
+        closeAllModals();
+        transcript.innerHTML = '';
+        transcript.appendChild(systemNote('SuperIU web shell shut down. This tab can be closed.'));
+      });
+
+      $('btn-settings').addEventListener('click', () => void openSettings());
+      $('btn-palette').addEventListener('click', () => openModal('palette'));
+
+      // =======================================================================
+      // Main model selector (chat header)
+      // =======================================================================
+      $('model-select').addEventListener('change', async (event) => {
+        const modelName = event.target.value;
+        if (!modelName || state.running) {
+          if (state.running) toast('Abort the running turn first', 'error');
+          return;
+        }
+        try {
+          await postJson('/api/model', { role: 'main', model: modelName });
+          await refreshStatus();
+          toast('Main model → ' + modelName, 'ok');
+        } catch (err) {
+          toast(err.message, 'error');
+          await refreshStatus();
+        }
+      });
+
+      // =======================================================================
+      // Input bar
+      // =======================================================================
+      function autosize() {
+        promptInput.style.height = 'auto';
+        promptInput.style.height = Math.min(promptInput.scrollHeight, 192) + 'px';
+      }
+
+      function submit() {
+        const value = promptInput.value;
+        if (!value.trim() || state.running) return;
+        promptInput.value = '';
+        autosize();
+
+        if (value.trim().startsWith('/')) {
+          void runSlash(value.trim());
+          return;
+        }
+        void sendPrompt(value);
+      }
+
+      promptInput.addEventListener('input', autosize);
+      promptInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.shiftKey && !event.metaKey) {
+          event.preventDefault();
+          submit();
+          return;
+        }
+
+        const entries = state.promptsSent;
+        if (event.key === 'ArrowUp' && entries.length) {
+          const atStart = promptInput.selectionStart === 0 && promptInput.selectionEnd === 0;
+          if (!atStart && promptInput.value.includes('\n')) return;
+          if (state.historyIndex === -1) state.historyDraft = promptInput.value;
+          state.historyIndex = Math.min(state.historyIndex + 1, entries.length - 1);
+          promptInput.value = entries[entries.length - 1 - state.historyIndex];
+          event.preventDefault();
+          autosize();
+          promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length);
+          return;
+        }
+
+        if (event.key === 'ArrowDown' && state.historyIndex >= 0) {
+          state.historyIndex -= 1;
+          promptInput.value =
+            state.historyIndex === -1 ? state.historyDraft : entries[entries.length - 1 - state.historyIndex];
+          event.preventDefault();
+          autosize();
+          promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length);
+        }
+      });
+
+      $('btn-send').addEventListener('click', submit);
+      $('btn-abort').addEventListener('click', () => void abortTurn());
+
+      transcript.addEventListener('scroll', syncScrollEdges, { passive: true });
+      new ResizeObserver(syncScrollEdges).observe(transcript);
+      syncScrollEdges();
+
+      document.querySelectorAll('.siu-slash-pill').forEach((pill) => {
+        pill.addEventListener('click', () => void runSlash(pill.dataset.cmd));
+      });
+
+      $('btn-new').addEventListener('click', () => void createNewSession());
+      $('btn-clear').addEventListener('click', () => void runSlash('/clear'));
+
+      $('session-select').addEventListener('change', async (event) => {
+        const reference = event.target.value;
+        if (!reference) return;
+        if (state.running) {
+          toast('Abort the running turn first', 'error');
+          await refreshSessions();
+          return;
+        }
+        try {
+          const payload = await postJson('/api/sessions/load', { sessionIdOrPath: reference });
+          renderStatus(payload.status);
+          renderMessages(payload.messages || []);
+          toast('Loaded session ' + reference.slice(0, 8), 'ok');
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      });
+
+      // =======================================================================
+      // Boot
+      // =======================================================================
+      (async function boot() {
+        autosize();
+        try {
+          renderStatus(await api('/api/status'));
+          renderMessages(await api('/api/messages'));
+        } catch (err) {
+          toast('Boot failed: ' + err.message, 'error');
+          renderEmptyState();
+        }
+        await refreshSessions();
+        await refreshHistory();
+        try {
+          fillSettingsForm(await api('/api/settings'));
+        } catch {
+          /* settings stay unavailable until the modal is opened */
+        }
+        state.notifyEnabled = Boolean(Notifications) && Notifications.permissionState?.() === 'granted';
+        renderNotifyButton();
+
+        // Emotion decays toward baseline while idle — keep the meters honest.
+        setInterval(() => {
+          if (!state.running) void refreshStatus();
+        }, 20000);
+      })();
+    </script>
+  </body>
+</html>

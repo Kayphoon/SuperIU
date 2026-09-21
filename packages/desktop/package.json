@@ -1,0 +1,23 @@
+{
+  "name": "@agent/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "productName": "SuperIU",
+  "type": "module",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "@agent/core": "workspace:*",
+    "@agent/ui": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "electron": "^44.4.3",
+    "typescript": "^5.8.2"
+  }
+}

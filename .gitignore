@@ -6,3 +6,20 @@ dist/
 .idea/
 .myagent/
 *.log
+
+# Scratch / throwaway output
+notes/
+tmp/
+scratch/
+*.tmp
+
+# Stray tsc emit inside src/ (build output belongs in dist/)
+packages/*/src/**/*.js
+packages/*/src/**/*.js.map
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.d.ts.map
+scripts/*.js
+scripts/*.js.map
+scripts/*.d.ts
+scripts/*.d.ts.map
+*.tsbuildinfo

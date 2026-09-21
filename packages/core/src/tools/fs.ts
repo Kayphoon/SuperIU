@@ -3,6 +3,7 @@ import { z } from 'zod';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { handleSpillover } from '../spillover.js';
+import { executeBashCommand } from './bash.js';
 
 export interface FsToolOptions {
   workspaceDir?: string;
@@ -42,26 +43,48 @@ export function createReadFileTool(options: FsToolOptions = {}) {
   });
 }
 
-export function createWriteFileTool(options: FsToolOptions = {}) {
+export function createWriteFileTool(
+  options: FsToolOptions & { getSignal?: () => AbortSignal | undefined } = {}
+) {
   return tool({
-    description: 'Write or overwrite text content to a specified file within the workspace.',
+    description:
+      'Write or overwrite text content to a specified file within the workspace, optionally executing a follow-up bash command.',
     parameters: z.object({
       path: z.string().describe('Relative or absolute file path to write to'),
-      content: z.string().describe('Text content to write to the file')
+      content: z.string().describe('Text content to write to the file'),
+      then_run: z
+        .string()
+        .optional()
+        .describe(
+          'Optional bash command to execute immediately after writing (e.g. build, test, run). Fuses write and verification into a single step.'
+        )
     }),
-    execute: async ({ path: targetPath, content }) => {
+    execute: async ({ path: targetPath, content, then_run }) => {
       const baseDir = options.workspaceDir ? path.resolve(options.workspaceDir) : process.cwd();
       const resolvedPath = path.isAbsolute(targetPath) ? targetPath : path.resolve(baseDir, targetPath);
 
       try {
         await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
         await fs.writeFile(resolvedPath, content, 'utf-8');
-        const bytes = Buffer.byteLength(content, 'utf-8');
-        return `Successfully wrote ${bytes} bytes to ${targetPath}`;
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         return `[Error writing file ${targetPath}: ${message}]`;
       }
+
+      const bytes = Buffer.byteLength(content, 'utf-8');
+      const writeResult = `Successfully wrote ${bytes} bytes to ${targetPath}`;
+
+      if (!then_run) {
+        return writeResult;
+      }
+
+      const bashOutput = await executeBashCommand(then_run, {
+        workspaceDir: options.workspaceDir,
+        spilloverDir: options.spilloverDir,
+        getSignal: options.getSignal
+      });
+
+      return `${writeResult}\n\n[then_run: ${then_run}]\n${bashOutput}`;
     }
   });
 }
