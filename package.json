@@ -1,0 +1,17 @@
+{
+  "name": "superiu",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm --filter \"@agent/*\" run build",
+    "typecheck": "pnpm --filter \"@agent/*\" run typecheck",
+    "dev": "pnpm --filter \"@agent/cli\" run dev",
+    "cli": "pnpm --filter \"@agent/cli\" run start",
+    "test": "node scripts/smoke-test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "typescript": "^5.8.2"
+  }
+}
