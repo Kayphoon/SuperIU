@@ -11,6 +11,7 @@
  */
 
 import { app, BrowserWindow, Menu, Notification, ipcMain, shell } from 'electron';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,8 +21,19 @@ import { INVOKE, type NotificationPayload } from './ipc.js';
 import { buildMenuTemplate, createMenuDispatcher } from './menu.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const APP_ROOT = path.resolve(HERE, '..', '..', '..');
 const APP_NAME = 'SuperIU';
+
+/**
+ * Root of the shipped application payload.
+ *
+ * Packaged, that is `Contents/Resources/app` (where the bundle places `dist/`,
+ * `docs/` and `node_modules/`); in development it is `packages/desktop`, one
+ * level above `dist/`. `app.isPackaged` is the only reliable discriminator —
+ * deriving it from the directory depth alone breaks in one of the two layouts.
+ */
+function appRoot(): string {
+  return app.getAppPath();
+}
 
 /** Window geometry: generous default, sane floor for the three-pane layout. */
 const DEFAULT_WIDTH = 1280;
@@ -56,8 +68,18 @@ const dispatchToRenderer = createMenuDispatcher((channel, payload) => {
 });
 
 function openDocs(): void {
-  // Local documentation ships with the repo; no network dependency.
-  void shell.openPath(path.join(APP_ROOT, 'docs', 'agent-loop-and-context-architecture.md'));
+  // The bundler ships `docs/` inside the app payload; a development checkout
+  // keeps them at the repository root, one level above `packages/desktop`.
+  const candidates = [
+    path.join(appRoot(), 'docs', 'shells-guide.md'),
+    path.resolve(appRoot(), '..', '..', 'docs', 'shells-guide.md')
+  ];
+  const doc = candidates.find((candidate) => fs.existsSync(candidate));
+  if (!doc) {
+    console.warn('[superiu] documentation not found; looked in:', candidates.join(', '));
+    return;
+  }
+  void shell.openPath(doc);
 }
 
 function installApplicationMenu(): void {
@@ -205,7 +227,18 @@ app.setAboutPanelOptions({
 async function bootstrap(): Promise<void> {
   await app.whenReady();
 
-  serverHandle = await startServer({ port: 0, quiet: true });
+  // A bundled app launched from Finder or Spotlight inherits `cwd = /`, which is
+  // not writable: the engine's first `mkdir .myagent/…` would throw ENOENT and
+  // the app would exit before showing a window. A GUI app has no "directory it
+  // was started from", so the workspace is the user's home — the same place the
+  // engine already falls back to for memory. `chdir` (rather than only passing
+  // `workspaceDir`) keeps every cwd-relative path in the engine coherent, and
+  // the explicit option means the session store never depends on that.
+  const workspace = app.isPackaged ? app.getPath('home') : process.cwd();
+  process.chdir(workspace);
+
+  serverHandle = await startServer({ port: 0, quiet: true, workspaceDir: workspace });
+  console.log(`[superiu] workspace ${workspace}`);
   console.log(`[superiu] UI server listening on ${serverHandle.url}`);
 
   mainWindow = createWindow(serverHandle.url);

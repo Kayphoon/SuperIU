@@ -27,6 +27,7 @@ Launch a shell:
 pnpm cli        # terminal REPL
 pnpm ui         # local web console, http://127.0.0.1:3000
 pnpm desktop    # macOS native shell (needs a graphical session)
+pnpm app:install  # build + install SuperIU.app into ~/Applications (macOS)
 pnpm test       # smoke test suite (requires pnpm build first)
 ```
 
@@ -37,6 +38,22 @@ pnpm typecheck  # type-check all @agent/* packages
 ```
 
 > `pnpm desktop` launches the macOS shell, which embeds the same web console in an Electron window. It requires a graphical session — it cannot run headless. See [Architecture at a glance](#architecture-at-a-glance).
+
+### Installing SuperIU as a macOS app
+
+`pnpm desktop` is a development runner — it boots the Electron framework's own bundle, which is named "Electron", so Spotlight (聚焦搜索) cannot find it. To install SuperIU as a first-class application:
+
+```bash
+pnpm app:install
+```
+
+This builds `SuperIU.app` (own bundle identifier `com.superiu.desktop`, own icon, self-contained runtime) and installs it to `~/Applications`, then registers it with LaunchServices and Spotlight. Afterwards:
+
+```bash
+open -a SuperIU                # or: open -b com.superiu.desktop
+```
+
+…and ⌘+Space → `SuperIU` → Enter works too. Re-run `pnpm app:install` after changing source. Full details, including how the bundle is assembled, are in the [shells guide](docs/shells-guide.md#installing-as-a-real-macos-app).
 
 ## Configuration
 

@@ -9,6 +9,7 @@
     "cli": "pnpm --filter \"@agent/cli\" run start",
     "ui": "pnpm --filter \"@agent/ui\" run start",
     "desktop": "pnpm --filter \"@agent/desktop\" run start",
+    "app:install": "pnpm --filter \"@agent/desktop\" run package:mac",
     "test": "node scripts/smoke-test.ts"
   },
   "devDependencies": {

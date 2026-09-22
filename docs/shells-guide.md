@@ -197,6 +197,50 @@ An Electron app named `SuperIU` that wraps the existing web console in a native 
 
 **Launching requires a graphical session.** This is a native window with macOS vibrancy, so it cannot run headless over SSH or in a display-less environment. The package builds and its entry point (`dist/main.js`) exists; `pnpm --filter @agent/desktop exec electron --version` reports `v44.4.3`.
 
+### Installing as a real macOS app
+
+`pnpm desktop` is a *development* runner: it boots `node_modules/electron/dist/Electron.app`, whose bundle is named "Electron" (`CFBundleName = Electron`, `CFBundleIdentifier = com.github.Electron`). Spotlight resolves ⌘+Space queries through LaunchServices, which only knows about `.app` bundles in indexed locations carrying the product's own name — so a bare `electron .` can never be found by Spotlight, however the window is titled.
+
+To get a first-class app, build and install the bundle:
+
+```bash
+pnpm app:install      # = pnpm --filter @agent/desktop run package:mac
+```
+
+`packages/desktop/scripts/bundle-mac.ts` then:
+
+1. compiles `@agent/core`, `@agent/ui` and `@agent/desktop` if their `dist/` is stale;
+2. copies `Electron.app` to `packages/desktop/dist/SuperIU.app` and renames the executable to `SuperIU`;
+3. rewrites the identity in `Contents/Info.plist` (`CFBundleName`, `CFBundleDisplayName`, `CFBundleIdentifier = com.superiu.desktop`, `CFBundleExecutable`, `CFBundleIconFile`) and namespaces the four helper bundles under the same identifier;
+4. installs `assets/icon.icns` as `Contents/Resources/app.icns`;
+5. assembles `Contents/Resources/app` — the desktop `dist/`, the docs, and a `node_modules/` holding the exact runtime closure of `@agent/core` + `@agent/ui` (46 packages, with conflicting versions nested exactly as Node's resolver expects);
+6. ad-hoc re-signs the bundle, because editing `Info.plist` invalidates the seal Electron ships with;
+7. installs to `~/Applications/SuperIU.app`, clears quarantine, and registers with LaunchServices + `mdimport`.
+
+Afterwards the app is a normal macOS application:
+
+```bash
+open -a SuperIU                  # by name
+open -b com.superiu.desktop      # by bundle id
+```
+
+⌘+Space → `SuperIU` → Enter also works. To confirm Spotlight sees it:
+
+```bash
+mdls -name kMDItemDisplayName ~/Applications/SuperIU.app
+mdfind "kMDItemFSName == 'SuperIU.app'"
+```
+
+The icon comes from `assets/icon-source.webp`, the original monochrome line-art drawing. `scripts/make-icon.swift` turns it into the app icon: it reduces the drawing to a two-tone mask (which discards the source's white sticker border and its soft drop shadow), crops to the ink's own bounding box, and centres it on a white 1024×1024 Big Sur squircle — an 824×824 plate on a 100px margin, matching Apple's own grid, so the Dock's perspective treatment lands correctly. Because the plate is white and the art is white-backed line work, the drawing reads as ink printed on the plate rather than a picture pasted onto it.
+
+```bash
+swift scripts/make-icon.swift assets/icon-source.webp assets/icon.png
+```
+
+`assets/icon.png` is the committed source of truth; `assets/icon.icns` is derived from it by `pnpm app:install` (via `sips` + `iconutil`, all ten sizes), so the two can never drift apart. Regenerate the PNG and re-run the packaging script whenever the artwork changes.
+
+> Re-run `pnpm app:install` after changing any source. The script rebuilds stale packages automatically; only `--no-install` (bundle without installing) is needed for a dry run.
+
 ### Why a native shell exists at all
 
 In a browser tab the OS and the browser own `Cmd+Q` and `Cmd+,` — a web page cannot intercept them. "Native macOS operations" (quit, settings, window control) is therefore undeliverable from `pnpm ui` alone. That gap is precisely what this package fills: it installs a real application menu whose accelerators are handled by Electron *before* the renderer ever sees a `keydown`.
@@ -228,7 +272,7 @@ Beyond the menu, the shell adds:
 - **Native notifications** and a **dock badge** (`setBadgeCount`), driven by the renderer over IPC.
 - **Window chrome** — `titleBarStyle: 'hiddenInset'` with macOS `under-window` vibrancy; the SPA renders its own header bar with a matching drag region.
 - **Graceful shutdown** — `before-quit` closes the in-process server handle before the app exits, so no orphan process or open SQLite handle outlives the window.
-- **Documentation item** in the Help menu that opens `docs/agent-loop-and-context-architecture.md` locally.
+- **Documentation item** in the Help menu that opens `docs/shells-guide.md` locally. The bundler ships `docs/` inside the app payload, so the item works in the installed app too — not just in a checkout.
 
 The renderer never touches `ipcRenderer` directly. A sandboxed preload (`src/preload.cts`, `contextIsolation: true`, `sandbox: true`) exposes a frozen `window.superiuDesktop` surface: `onMenu`, `setBadgeCount`, `showNotification`, `flashFrame`, and `quit`.
 
