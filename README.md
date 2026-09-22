@@ -1,5 +1,7 @@
 # SuperIU
 
+[![CI](https://github.com/Kayphoon/SuperIU/actions/workflows/ci.yml/badge.svg)](https://github.com/Kayphoon/SuperIU/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
 **One Core, Two Shells** — an autonomous coding agent built as a pure engine plus thin, swappable user interfaces.
 
 The core knows nothing about terminals, colours, or GUIs. Every shell is a client of the same engine, so behaviour, session state, and safety policy are identical no matter where you drive it from. "Two shells" means two *presentation* families — the terminal, and the GUI (the web console and the macOS app).
@@ -28,7 +30,7 @@ pnpm cli        # terminal REPL
 pnpm ui         # local web console, http://127.0.0.1:3000
 pnpm desktop    # macOS native shell (needs a graphical session)
 pnpm app:install  # build + install SuperIU.app into ~/Applications (macOS)
-pnpm test       # smoke test suite (requires pnpm build first)
+pnpm test       # smoke test suite (self-building, 60 assertions)
 ```
 
 Type-checking without emitting:

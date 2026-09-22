@@ -1,6 +1,7 @@
 {
   "name": "@agent/desktop",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "productName": "SuperIU",
   "type": "module",
