@@ -480,6 +480,24 @@ function locateElectronApp(): string {
   for (const candidate of candidates) {
     if (fs.existsSync(candidate)) return candidate;
   }
+
+  // A clean CI runner may have the `electron` package installed without its
+  // postinstall having run (frozen lockfile, `--ignore-scripts`, cache hits).
+  // The package ships an `install.js` that downloads the binary; run it and
+  // re-check before giving up.
+  const installScripts = [
+    path.join(PKG_DIR, 'node_modules', 'electron', 'install.js'),
+    path.join(REPO_ROOT, 'node_modules', 'electron', 'install.js')
+  ];
+  const installScript = installScripts.find((script) => fs.existsSync(script));
+  if (installScript) {
+    log('electron', 'Runtime missing — downloading via install.js');
+    execFileSync(process.execPath, [installScript], { stdio: 'inherit' });
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  }
+
   fail(
     `Electron.app not found. Looked in:\n  ${candidates.join('\n  ')}\n` +
       'Run `pnpm install` to download the Electron runtime.'
