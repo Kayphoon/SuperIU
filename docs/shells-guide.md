@@ -241,6 +241,16 @@ swift scripts/make-icon.swift assets/icon-source.webp assets/icon.png
 
 > Re-run `pnpm app:install` after changing any source. The script rebuilds stale packages automatically; only `--no-install` (bundle without installing) is needed for a dry run.
 
+#### Distributing a build
+
+To produce a shippable archive instead of installing locally:
+
+```bash
+pnpm --filter @agent/desktop run package:zip
+```
+
+`--zip` runs the same assembly, then writes `packages/desktop/dist/SuperIU-<version>-mac-<arch>.zip` via `ditto -c -k --keepParent`. The bundle is ~309 MB on disk (286 MB of it the Electron framework); the archive is ~126 MB, which is what a download costs. `ditto` is used rather than `zip` because it preserves the symlinks and extended attributes inside `Electron Framework.framework` that codesign verifies.
+
 ### Why a native shell exists at all
 
 In a browser tab the OS and the browser own `Cmd+Q` and `Cmd+,` — a web page cannot intercept them. "Native macOS operations" (quit, settings, window control) is therefore undeliverable from `pnpm ui` alone. That gap is precisely what this package fills: it installs a real application menu whose accelerators are handled by Electron *before* the renderer ever sees a `keydown`.

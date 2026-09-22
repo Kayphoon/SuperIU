@@ -35,6 +35,8 @@
  * Usage:
  *   tsx scripts/bundle-mac.ts                 # bundle, install, register
  *   tsx scripts/bundle-mac.ts --no-install    # bundle only (dist/SuperIU.app)
+ *   tsx scripts/bundle-mac.ts --zip           # also write a distributable .zip
+ *                                             # next to the bundle
  *
  * macOS only: it drives `plutil`, `codesign`, `xattr`, `lsregister`, `mdimport`,
  * `sips` and `iconutil`. Re-runnable; every step is idempotent.
@@ -101,6 +103,7 @@ const BUILD_TARGETS = [
 const ENTRY_PACKAGES = ['@agent/core', '@agent/ui'];
 
 const INSTALL = !process.argv.includes('--no-install');
+const CREATE_ZIP = process.argv.includes('--zip');
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -658,6 +661,15 @@ function main(): void {
     verify();
   } else {
     log('bundle', `ready at ${path.relative(REPO_ROOT, APP_PATH)}`);
+  }
+
+  if (CREATE_ZIP) {
+    const zipName = `${APP_NAME}-${version}-mac-${process.arch}.zip`;
+    const zipPath = path.join(DIST_DIR, zipName);
+    fs.rmSync(zipPath, { force: true });
+    run('/usr/bin/ditto', ['-c', '-k', '--keepParent', APP_PATH, zipPath]);
+    const sizeMb = (fs.statSync(zipPath).size / (1024 * 1024)).toFixed(1);
+    log('zip', `distribution archive ${path.relative(REPO_ROOT, zipPath)} (${sizeMb} MB)`);
   }
 
   console.log(`\n✓ ${APP_NAME} ${version} packaged${INSTALL ? ' and installed' : ''}.\n`);

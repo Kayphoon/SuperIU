@@ -30,6 +30,7 @@ pnpm cli        # terminal REPL
 pnpm ui         # local web console, http://127.0.0.1:3000
 pnpm desktop    # macOS native shell (needs a graphical session)
 pnpm app:install  # build + install SuperIU.app into ~/Applications (macOS)
+pnpm app:zip    # build + write a distributable .zip instead of installing
 pnpm test       # smoke test suite (self-building, 60 assertions)
 ```
 

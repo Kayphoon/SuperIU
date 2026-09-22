@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
     "start": "electron .",
-    "package:mac": "tsx scripts/bundle-mac.ts"
+    "package:mac": "tsx scripts/bundle-mac.ts",
+    "package:zip": "tsx scripts/bundle-mac.ts --zip"
   },
   "dependencies": {
     "@agent/core": "workspace:*",

@@ -11,6 +11,7 @@
     "ui": "pnpm --filter \"@agent/ui\" run start",
     "desktop": "pnpm --filter \"@agent/desktop\" run start",
     "app:install": "pnpm --filter \"@agent/desktop\" run package:mac",
+    "app:zip": "pnpm --filter \"@agent/desktop\" run package:zip",
     "test": "pnpm build && node scripts/smoke-test.ts"
   },
   "devDependencies": {
