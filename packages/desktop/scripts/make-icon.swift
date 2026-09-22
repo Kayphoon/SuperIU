@@ -158,9 +158,42 @@ func squirclePath(half: CGFloat) -> CGPath {
   return path
 }
 
-icon.addPath(squirclePath(half: CGFloat(plate) / 2))
+let platePath = squirclePath(half: CGFloat(plate) / 2)
+
+// A white plate on a light background has no luminance edge of its own, so it
+// would dissolve into Finder windows, Spotlight rows and pale desktops. Apple's
+// grid reserves the 100px gutter for exactly this: an ambient shadow cast by the
+// plate, plus a hairline rim that draws the silhouette where the shadow is too
+// soft to read.
+let shadowOffsetY: CGFloat = -12
+let shadowBlur: CGFloat = 24
+let shadowAlpha: CGFloat = 0.18
+let rimWidth: CGFloat = 1
+let rimAlpha: CGFloat = 0.08
+
+icon.addPath(platePath)
+icon.setShadow(
+  offset: CGSize(width: 0, height: shadowOffsetY),
+  blur: shadowBlur,
+  color: CGColor(srgbRed: 0, green: 0, blue: 0, alpha: shadowAlpha))
 icon.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
 icon.fillPath()
+
+// The shadow must not bleed onto the line work or the rim, so it is cleared
+// before either is drawn.
+icon.setShadow(offset: .zero, blur: 0, color: nil)
+
+// The rim is drawn clipped to the plate so a 1pt stroke lands as a crisp pixel
+// row just inside the edge, instead of being split across the two pixels the
+// boundary straddles.
+icon.saveGState()
+icon.addPath(platePath)
+icon.clip()
+icon.addPath(platePath)
+icon.setStrokeColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: rimAlpha))
+icon.setLineWidth(rimWidth * 2)
+icon.strokePath()
+icon.restoreGState()
 
 // Fit the ink inside the plate with a margin, so the drawing never crowds the
 // curve. Height is the binding dimension for a portrait subject.
