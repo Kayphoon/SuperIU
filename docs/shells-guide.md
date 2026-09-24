@@ -20,6 +20,29 @@ cp .env.example .env    # then fill in your credentials
 
 ---
 
+## Interface language
+
+Every shell ships **Chinese by default**; English is a first-class alternative, switchable at runtime.
+
+| Shell | How to switch | Where it is stored |
+| --- | --- | --- |
+| Web console / desktop | Settings dialog (⌘,) → **界面语言 / Interface Language** | `.myagent/ui-settings.json` → `language` |
+| macOS desktop | same control; the native menu bar rebuilds immediately | same file |
+| Terminal | `SUPERIU_LANGUAGE=zh\|en pnpm cli` | read-only — the CLI never writes the settings file |
+
+Resolution order is the same everywhere: an explicit `SUPERIU_LANGUAGE` environment variable, then the `language` field in `.myagent/ui-settings.json`, then `zh`. A value the build cannot render is ignored rather than honored, so an older shell reading a newer settings file degrades to the default instead of showing a half-translated UI.
+
+The web console also mirrors the choice into `localStorage` so the first paint after a reload is already in the right language, with no English flash while `/api/settings` is in flight. The settings file remains authoritative — it is what the dialog edits and what the desktop shell reads at launch to build its menu bar.
+
+Two things stay English on purpose, because translating them would break behaviour rather than improve it:
+
+- The **operational posture** body in the secondary menu. That text is injected verbatim into the system prompt (`# OPERATIONAL POSTURE`), so the drawer shows the model's actual instructions; a translated copy would describe something the model never received. The posture *badge* itself is localized.
+- Machine-readable values — status ids (`idle`, `running`, `tool_calling`), model names, session ids, JSONL paths, and the `/status` field labels — are data, not prose.
+
+The desktop native menu is a main-process surface with its own small label table (`packages/desktop/src/menu.ts`); the browser dictionary (`packages/ui/public/i18n.js`) is not reachable from the packaged main process. The terminal has its own table (`packages/cli/src/language.ts`) for the same reason. The three tables deliberately share key *names* for shared concepts so the shells cannot drift semantically.
+
+---
+
 ## Terminal shell — `pnpm cli`
 
 ```bash
@@ -47,9 +70,9 @@ Type a task and press Enter to run it. Type `/` for commands. Prompts are record
 | `/status` | State, session id, JSONL log path, leaf id, active-branch message count, emotion, models, approval mode, memory dir. |
 | `/clear` | Appends a `reset_boundary` entry and truncates the active context to empty. The prior branch stays on disk. |
 | `/history [query]` | Recent prompt history, newest first, up to 20 entries. Optional substring filter. |
-| `/sessions` | Lists JSONL sessions for this workspace, newest first, marking the active one with `*`. |
+| `/sessions` | Lists JSONL sessions for this workspace, newest first, marking the active one with `*`. A session still awaiting its first message has no file yet, so it is absent and nothing is starred. |
 | `/load <session-id\|file-name\|path>` | Loads a session by id, file name, or absolute path and makes it active. |
-| `/new [title]` | Starts a fresh JSONL session and switches to it. |
+| `/new [title]` | Starts a fresh session and switches to it. The JSONL file is not created until the first message; until then the printed path is the planned one. |
 | `/memory` | Mines the active conversation for durable facts and writes them to `MEMORY.md` / `USER.md`. `SOUL.md` is never touched. Idempotent — facts already present are skipped. |
 | `/help` | Prints the command list. |
 | `/exit`, `/quit` | Closes the runner and exits. |
@@ -120,7 +143,13 @@ Open the printed URL. Bind address and port come from `HOST` and `PORT` (default
 
 > The console has **no authentication** and can run shell commands through the agent. Keep it on loopback unless you understand the exposure.
 
-The console covers the same ground as the CLI: streaming turns, the approval card, session switching, prompt history, and a Settings dialog (⌘,) for credentials and models. Settings are persisted to `.myagent/ui-settings.json`, seeded from the environment on first run; the file wins once written. Slash pills in the UI expose `/clear`, `/status`, and `/sessions`.
+The console covers the same ground as the CLI: streaming turns, the approval card, session switching, prompt history, and a Settings dialog (⌘,) for credentials, models, and the interface language. Settings are persisted to `.myagent/ui-settings.json`, seeded from the environment on first run; the file wins once written. Slash pills in the UI expose `/clear`, `/status`, and `/sessions`.
+
+The interface defaults to Chinese; see [Interface language](#interface-language) for the switch and the resolution order.
+
+The window keeps a deliberately small primary surface: the message list, the composer, and a titlebar. Everything else lives in the **secondary menu** (`⌘J`, or the `More` button in the titlebar) — session switching, model routing, live status, the emotion/posture read-outs, session internals, prompt history, and the notify / palette / settings actions. It opens as a fixed drawer over the transcript, so opening it never reflows the conversation; `Esc`, the close button, or the scrim dismisses it. In the desktop shell the same panel is what the middle titlebar control opens, since macOS already draws the real traffic lights. Because a new session stays an unstarted draft until its first message, the session selector shows an `(未开始的新会话)` placeholder instead of a selectable entry, and the status panel qualifies the log path with `(not written yet)`.
+
+> The toggle is `⌘J`, not `⌘M`: macOS reserves `⌘M` for Minimize in a plain browser tab (the page never receives the keydown), and in the Electron shell the Window menu's `{ role: 'minimize' }` carries `CommandOrControl+M` with `registerAccelerator: true`, so the native menu consumes it before the renderer. `⌘J` is free in both shells.
 
 ### HTTP API
 
@@ -128,13 +157,13 @@ All routes live under `/api/`. JSON in, JSON out, except `/api/chat`, which stre
 
 | Method | Path | Body | Response |
 | --- | --- | --- | --- |
-| `GET` | `/api/status` | — | Agent status: `status`, `sessionId`, `leafId`, `sessionFile`, `messageCount`, `model`, `reviewModel`, `autoReview`, `modelChoices`, `modelRoutes`, `memoryDir`, `settingsFile`, `workstation`, `emotion`, `posture`. |
+| `GET` | `/api/status` | — | Agent status: `status`, `sessionId`, `leafId`, `sessionFile`, `sessionPersisted`, `messageCount`, `model`, `reviewModel`, `autoReview`, `modelChoices`, `modelRoutes`, `memoryDir`, `settingsFile`, `workstation`, `emotion`, `posture`. `sessionPersisted` is false while the session is still a draft, so the panel qualifies the log path with `(not written yet)`. `posture` is `{ key, label, modifier }`: `key` is one of `terse`, `cautious`, `constructive`, `driven`, `pragmatic` and is what the console localizes; `label` keeps the English string for non-localizing consumers; `modifier` is the verbatim system-prompt text. |
 | `GET` | `/api/models` | — | Per-role routes: `{ main, review, title, memory }`, each `{ model, apiKey, baseURL, maxTokens }`. |
 | `POST` | `/api/model` | `{ role, model }` | Switches a role's model at runtime and returns `{ role, model, routes }`. Takes effect on the next turn; never disturbs a running one. `role` defaults to `main`; valid roles are `main`, `review`, `title`, `memory`. Selecting `main` or `review` also persists to settings. `400` if `model` is missing or the role is unknown. |
-| `GET` | `/api/settings` | — | Masked API key (`apiKeyMasked`, `apiKeySet`), `baseURL`, `modelName`, `reviewModelName`, `autoReview`, `modelChoices`, `settingsFile`, and an `env` block reporting which variables are set. |
-| `POST` | `/api/settings` | partial settings | Applies and persists a settings patch, rebuilds the runner, and returns the new settings plus `{ restarted, sessionId }`. `409` if a turn is running — abort first. |
-| `GET` | `/api/sessions` | — | Session list, each `{ id, title, timestamp, cwd, filePath, mtimeMs, active }`. |
-| `POST` | `/api/sessions/new` | — | Starts a fresh session; returns `{ status, messages }`. |
+| `GET` | `/api/settings` | — | Masked API key (`apiKeyMasked`, `apiKeySet`), `baseURL`, `modelName`, `reviewModelName`, `autoReview`, `language`, `modelChoices`, `settingsFile`, and an `env` block reporting which variables are set. |
+| `POST` | `/api/settings` | partial settings | Applies and persists a settings patch, rebuilds the runner, and returns the new settings plus `{ restarted, sessionId }`. `409` if a turn is running — abort first. `language` is presentation-only, so changing it never rebuilds the runner. `400` on an unsupported language id. |
+| `GET` | `/api/sessions` | — | Session list, each `{ id, title, timestamp, cwd, filePath, mtimeMs, active }`. Only sessions with at least one message are listed, so the active session is absent from the list while it is still an unstarted draft. |
+| `POST` | `/api/sessions/new` | — | Starts a fresh session as an **unstarted draft**: nothing is written to disk until its first message, so it does not appear in `GET /api/sessions` yet; returns `{ status, messages }`. |
 | `POST` | `/api/sessions/load` | `{ sessionIdOrPath }` | Loads a session; returns `{ status, messages }`. `400` if the field is missing, `404` if the session cannot be found. |
 | `GET` | `/api/messages` | — | Active branch messages, each `{ id, role, content, createdAt, toolCalls, toolResults }`. |
 | `POST` | `/api/clear` | — | Appends a `reset_boundary`; returns `{ status, messages }`. |
@@ -267,10 +296,13 @@ The application menu is built in `src/menu.ts`. Accelerators fall into two group
 | `Cmd+W` | Close window | **Electron application menu** (`role: 'close'`) |
 | `Cmd+R` | Reload | **Electron application menu** (`role: 'reload'`) |
 | `Alt+Cmd+I` | Toggle DevTools | **Electron application menu** |
-| `Cmd+K` | Focus Input | **SPA** — advertised in the menu with `registerAccelerator: false` |
+| `Cmd+K` | Focus Input (menu) / command palette (SPA) — divergent, see note | **SPA** — advertised in the menu with `registerAccelerator: false` |
 | `Cmd+.` | Abort Turn | **SPA** — advertised in the menu with `registerAccelerator: false` |
+| `Cmd+J` | Toggle the secondary menu | **SPA**, also advertised in the menu (`registerAccelerator: false`) |
 
-`Cmd+K` and `Cmd+.` are the important case: the SPA already owns those keystrokes (command palette / abort), so their menu items set `registerAccelerator: false`. They still appear in the menu bar, are discoverable, and dispatch when clicked — but they do not steal the key event from the page. `Cmd+Q` and `Cmd+,` are the mirror image: only the native menu can deliver them.
+`Cmd+K`, `Cmd+.` and `Cmd+J` are the interesting case: the SPA already owns those keystrokes, so their menu items set `registerAccelerator: false` and dispatch the same action when clicked. One caveat: that option is documented `@platform linux,win32`, so on macOS the accelerator may still be registered and win the key event before the renderer; on linux/win32 the page keeps the key and the item only acts when clicked.
+
+That divergence is harmless for `Cmd+.` (Abort) and `Cmd+J` (More), whose menu items dispatch exactly what the SPA's own handler does. It is **not** harmless for `Cmd+K`: the menu item is *Focus Input*, while the SPA binds ⌘K to the command palette. This is a pre-existing divergence — if macOS registers the accelerator, ⌘K in the desktop shell focuses the composer instead of opening the palette. It is out of scope here and left unchanged. `Cmd+Q` and `Cmd+,` are the mirror image: only the native menu can deliver them.
 
 Menu actions are forwarded to the renderer over the `superiu:menu` channel as `{ action }` (see `src/ipc.ts`); the Edit and Window menus use standard macOS roles.
 
@@ -284,7 +316,7 @@ Beyond the menu, the shell adds:
 - **Graceful shutdown** — `before-quit` closes the in-process server handle before the app exits, so no orphan process or open SQLite handle outlives the window.
 - **Documentation item** in the Help menu that opens `docs/shells-guide.md` locally. The bundler ships `docs/` inside the app payload, so the item works in the installed app too — not just in a checkout.
 
-The renderer never touches `ipcRenderer` directly. A sandboxed preload (`src/preload.cts`, `contextIsolation: true`, `sandbox: true`) exposes a frozen `window.superiuDesktop` surface: `onMenu`, `setBadgeCount`, `showNotification`, `flashFrame`, and `quit`.
+The renderer never touches `ipcRenderer` directly. A sandboxed preload (`src/preload.cts`, `contextIsolation: true`, `sandbox: true`) exposes a frozen `window.superiuDesktop` surface: `onMenu`, `setBadgeCount`, `showNotification`, `flashFrame`, `setLanguage`, and `quit`.
 
 ---
 
@@ -296,10 +328,10 @@ The renderer never touches `ipcRenderer` directly. A sandboxed preload (`src/pre
 | Best for | Scripting, piping, quick turns, working over SSH | Reading long output, reviewing diffs, clicking through approvals, session browsing | Day-to-day local use, with native menu, window chrome, and notifications |
 | Streaming output | Yes, in-terminal | Yes, with structured tool cards | Same as the web console |
 | Approval card | Terminal `[y/N]` prompt, defaults to No | In-page card with explicit Approve / Deny buttons | Same as the web console |
-| Session switching | `/sessions`, `/load`, `/new` | Session picker in the UI | Same as the web console |
-| Prompt history | `/history [query]` | History panel | Same as the web console |
-| Model switching | Edit `.env`, restart | Settings dialog, or `POST /api/model` at runtime | Same as the web console |
-| Keyboard-driven | Yes | Partly (⌘K palette, ⌘, settings) | Yes — ⌘K and ⌘. in the SPA, plus ⌘Q / ⌘, / ⌘N in the native menu |
+| Session switching | `/sessions`, `/load`, `/new` | Secondary menu (⌘J) | Same as the web console |
+| Prompt history | `/history [query]` | Secondary menu (⌘J) | Same as the web console |
+| Model switching | Edit `.env`, restart | Settings dialog, secondary menu, or `POST /api/model` at runtime | Same as the web console |
+| Keyboard-driven | Yes | Partly (⌘J menu, ⌘K palette, ⌘, settings) | Yes — ⌘J, ⌘K and ⌘. in the SPA, plus ⌘Q / ⌘, / ⌘N in the native menu |
 | Remote access | SSH into the host | HTTP — loopback by default, no auth | Local only — no remote access |
 
 Rule of thumb: **terminal for speed and scripting, web console for anything you want to look at.** Both drive the same engine, the same session format, and the same approval policy, so switching between them mid-project is safe — sessions are shared per workspace.

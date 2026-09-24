@@ -37,6 +37,7 @@ description: |
 - **持久化 role**: 内部 `tool` role 落盘为 `toolResult`（omp 驼峰命名），读回时反向映射。
 - **特殊条目**: `reset_boundary`（`/clear`，无 payload）、`compaction`（`summary` + `firstKeptEntryId`）、`branch_summary`（`fromId` + `summary`）。
 - **`buildSessionContext(leafId?)`**: 沿 `parentId` 回溯到根 → reverse 成时间正序 → 从链尾向前找最近 `reset_boundary` 截断 → 仅保留 `message` 条目 → 剔除悬空工具调用与孤儿工具结果。
+- **草稿语义**: `create()` 不落盘（header 与规划文件路径只在内存）；首个 entry（首条消息或 `/clear` 的 `reset_boundary`）落盘时才写出 header 行，此后每次 append 各加一行；`getFilePath()` 对草稿仍返回该规划路径（会话身份）；`listSessions` / `findMostRecentSession` 跳过无 message 的文件（兼容旧版遗留的 header-only 文件，不删除）；显式绝对路径仍可由 `resolveSessionFile` 打开。`open()` 对已落盘文件不变，`createAt()`（损坏/缺失修复）仍按设计立即落盘。
 - **发现** (`discovery.ts`): `listSessions`（按 **mtime** 降序，非 header.timestamp，避免同毫秒打平）、`findMostRecentSession`、`resolveSessionFile`（绝对路径 / 文件名 / id / id 前缀）。
 
 ### 2. Prompt History 独立存储 (`src/storage/history.ts`)
@@ -118,7 +119,7 @@ description: |
 3. `write_file`: 递归自动创建目录的文件写入工具，支持 `then_run` 写后即执行验证命令。
 
 ### 8. 顶层外观 `AgentRunner` (`src/runner.ts`)
-- 构造时解析会话：显式 `sessionId` → 解析引用；否则（除非 `newSession: true`）自动恢复工作区**最新**会话。
+- 构造时解析会话：显式 `sessionId` → 解析引用；否则（除非 `newSession: true`）自动恢复工作区**最新**会话。草稿未落盘，故 `applySettings` 重建 runner 时对草稿传 `newSession: true` 而非回传其规划路径（否则 `resolveSessionFile` 找不到文件、静默换成一个新会话）。
 - 持有 `SessionManager` + `PromptHistoryStorage`，装配 `ContextAssembler` 与 `AgentLoopEngine`。
 - **双模型装配**: 主模型 `modelName`（`OPENAI_MODEL_NAME` → `gpt-4o`）与审查模型 `reviewModelName`（`OPENAI_REVIEW_MODEL_NAME` → `gpt-4o-mini`，**不回落主模型**）各自独立的 `AiSdkStepAdapter`；注入 `reviewModelCaller` 才启用模型仲裁，仅注入 `stepCaller`（测试替身）时降级为 `rulesOnly`。
 - 公开 `reviewer`（`autoReview: false` 时为 `undefined`）、`config.modelName` / `config.reviewModelName`。
@@ -132,7 +133,9 @@ description: |
 - **`POST /api/chat`**: 一轮对话以 **SSE** 流式返回（`Content-Type: text/event-stream`）。`EventSource` 不能 POST，故前端用 `fetch` + `ReadableStream` 自行解析 `data:` 帧；15s `: ping` 心跳保活，`X-Accel-Buffering: no` 禁代理缓冲。客户端断开即 `resolvePendingApprovals(false)` + `runner.abort()`，轮次绝不悬挂。
 - **路由面**: `/api/status`（状态轮询）、`/api/chat`、`/api/approve`（交互审批卡片回执）、`/api/abort`、`/api/settings`（GET/POST 设置管理）、`/api/model`、`/api/models`、`/api/sessions`、`/api/sessions/new|load`、`/api/messages`、`/api/history`、`/api/clear`、`/api/shutdown`；未知 `/api/*` 一律 404。
 - **渲染**: 流式 Markdown 逐帧追加；工具需人工确认时经 `permissionGate` 推送 `approval_request` 卡片，等待时长按工具名入队统计（`approvalWaits`）。
-- **设置持久化**: `<workspace>/.myagent/ui-settings.json`，含 `apiKey`（展示时掩码）、`baseURL`、`modelName`、`reviewModelName`、`autoReview`、`reasoningEffort`；显式设置优先于环境变量。
+- **草稿的渲染后果**: `/api/sessions` 只含已落盘会话，故草稿期间无任何条目为 `active`；会话选择器显示 `(未开始的新会话)` 占位项（空值，切换为空操作），状态面板依据 `/api/status` 的 `sessionPersisted` 给日志路径加 `(not written yet)`。首个回合落盘后 `sendPrompt` 的 `finally` 与 `/clear` 分支都会重新拉取会话列表。
+- **设置持久化**: `<workspace>/.myagent/ui-settings.json`，含 `apiKey`（展示时掩码）、`baseURL`、`modelName`、`reviewModelName`、`autoReview`、`reasoningEffort`、`language`（`zh`/`en`）；显式设置优先于环境变量。
+- **界面语言**: 默认中文。解析顺序 `SUPERIU_LANGUAGE` → 设置文件 `language` → `zh`；无法渲染的值一律忽略并回落到默认，故旧版本外壳读新设置文件只会降级而不会半翻译。`packages/ui/public/i18n.js` 是浏览器字典（`t`/`apply`/`setLanguage`/`onChange`/`postureLabel`），`<html data-i18n*>` 标注静态文本；`localStorage['superiu.language']` 仅供首屏免闪烁，**设置文件才是权威**（改语言必须立即 POST 持久化，否则「预览后取消」会让 localStorage 与文件长期不一致，之后每次启动都闪错语言）。语言是纯展示设置，**不进入 `applySettings` 的 `runnerChanged`**，切换绝不重建 runner。`/api/status` 的 `posture` 为 `{ key, label, modifier }`：`key` 供前端本地化，`label` 保留英文给非本地化消费者，`modifier` 是注入系统提示词的原文（**故意不翻译**）。三张字典表（web `i18n.js` / 桌面 `menu.ts` 的 `MENU_LABELS` / CLI `language.ts` 的 `DICTS`）因运行环境隔离而各存一份，但共享概念的 **key 名与措辞必须逐字一致**（如 8 个 `status.*`），这是「单核双驱」措辞一致约定的落点。
 - **单一在途轮次**: `runner.status !== 'idle'` 时新请求返回 `409`。
 
 #### 9.2 `@agent/desktop` — Electron 原生外壳
@@ -140,6 +143,7 @@ description: |
 - **窗口**: Electron 44，`titleBarStyle: 'hiddenInset'`（保留红绿灯按钮的沉浸标题栏）；`vibrancy: 'under-window'` + `backgroundColor: '#00000000'` + `transparent: false`——vibrancy 需要**完全透明的背景色**而非透明窗口；渲染层以 `data-vibrancy="under-window"` 属性驱动对应样式。
 - **单实例锁**: `app.requestSingleInstanceLock()` 在一切重活之前获取，第二个实例直接 `app.quit()`，绝不启动第二个 HTTP 服务 / `AgentRunner`（否则会打开第二套 DB 句柄）。
 - **菜单加速键**: 真实主进程菜单加速键（非渲染层按键监听）——`⌘,` 设置、`⌘K`、`⌘N`、`⌘.`、`⌘W`、`⌘R`、`⌥⌘I`、`⌘Q`；经 `createMenuDispatcher` 转发到聚焦窗口渲染层。
+- **原生菜单语言**: 菜单在**模块作用域**（`ready` 之前）就安装，此时设置文件尚未读取，故 `uiLanguage` 先取默认 `zh`；`bootstrap()` 里 `startServer()` 解析出 `ServerHandle.language` 后再重装一次，这才是首屏语言的来源。渲染层切语言时经 `superiu:set-language` IPC 让主进程**重装菜单**（渲染层碰不到 `Menu`）；未知语言 id 直接忽略。`role: 'help'` 会自带英文标签，故该项必须显式 `label`——其余 role 项交给 Electron 本地化。
 - **进程内复用**: 主进程直接 `import { startServer } from '@agent/ui'`，不另起子进程。
 
 #### 9.3 原生打包与注册 (`scripts/bundle-mac.ts`)

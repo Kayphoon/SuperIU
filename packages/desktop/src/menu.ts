@@ -29,29 +29,82 @@ export function createMenuDispatcher(
 }
 
 /**
+ * Native-menu labels, keyed by UI language.
+ *
+ * Deliberately NOT `public/i18n.js`: the native menu is a main-process surface
+ * with no key overlap, and the browser module is not importable from the
+ * packaged main process (it is served to the renderer, not resolved by Node).
+ *
+ * Role-based items are absent by design — Electron supplies their labels.
+ */
+const MENU_LABELS = {
+  zh: {
+    app: 'SuperIU',
+    settings: '设置…',
+    newSession: '新建会话',
+    focusInput: '聚焦输入框',
+    abort: '中止本轮',
+    more: '更多',
+    toggleSidebar: '切换侧边栏',
+    file: '文件',
+    edit: '编辑',
+    view: '视图',
+    window: '窗口',
+    help: '帮助',
+    documentation: 'SuperIU 文档'
+  },
+  en: {
+    app: 'SuperIU',
+    settings: 'Settings…',
+    newSession: 'New Session',
+    focusInput: 'Focus Input',
+    abort: 'Abort Turn',
+    more: 'More',
+    toggleSidebar: 'Toggle Sidebar',
+    file: 'File',
+    edit: 'Edit',
+    view: 'View',
+    window: 'Window',
+    help: 'Help',
+    documentation: 'SuperIU Documentation'
+  }
+} as const;
+
+/**
  * The macOS application menu.
  *
  * Accelerators here are REAL main-process menu accelerators — they are handled
  * by Electron before the renderer ever sees a `keydown`, which is precisely why
  * `Cmd+Q` and `Cmd+,` are impossible to deliver from a plain browser tab.
  *
- * `Cmd+K` and `Cmd+.` are marked `registerAccelerator: false`: the SPA already
- * owns those keystrokes (command palette / abort), so the items advertise the
- * shortcut and still dispatch when clicked, without stealing the key event.
+ * `Cmd+K`, `Cmd+.` and `Cmd+J` are marked `registerAccelerator: false`. That
+ * option is documented `@platform linux,win32`, so on macOS the accelerator may
+ * still be registered and take the key before the renderer; on linux/win32 the
+ * page keeps the key and the item only dispatches when clicked.
+ *
+ * Whether that divergence is harmless depends on the item:
+ *   - `Cmd+J` (More) and `Cmd+.` (Abort) dispatch exactly what the SPA's own
+ *     keydown handler does, so both paths converge on one behaviour.
+ *   - `Cmd+K` does NOT: the menu item is "Focus Input" (`focus-input`), while
+ *     the SPA binds ⌘K to the command palette. This is a pre-existing semantic
+ *     divergence, out of scope here, and is NOT fixed by this file.
  */
 export function buildMenuTemplate(
   handlers: MenuHandlers,
-  appName = 'SuperIU'
+  appName = 'SuperIU',
+  language: 'zh' | 'en' = 'zh'
 ): MenuItemConstructorOptions[] {
   const dispatch = handlers.dispatch;
+  // Total lookup: an unknown id falls back to `zh`, matching the SPA default.
+  const L = MENU_LABELS[language] ?? MENU_LABELS.zh;
 
   const appMenu: MenuItemConstructorOptions = {
-    label: appName,
+    label: L.app,
     submenu: [
       // `role: 'about'` renders the panel configured by app.setAboutPanelOptions.
       { role: 'about' },
       {
-        label: 'Settings…',
+        label: L.settings,
         accelerator: 'Cmd+,',
         click: () => dispatch('settings')
       },
@@ -67,26 +120,43 @@ export function buildMenuTemplate(
   };
 
   const fileMenu: MenuItemConstructorOptions = {
-    label: 'File',
+    label: L.file,
     submenu: [
       {
-        label: 'New Session',
+        label: L.newSession,
         accelerator: 'Cmd+N',
         click: () => dispatch('new-session')
       },
       { type: 'separator' },
       {
-        label: 'Focus Input',
+        label: L.focusInput,
         accelerator: 'Cmd+K',
-        // The SPA handles Cmd+K itself; advertise it without consuming it.
+        // KNOWN DIVERGENCE (pre-existing, not introduced here): the SPA binds
+        // ⌘K to the command palette (`openModal('palette')`), while this item
+        // focuses the composer. If macOS registers this accelerator, ⌘K in the
+        // desktop shell does something different from ⌘K in a browser tab.
         registerAccelerator: false,
         click: () => dispatch('focus-input')
       },
       {
-        label: 'Abort Turn',
+        label: L.abort,
         accelerator: 'Cmd+.',
+        // Converges with the SPA: its ⌘. handler also calls abortTurn().
         registerAccelerator: false,
         click: () => dispatch('abort')
+      },
+      {
+        label: L.more,
+        accelerator: 'Cmd+J',
+        // On linux/win32 `registerAccelerator: false` keeps the key with the
+        // page; on macOS the accelerator may be registered and dispatched by
+        // the native menu instead. Either way this is safe: the item dispatches
+        // the same action the SPA's own ⌘J handler performs, so the drawer
+        // toggles exactly once.
+        // Deliberately NOT Cmd+M — `{ role: 'minimize' }` below already owns
+        // that accelerator (verified against electron 44.4.3's role table).
+        registerAccelerator: false,
+        click: () => dispatch('more')
       },
       { type: 'separator' },
       { role: 'close', accelerator: 'Cmd+W' }
@@ -94,7 +164,7 @@ export function buildMenuTemplate(
   };
 
   const editMenu: MenuItemConstructorOptions = {
-    label: 'Edit',
+    label: L.edit,
     submenu: [
       { role: 'undo' },
       { role: 'redo' },
@@ -107,12 +177,18 @@ export function buildMenuTemplate(
   };
 
   const viewMenu: MenuItemConstructorOptions = {
-    label: 'View',
+    label: L.view,
     submenu: [
+      {
+        label: L.toggleSidebar,
+        accelerator: 'Cmd+B',
+        registerAccelerator: false,
+        click: () => dispatch('toggle-sidebar')
+      },
+      { type: 'separator' },
       { role: 'reload', accelerator: 'Cmd+R' },
       { role: 'forceReload' },
       { role: 'toggleDevTools', accelerator: 'Alt+Cmd+I' },
-      { type: 'separator' },
       { role: 'resetZoom' },
       { role: 'zoomIn' },
       { role: 'zoomOut' },
@@ -122,15 +198,18 @@ export function buildMenuTemplate(
   };
 
   const windowMenu: MenuItemConstructorOptions = {
-    label: 'Window',
+    label: L.window,
     submenu: [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }]
   };
 
   const helpMenu: MenuItemConstructorOptions = {
     role: 'help',
+    // `role: 'help'` would otherwise supply its own English "Help" label, which
+    // is why this one is set explicitly unlike the other role items.
+    label: L.help,
     submenu: [
       {
-        label: 'SuperIU Documentation',
+        label: L.documentation,
         click: () => handlers.openDocs()
       }
     ]

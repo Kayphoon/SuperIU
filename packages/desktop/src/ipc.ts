@@ -15,20 +15,27 @@ export const INVOKE = {
   setBadgeCount: 'superiu:set-badge-count',
   showNotification: 'superiu:show-notification',
   flashFrame: 'superiu:flash-frame',
-  quit: 'superiu:quit'
+  quit: 'superiu:quit',
+  setLanguage: 'superiu:set-language'
 } as const;
 
 /**
- * Menu actions the main process forwards to the renderer. `Cmd+K` (focus
- * input) and `Cmd+.` (abort) are already handled by the SPA's own keydown
- * listeners; forwarding them from the menu keeps the two paths in sync and
- * makes the accelerators discoverable in the menu bar.
+ * Menu actions the main process forwards to the renderer. The SPA also handles
+ * these keystrokes itself, so the items are advertised with
+ * `registerAccelerator: false` and dispatch on click — keeping the two paths in
+ * sync and making the accelerators discoverable in the menu bar.
+ *
+ * Note `focus-input`: its accelerator is `Cmd+K`, but the SPA binds ⌘K to the
+ * command palette, not to focusing the composer. That divergence predates this
+ * contract and is deliberately left as-is.
  */
 export type MenuAction =
   | 'settings'
   | 'new-session'
   | 'abort'
   | 'focus-input'
+  | 'more'
+  | 'toggle-sidebar'
   | 'about'
   | 'docs';
 
@@ -50,4 +57,10 @@ export interface SuperiuDesktopBridge {
   showNotification(payload: NotificationPayload): Promise<void>;
   flashFrame(): Promise<void>;
   quit(): Promise<void>;
+  /**
+   * Tell the main process which language to build the native application menu
+   * in. The renderer cannot reach Electron's `Menu`, so the menu bar is rebuilt
+   * on the main-process side.
+   */
+  setLanguage(language: string): Promise<void>;
 }

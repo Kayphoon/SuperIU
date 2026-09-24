@@ -73,8 +73,9 @@ All configuration is environment-driven. Copy `.env.example` to `.env` and set:
 | `SUPERIU_AUTO_REVIEW_MODE` | `lenient` | `lenient` or `strict`. Anything other than `strict` resolves to `lenient`. |
 | `PORT` | `3000` | Port for the web console (`@agent/ui` only). |
 | `HOST` | `127.0.0.1` | Bind address for the web console (`@agent/ui` only). |
+| `SUPERIU_LANGUAGE` | `zh` | Interface language: `zh` or `en`. An unsupported value is ignored in favor of the settings file, then the `zh` default. |
 
-The web console additionally persists the same settings to `.myagent/ui-settings.json` so they can be edited from the Settings dialog (⌘,) without touching `.env`. Environment variables seed the defaults; the settings file wins once written.
+The web console additionally persists the same settings to `.myagent/ui-settings.json` so they can be edited from the Settings dialog (⌘,) without touching `.env`. Environment variables seed the defaults; the settings file wins once written. The interface language is one of those settings and can also be switched at runtime from the same dialog — see [Interface language](docs/shells-guide.md#interface-language).
 
 ## Architecture at a glance
 

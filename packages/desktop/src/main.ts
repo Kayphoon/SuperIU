@@ -56,6 +56,11 @@ let mainWindow: BrowserWindow | null = null;
 let serverHandle: ServerHandle | null = null;
 let shuttingDown = false;
 
+// The native menu is installed at module scope, before `ready` — too early to
+// read the persisted settings file. It is therefore seeded again in `bootstrap`
+// from the resolved handle, which is the first point the file is authoritative.
+let uiLanguage: 'zh' | 'en' = 'zh';
+
 // ---------------------------------------------------------------------------
 // Menu → renderer bridge
 // ---------------------------------------------------------------------------
@@ -83,7 +88,11 @@ function openDocs(): void {
 }
 
 function installApplicationMenu(): void {
-  const template = buildMenuTemplate({ dispatch: dispatchToRenderer, openDocs }, APP_NAME);
+  const template = buildMenuTemplate(
+    { dispatch: dispatchToRenderer, openDocs },
+    APP_NAME,
+    uiLanguage
+  );
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
@@ -168,6 +177,14 @@ function installIpcHandlers(): void {
   ipcMain.handle(INVOKE.quit, () => {
     app.quit();
   });
+
+  // Only the two known ids rebuild the menu; anything else (a stale renderer,
+  // a hand-crafted message) leaves the current menu untouched.
+  ipcMain.handle(INVOKE.setLanguage, (_event, language: string) => {
+    if (language !== 'zh' && language !== 'en') return;
+    uiLanguage = language;
+    installApplicationMenu();
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -240,6 +257,11 @@ async function bootstrap(): Promise<void> {
   serverHandle = await startServer({ port: 0, quiet: true, workspaceDir: workspace });
   console.log(`[superiu] workspace ${workspace}`);
   console.log(`[superiu] UI server listening on ${serverHandle.url}`);
+
+  // Now that the settings file has been read, rebuild the menu so the first
+  // paint matches it instead of the module-scope default.
+  uiLanguage = serverHandle.language;
+  installApplicationMenu();
 
   mainWindow = createWindow(serverHandle.url);
 }

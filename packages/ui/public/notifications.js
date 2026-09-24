@@ -17,6 +17,13 @@
  * permission or interacted with the page; failures degrade silently.
  */
 
+// A separate `<script type="module">`, not an import: a stale cached i18n.js
+// must degrade to raw keys rather than take the whole subsystem down.
+const I18n = typeof window !== 'undefined' ? window.SuperIUi18n : undefined;
+const tr = (key, params) => (I18n ? I18n.t(key, params) : key);
+
+// Toasts are transient and resolve their text at creation, so no onChange re-render is registered.
+
 const VERSION = '1.0.0';
 
 const STORAGE = {
@@ -26,11 +33,27 @@ const STORAGE = {
 };
 
 const KIND_META = {
-  info: { accent: 'var(--siu-info-fg, #7dd3fc)', label: 'Info' },
-  success: { accent: 'var(--siu-accent, #2fe3cb)', label: 'Done' },
-  error: { accent: 'var(--siu-danger-fg, #fb7185)', label: 'Error' },
-  approval: { accent: 'var(--siu-think-fg, #a78bfa)', label: 'Approval' }
+  info: { accent: 'var(--siu-info-fg, #7dd3fc)', key: 'notify.kind.info' },
+  success: { accent: 'var(--siu-accent, #0a84ff)', key: 'notify.kind.success' },
+  error: { accent: 'var(--siu-danger-fg, #fb7185)', key: 'notify.kind.error' },
+  approval: { accent: 'var(--siu-think-fg, #a78bfa)', key: 'notify.kind.approval' }
 };
+
+/**
+ * Public `kindMeta` view: labels are getters so a language switch after load is
+ * reflected on the next access (the internal map stays a plain key lookup).
+ */
+const KIND_META_PUBLIC = Object.fromEntries(
+  Object.entries(KIND_META).map(([kind, meta]) => [
+    kind,
+    {
+      accent: meta.accent,
+      get label() {
+        return tr(meta.key);
+      }
+    }
+  ])
+);
 
 const DEFAULT_TIMEOUT = { info: 5000, success: 4500, approval: 9000, error: 0 };
 const MAX_TOASTS = 5;
@@ -354,8 +377,8 @@ const STYLE_ID = 'superiu-notifications-style';
 const STACK_ID = 'superiu-toast-stack';
 const TOAST_CSS = `
 /* The top offset clears the app chrome so a toast never covers the window
-   controls or the model selector. The 90px fallback matches --siu-chrome-h. */
-.siu-stack{position:fixed;top:calc(var(--siu-chrome-h,90px) + 12px);right:14px;z-index:2147483000;display:flex;flex-direction:column;gap:10px;
+   controls. The 45px fallback matches --siu-chrome-h (titlebar + divider). */
+.siu-stack{position:fixed;top:calc(var(--siu-chrome-h,45px) + 12px);right:14px;z-index:2147483000;display:flex;flex-direction:column;gap:10px;
   width:min(380px,calc(100vw - 28px));pointer-events:none}
 .siu-toast{pointer-events:auto;display:flex;gap:11px;align-items:flex-start;box-sizing:border-box;overflow:hidden;
   padding:var(--siu-space-3,12px);border-radius:var(--siu-radius-xl,14px);
@@ -370,7 +393,7 @@ const TOAST_CSS = `
 .siu-toast[data-kind="success"]{border-color:var(--siu-success-bd,rgba(52,211,153,.30))}
 .siu-toast[data-kind="approval"]{border-color:var(--siu-think-bd,rgba(167,139,250,.26))}
 .siu-icon{flex:0 0 auto;display:flex;align-items:center;justify-content:center;width:26px;height:26px;border-radius:var(--siu-radius-md,8px);
-  background:var(--siu-accent,#2fe3cb);
+  background:var(--siu-accent, #0a84ff);
   color:var(--siu-text-inverse,#06070b);box-shadow:0 3px 10px -3px rgba(0,0,0,.5)}
 .siu-icon svg{width:14px;height:14px}
 .siu-icon img{width:16px;height:16px;border-radius:4px}
@@ -382,7 +405,7 @@ const TOAST_CSS = `
   border:1px solid var(--siu-border,rgba(255,255,255,.10));background:var(--siu-bg-hover,rgba(255,255,255,.055));
   color:var(--siu-text-secondary,#a9b1c2);text-decoration:none;transition:background .15s,border-color .15s,color .15s}
 .siu-action:hover{background:var(--siu-bg-active,rgba(255,255,255,.085));color:var(--siu-text-primary,#e9edf4)}
-.siu-action[data-primary="true"]{border-color:transparent;background:var(--siu-accent,#2fe3cb);color:var(--siu-text-inverse,#06070b)}
+.siu-action[data-primary="true"]{border-color:transparent;background:var(--siu-accent, #0a84ff);color:var(--siu-text-inverse,#06070b)}
 .siu-action[data-primary="true"]:hover{filter:brightness(1.08)}
 .siu-close{flex:0 0 auto;appearance:none;cursor:pointer;width:20px;height:20px;display:flex;align-items:center;justify-content:center;
   border:0;border-radius:var(--siu-radius-xs,4px);background:transparent;color:var(--siu-text-muted,#7e8798);opacity:0;
@@ -413,7 +436,7 @@ function ensureStack() {
   stack.id = STACK_ID;
   stack.className = 'siu-stack';
   stack.setAttribute('role', 'region');
-  stack.setAttribute('aria-label', 'Notifications');
+  stack.setAttribute('aria-label', tr('notify.stack'));
   (document.body ?? document.documentElement).appendChild(stack);
   return stack;
 }
@@ -521,7 +544,7 @@ function buildToast(message, options) {
   const close = document.createElement('button');
   close.className = 'siu-close';
   close.type = 'button';
-  close.setAttribute('aria-label', 'Dismiss notification');
+  close.setAttribute('aria-label', tr('notify.dismiss'));
   close.innerHTML = '<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg>';
   close.addEventListener('click', () => dismiss(options.id));
   node.appendChild(close);
@@ -654,8 +677,9 @@ function clearAll() {
 // Public channel wrappers
 // ---------------------------------------------------------------------------
 
-const BASE_ICON =
-  'data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%20100%20100%22%3E%3Crect%20width=%22100%22%20height=%22100%22%20rx=%2224%22%20fill=%22%230a0c12%22/%3E%3Cpath%20d=%22M54%2014%2026%2056h22l-6%2030%2034-46H52l2-26Z%22%20fill=%22%232fe3cb%22/%3E%3C/svg%3E';
+// The same 1024px master the .app bundle ships, so a system notification is
+// recognisably SuperIU rather than a generic glyph.
+const BASE_ICON = '/app-icon.png';
 
 /** Shared plumbing: chime + desktop + toast, each independently suppressible. */
 function emit(channel, message, options = {}) {
@@ -663,7 +687,7 @@ function emit(channel, message, options = {}) {
   const opts = {
     ...options,
     kind,
-    title: options.title ?? KIND_META[kind].label,
+    title: options.title ?? tr(KIND_META[kind].key),
     icon: options.icon ?? kind,
     desktop: options.desktop !== false,
     sound: options.sound !== false
@@ -693,7 +717,7 @@ function notifyTaskComplete(title, body, options) {
     title = options.title;
     body = options.body;
   }
-  return emit('success', body ?? '', { title: title ?? 'Task complete', ...options });
+  return emit('success', body ?? '', { title: title ?? tr('notify.taskComplete'), ...options });
 }
 
 function notifyApprovalRequired(title, body, options) {
@@ -702,7 +726,7 @@ function notifyApprovalRequired(title, body, options) {
     title = options.title;
     body = options.body;
   }
-  const opts = { title: title ?? 'Approval required', ...options };
+  const opts = { title: title ?? tr('notify.approvalRequired'), ...options };
   // The toast id is minted inside `toast()`, so handlers read it through a ref.
   const ref = { id: opts.id };
   const announce = () => {
@@ -710,10 +734,10 @@ function notifyApprovalRequired(title, body, options) {
     window.dispatchEvent(new CustomEvent('superiu:approval-click', { detail: { id: ref.id, data: opts.data } }));
   };
   if (!opts.actions) {
-    opts.actions = [{ label: 'View Approval', primary: true, onClick: announce }];
+    opts.actions = [{ label: tr('notify.viewApproval'), primary: true, onClick: announce }];
   }
   if (!opts.onClick) opts.onClick = announce;
-  const id = emit('approval', body ?? 'The agent is waiting for your decision.', opts);
+  const id = emit('approval', body ?? tr('notify.waiting'), opts);
   ref.id = id;
   return id;
 }
@@ -724,7 +748,7 @@ function notifyError(title, body, options) {
     title = options.title;
     body = options.body;
   }
-  return emit('error', body ?? '', { title: title ?? 'Something went wrong', ...options });
+  return emit('error', body ?? '', { title: title ?? tr('notify.error'), ...options });
 }
 
 // ---------------------------------------------------------------------------
@@ -782,7 +806,7 @@ const SuperIUNotifications = {
   isMuted,
   setDesktopEnabled,
   isDesktopEnabled,
-  kindMeta: KIND_META
+  kindMeta: KIND_META_PUBLIC
 };
 
 if (hasWindow) window.SuperIUNotifications = SuperIUNotifications;

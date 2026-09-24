@@ -1,14 +1,11 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark light" />
-    <title>SuperIU · Agent Console</title>
-    <link
-      rel="icon"
-      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='24' fill='%230a0c11'/%3E%3Cpath d='M54 14 26 56h22l-6 30 34-46H52l2-26Z' fill='%232fe3cb'/%3E%3C/svg%3E"
-    />
+    <title data-i18n="app.title">SuperIU · 智能体控制台</title>
+    <link rel="icon" type="image/png" href="/app-icon.png" />
     <script>
       // Set before the first paint so the translucent layers never flash opaque
       // in the desktop shell (and never render translucent in a browser tab,
@@ -23,6 +20,17 @@
           .matches
           ? 'light'
           : 'dark';
+      }
+
+      // i18n.js owns `<html lang>` once it evaluates, but it is a module and so
+      // cannot run before the first paint. Reading the same storage key here —
+      // rather than importing the dictionary into the blocking path — is enough
+      // to keep an English user's pre-paint state from claiming Chinese.
+      try {
+        document.documentElement.lang =
+          window.localStorage.getItem('superiu.language') === 'en' ? 'en' : 'zh-CN';
+      } catch {
+        /* storage disabled — the zh default stands */
       }
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
@@ -55,11 +63,11 @@
             },
             colors: {
               accent: {
-                DEFAULT: '#2fe3cb',
-                hover: '#5aebd8',
-                press: '#24c2ad',
+                DEFAULT: 'var(--siu-accent)',
+                hover: 'var(--siu-accent-hover)',
+                press: 'var(--siu-accent-press)',
                 // Scheme-aware variants: the raw accent is unreadable as text on
-                // a light panel (1.62:1), so text/border/tint go through tokens.
+                // a light panel, so text/border/tint go through tokens.
                 text: 'var(--siu-accent-text)',
                 border: 'var(--siu-accent-border)',
                 weak: 'var(--siu-accent-weak)'
@@ -107,14 +115,14 @@
         --siu-bg-inset: rgba(0, 0, 0, 0.28);
         --siu-bg-hover: rgba(255, 255, 255, 0.055);
         --siu-bg-active: rgba(255, 255, 255, 0.085);
-        --siu-bg-selected: rgba(47, 227, 203, 0.1);
+        --siu-bg-selected: rgba(10, 132, 255, 0.12);
         --siu-bg-scrim: rgba(0, 0, 0, 0.46);
 
         /* ── Borders ─────────────────────────────────────────────────────── */
         --siu-border-subtle: rgba(255, 255, 255, 0.06);
         --siu-border: rgba(255, 255, 255, 0.1);
         --siu-border-strong: rgba(255, 255, 255, 0.16);
-        --siu-border-focus: rgba(47, 227, 203, 0.65);
+        --siu-border-focus: rgba(10, 132, 255, 0.65);
 
         /* ── Text ────────────────────────────────────────────────────────── */
         --siu-text-primary: #e9edf4;
@@ -125,14 +133,13 @@
         --siu-text-disabled: #6b7488;
         --siu-text-inverse: #06070b;
 
-        /* ── Accent ──────────────────────────────────────────────────────── */
-        --siu-accent: #2fe3cb;
-        --siu-accent-hover: #5aebd8;
-        --siu-accent-press: #24c2ad;
-        --siu-accent-weak: rgba(47, 227, 203, 0.12);
-        --siu-accent-border: rgba(47, 227, 203, 0.3);
-        --siu-accent-text: #2fe3cb;
-
+        /* ── Accent (macOS System Blue) ─────────────────────────────────── */
+        --siu-accent: #0a84ff;
+        --siu-accent-hover: #409cff;
+        --siu-accent-press: #0071e3;
+        --siu-accent-weak: rgba(10, 132, 255, 0.12);
+        --siu-accent-border: rgba(10, 132, 255, 0.28);
+        --siu-accent-text: #0a84ff;
         /* ── Semantic state triples ──────────────────────────────────────── */
         --siu-success-fg: #34d399;
         --siu-success-bg: rgba(52, 211, 153, 0.12);
@@ -149,7 +156,7 @@
         --siu-think-fg: #a78bfa;
         --siu-think-bg: rgba(167, 139, 250, 0.1);
         --siu-think-bd: rgba(167, 139, 250, 0.26);
-        /* One calm, monochrome fill for every meter in the rail. */
+        /* One calm, monochrome fill for every meter in the secondary menu. */
         --siu-meter-fill: var(--siu-text-secondary);
         --siu-chain-fg: #e879f9;
         --siu-chain-bg: rgba(232, 121, 249, 0.1);
@@ -174,10 +181,11 @@
         --siu-radius-xl: 14px;
         --siu-radius-full: 999px;
 
-        /* Total chrome height (titlebar 44 + sessionbar 45 + 1px divider). The
-           toast stack and any fixed overlay offset off this so they never sit
-           on top of window controls. */
-        --siu-chrome-h: 90px;
+        /* Total chrome height (titlebar 44 + 1px divider). The toast stack and
+           any fixed overlay offset off this so they never sit on top of the
+           window controls. Everything that used to live in the second bar now
+           lives in the secondary menu, so this is the only chrome row left. */
+        --siu-chrome-h: 45px;
 
         /* ── Motion ──────────────────────────────────────────────────────── */
         --siu-dur-fast: 90ms;
@@ -203,7 +211,7 @@
         --siu-text-display: 18px;
 
         /* ── Layout ──────────────────────────────────────────────────────── */
-        --siu-rail-w: 320px;
+        --siu-menu-w: 340px;
         --siu-content-w: 46rem;
 
         /* ── Elevation ───────────────────────────────────────────────────── */
@@ -215,9 +223,9 @@
       /* Only the Electron shell has a macOS material behind it; a translucent
          layer over a plain browser page would just look washed out. */
       html[data-vibrancy='under-window'] {
-        --siu-bg-app: rgba(10, 12, 17, 0.62);
-        --siu-bg-panel: rgba(14, 16, 22, 0.86);
-        --siu-bg-elevated: rgba(20, 23, 31, 0.94);
+        --siu-bg-app: rgba(18, 20, 26, 0.52);
+        --siu-bg-panel: rgba(26, 28, 36, 0.7);
+        --siu-bg-elevated: rgba(34, 38, 48, 0.82);
       }
 
       [data-color-scheme='light'] {
@@ -231,13 +239,13 @@
         --siu-bg-inset: rgba(0, 0, 0, 0.045);
         --siu-bg-hover: rgba(0, 0, 0, 0.045);
         --siu-bg-active: rgba(0, 0, 0, 0.075);
-        --siu-bg-selected: rgba(15, 118, 110, 0.1);
+        --siu-bg-selected: rgba(0, 113, 227, 0.1);
         --siu-bg-scrim: rgba(0, 0, 0, 0.28);
 
         --siu-border-subtle: rgba(0, 0, 0, 0.055);
         --siu-border: rgba(0, 0, 0, 0.1);
         --siu-border-strong: rgba(0, 0, 0, 0.18);
-        --siu-border-focus: rgba(15, 118, 110, 0.75);
+        --siu-border-focus: rgba(0, 113, 227, 0.75);
 
         --siu-text-primary: #16181d;
         --siu-text-secondary: #4a5361;
@@ -250,13 +258,12 @@
         --siu-text-disabled: #868e9b;
         --siu-text-inverse: #ffffff;
 
-        --siu-accent: #0f766e;
-        --siu-accent-hover: #115e59;
-        --siu-accent-press: #134e4a;
-        --siu-accent-weak: rgba(15, 118, 110, 0.1);
-        --siu-accent-border: rgba(15, 118, 110, 0.28);
-        --siu-accent-text: #0f766e;
-
+        --siu-accent: #0071e3;
+        --siu-accent-hover: #0077ed;
+        --siu-accent-press: #005bb5;
+        --siu-accent-weak: rgba(0, 113, 227, 0.1);
+        --siu-accent-border: rgba(0, 113, 227, 0.28);
+        --siu-accent-text: #0071e3;
         --siu-success-fg: #047857;
         --siu-success-bg: rgba(4, 120, 87, 0.1);
         --siu-success-bd: rgba(4, 120, 87, 0.26);
@@ -284,11 +291,10 @@
       /* Light + vibrancy must come last: both selectors have the same
          specificity, so source order decides the winner. */
       html[data-vibrancy='under-window'][data-color-scheme='light'] {
-        --siu-bg-app: rgba(246, 247, 249, 0.62);
-        --siu-bg-panel: rgba(255, 255, 255, 0.86);
-        --siu-bg-elevated: rgba(255, 255, 255, 0.94);
+        --siu-bg-app: rgba(246, 247, 250, 0.52);
+        --siu-bg-panel: rgba(255, 255, 255, 0.7);
+        --siu-bg-elevated: rgba(255, 255, 255, 0.86);
       }
-
       /* =====================================================================
          Base
          ===================================================================== */
@@ -501,6 +507,12 @@
         gap: var(--siu-space-2);
         pointer-events: none;
       }
+      .siu-titlebar-leading {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-2);
+        z-index: 2;
+      }
       .siu-titlebar-actions {
         display: flex;
         align-items: center;
@@ -527,26 +539,154 @@
         -webkit-app-region: no-drag;
       }
 
-      .siu-sessionbar {
-        display: flex;
-        flex-wrap: wrap;
+      .siu-btn-icon {
+        display: inline-flex;
         align-items: center;
-        gap: var(--siu-space-2);
-        min-height: 36px;
-        padding: var(--siu-space-1) var(--siu-space-4);
-        border-top: 1px solid var(--siu-border);
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: 1px solid transparent;
+        border-radius: var(--siu-radius-md);
+        background: transparent;
+        color: var(--siu-text-secondary);
+        cursor: pointer;
+        transition: all var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-btn-icon:hover {
+        background: var(--siu-bg-hover);
+        color: var(--siu-text-primary);
+        border-color: var(--siu-border-subtle);
+      }
+      .siu-btn-icon:active {
+        background: var(--siu-bg-active);
+      }
+      .siu-btn-icon[data-active='true'] {
+        background: var(--siu-accent-weak);
+        color: var(--siu-accent);
       }
 
       .siu-workspace {
         display: flex;
-        flex-direction: column;
+        flex-direction: row;
         min-height: 0;
         flex: 1;
       }
-      @media (min-width: 1024px) {
-        .siu-workspace {
-          flex-direction: row;
+
+      /* ── 消息列表 (Session Sidebar) ───────────────────────────────────────── */
+      .siu-session-sidebar {
+        display: flex;
+        flex-direction: column;
+        width: 248px;
+        flex: none;
+        border-right: 1px solid var(--siu-border);
+        background: var(--siu-bg-panel);
+        backdrop-filter: blur(28px) saturate(180%);
+        -webkit-backdrop-filter: blur(28px) saturate(180%);
+        transition: width var(--siu-dur-slow) var(--siu-ease-out),
+          opacity var(--siu-dur-base) var(--siu-ease-out),
+          border-color var(--siu-dur-slow) var(--siu-ease-out);
+        overflow: hidden;
+      }
+      /* Attribute selector outranks the base class, so no !important is needed.
+         `border-right-width` (not just the colour) has to go too: `width: 0`
+         plus a 1px border still leaves a 1px strip. */
+      .siu-session-sidebar[data-collapsed='true'] {
+        width: 0;
+        border-right-width: 0;
+        opacity: 0;
+        pointer-events: none;
+      }
+      .siu-session-sidebar-header,
+      .siu-session-sidebar-body {
+        width: 248px;
+        box-sizing: border-box;
+      }
+      @media (max-width: 640px) {
+        .siu-session-sidebar {
+          display: none;
         }
+      }
+      .siu-session-sidebar-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        height: 44px;
+        padding: 0 var(--siu-space-3);
+        border-bottom: 1px solid var(--siu-border-subtle);
+        flex: none;
+      }
+      .siu-session-sidebar-title {
+        font-size: 11.5px;
+        font-weight: 600;
+        letter-spacing: -0.01em;
+        color: var(--siu-text-secondary);
+      }
+      .siu-session-sidebar-body {
+        flex: 1;
+        min-height: 0;
+        overflow-y: auto;
+        padding: var(--siu-space-2);
+      }
+      .siu-session-list {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+      .siu-session-item {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        padding: 8px 12px 8px 14px;
+        border-radius: var(--siu-radius-lg);
+        border: 1px solid transparent;
+        cursor: pointer;
+        transition: all var(--siu-dur-fast) var(--siu-ease-out);
+        text-align: left;
+        background: transparent;
+        width: 100%;
+      }
+      .siu-session-item:hover {
+        background: var(--siu-bg-hover);
+      }
+      .siu-session-item[data-active='true'] {
+        background: var(--siu-accent-weak);
+        border-color: var(--siu-accent-border);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+      }
+      .siu-session-item[data-active='true']::before {
+        content: '';
+        position: absolute;
+        left: 4px;
+        top: 9px;
+        bottom: 9px;
+        width: 3px;
+        border-radius: 999px;
+        background: var(--siu-accent);
+      }
+      .siu-session-item-title {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--siu-text-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .siu-session-item[data-active='true'] .siu-session-item-title {
+        color: var(--siu-accent-text);
+        font-weight: 600;
+      }
+      .siu-session-item-meta {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-family: var(--siu-font-mono);
+        font-size: 10.5px;
+        color: var(--siu-text-muted);
       }
 
       .siu-main {
@@ -608,26 +748,96 @@
         flex: 1 1 auto;
       }
 
-      .siu-rail {
+      /* =====================================================================
+         Secondary menu (⌘J)
+
+         A fixed right drawer, not a layout column: opening it must never
+         reflow the transcript, which is now the only primary surface. It sits
+         below the modal layer (z 50) so Settings / the palette opened from its
+         footer still render on top, and above the chrome strip (z 30).
+         ===================================================================== */
+      .siu-menu {
+        position: fixed;
+        top: 0;
+        right: 0;
+        z-index: 40;
+        display: flex;
+        flex-direction: column;
+        width: min(var(--siu-menu-w), 100vw);
+        height: 100%;
+        border-left: 1px solid var(--siu-border-strong);
+        background: var(--siu-bg-app);
+        box-shadow: var(--siu-shadow-lg);
+        /* Overlaps the titlebar, which is a drag region; opt the whole panel
+           out so every control in it stays clickable. */
+        -webkit-app-region: no-drag;
+        transform: translateX(100%);
+        visibility: hidden;
+        /* `visibility` is delayed until the slide finishes, so the closed panel
+           is still hit-testable for one transition — gate it explicitly or it
+           swallows clicks on the chrome it overlaps. */
+        pointer-events: none;
+        transition: transform var(--siu-dur-base) var(--siu-ease-out),
+          visibility 0s linear var(--siu-dur-base);
+      }
+      .siu-menu[data-open='true'] {
+        transform: translateX(0);
+        visibility: visible;
+        pointer-events: auto;
+        transition: transform var(--siu-dur-base) var(--siu-ease-out), visibility 0s;
+      }
+
+      .siu-scrim {
+        position: fixed;
+        inset: 0;
+        z-index: 35;
+        border: none;
+        padding: 0;
+        background: var(--siu-bg-scrim);
+        opacity: 0;
+        visibility: hidden;
+        pointer-events: none;
+        cursor: default;
+        transition: opacity var(--siu-dur-base) var(--siu-ease-out),
+          visibility 0s linear var(--siu-dur-base);
+      }
+      .siu-scrim[data-open='true'] {
+        opacity: 1;
+        visibility: visible;
+        pointer-events: auto;
+        transition: opacity var(--siu-dur-base) var(--siu-ease-out), visibility 0s;
+      }
+
+      .siu-menu-header {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-3);
+        flex: none;
+        height: 48px;
+        padding: 0 var(--siu-space-4);
+        border-bottom: 1px solid var(--siu-border);
+      }
+      .siu-menu-title {
+        font-size: var(--siu-text-body);
+        font-weight: 600;
+        color: var(--siu-text-primary);
+      }
+      .siu-menu-body {
         display: flex;
         flex-direction: column;
         gap: var(--siu-space-4);
-        flex: none;
-        width: 100%;
+        flex: 1;
+        min-height: 0;
         overflow-y: auto;
-        padding: var(--siu-space-5);
-        border-top: 1px solid var(--siu-border);
-        background: var(--siu-bg-app);
+        padding: var(--siu-space-4);
       }
-      @media (min-width: 1024px) {
-        .siu-rail {
-          width: var(--siu-rail-w);
-          border-top: none;
-          border-left: 1px solid var(--siu-border);
-        }
+      .siu-menu-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--siu-space-2);
       }
-      .siu-rail[hidden] {
-        display: none;
+      .siu-menu-actions > .siu-btn {
+        flex: 1 1 auto;
       }
 
       .siu-section {
@@ -1036,7 +1246,7 @@
         height: 6px;
         overflow: hidden;
         border-radius: var(--siu-radius-full);
-        /* One calm neutral track for all three meters, so the rail reads as a
+        /* One calm neutral track for all three meters, so the group reads as a
            single instrument rather than three unrelated gauges. */
         background: var(--siu-bg-inset);
         border: 1px solid var(--siu-border-subtle);
@@ -1524,133 +1734,121 @@
         position: sticky;
         bottom: 0;
         flex: none;
-        padding: var(--siu-space-3) var(--siu-space-6) var(--siu-space-4);
-        border-top: 1px solid var(--siu-border);
-        background: var(--siu-bg-app);
-        /* The one in-shell blur: this layer floats over the scrolling transcript. */
-        backdrop-filter: blur(24px) saturate(150%);
-        -webkit-backdrop-filter: blur(24px) saturate(150%);
+        padding: 0 var(--siu-space-6) var(--siu-space-5);
+        background: transparent;
+        border-top: none;
+        pointer-events: none;
       }
       .siu-composer-inner {
-        max-width: var(--siu-content-w);
+        max-width: min(740px, 100%);
         margin-inline: auto;
+        pointer-events: auto;
       }
-      .siu-composer-row {
+      .siu-composer-well {
         display: flex;
-        flex-wrap: wrap;
+        flex-direction: column;
+        padding: 12px 14px 10px 16px;
+        border: 1px solid var(--siu-border);
+        border-radius: 20px;
+        background: var(--siu-bg-panel);
+        backdrop-filter: blur(36px) saturate(190%);
+        -webkit-backdrop-filter: blur(36px) saturate(190%);
+        box-shadow: 0 16px 42px -10px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.04),
+          inset 0 1px 0 rgba(255, 255, 255, 0.18);
+        transition: border-color var(--siu-dur-base) var(--siu-ease-out),
+          box-shadow var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-composer-well:focus-within {
+        border-color: var(--siu-accent-border);
+        box-shadow: 0 20px 48px -10px rgba(0, 0, 0, 0.14), 0 0 0 3px var(--siu-accent-weak),
+          inset 0 1px 0 rgba(255, 255, 255, 0.22);
+      }
+      .siu-composer-input {
+        width: 100%;
+        min-height: 44px;
+        max-height: 200px;
+        resize: none;
+        outline: none;
+        color: var(--siu-text-primary);
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+        font-size: 13.5px;
+        line-height: 22px;
+        scrollbar-width: thin;
+      }
+      .siu-composer-input::placeholder {
+        color: var(--siu-text-disabled);
+      }
+      .siu-composer-toolbar {
+        display: flex;
         align-items: center;
+        justify-content: space-between;
         gap: var(--siu-space-2);
-        margin-bottom: var(--siu-space-2);
+        margin-top: 8px;
+        padding-top: 6px;
       }
-      .siu-composer-footer {
+      .siu-composer-pills {
         display: flex;
         align-items: center;
-        justify-content: flex-end;
-        gap: var(--siu-space-3);
-        margin-top: var(--siu-space-2);
-        padding-inline: var(--siu-space-1);
-      }
-      .siu-composer-hints {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        font-family: var(--siu-font-mono);
-        font-size: var(--siu-text-micro);
-        color: var(--siu-text-muted);
+        gap: 6px;
       }
       .siu-slash-pill {
         height: 22px;
-        padding: 0 var(--siu-space-3);
-        border: 1px solid var(--siu-border);
+        padding: 0 10px;
+        border: 1px solid var(--siu-border-subtle);
         border-radius: var(--siu-radius-full);
         background: var(--siu-bg-inset);
         color: var(--siu-text-muted);
         font-family: var(--siu-font-mono);
-        font-size: var(--siu-text-tiny);
+        font-size: 11px;
         cursor: pointer;
-        transition: background var(--siu-dur-base) var(--siu-ease-out),
-          border-color var(--siu-dur-base) var(--siu-ease-out),
-          color var(--siu-dur-base) var(--siu-ease-out);
+        transition: all var(--siu-dur-fast) var(--siu-ease-out);
       }
       .siu-slash-pill:hover {
         border-color: var(--siu-border-strong);
         background: var(--siu-bg-hover);
         color: var(--siu-text-primary);
       }
-      .siu-composer-well {
-        display: flex;
-        align-items: flex-end;
-        gap: var(--siu-space-2);
-        padding: var(--siu-space-2);
-        border: 1px solid var(--siu-border);
-        border-radius: var(--siu-radius-xl);
-        background: var(--siu-bg-panel);
-        transition: border-color var(--siu-dur-base) var(--siu-ease-out),
-          box-shadow var(--siu-dur-base) var(--siu-ease-out);
-      }
-      /* The ring goes on the well, not the borderless textarea inside it. */
-      .siu-composer-well:focus-within {
-        border-color: var(--siu-border-focus);
-        box-shadow: 0 0 0 3px var(--siu-accent-weak);
-      }
-      .siu-composer-input {
-        flex: 1;
-        min-height: 40px;
-        max-height: 192px;
-        resize: none;
-        padding: var(--siu-space-2) var(--siu-space-3);
-        border: none;
-        background: transparent;
-        outline: none;
-        color: var(--siu-text-primary);
-        font-family: var(--siu-font-mono);
-        font-size: var(--siu-text-body);
-        line-height: 21px;
-        scrollbar-width: thin;
-      }
-      .siu-composer-input::placeholder {
-        color: var(--siu-text-disabled);
-      }
-      .siu-composer-input:focus-visible {
-        outline: none;
-      }
       .siu-btn-send {
         display: inline-flex;
         align-items: center;
+        justify-content: center;
         gap: 6px;
-        height: 36px;
-        padding: 0 var(--siu-space-4);
+        height: 32px;
+        padding: 0 14px;
         border: none;
-        border-radius: var(--siu-radius-md);
+        border-radius: 999px;
         background: var(--siu-accent);
-        color: var(--siu-text-inverse);
-        font-size: var(--siu-text-sm);
-        font-weight: 600;
+        color: #ffffff;
+        font-size: 12.5px;
+        font-weight: 500;
         cursor: pointer;
-        transition: filter var(--siu-dur-fast) var(--siu-ease-out);
+        box-shadow: 0 2px 8px rgba(0, 113, 227, 0.28);
+        transition: all var(--siu-dur-fast) var(--siu-ease-out);
+        opacity: 0.55;
+      }
+      .siu-btn-send[data-ready='true'] {
+        opacity: 1;
+        box-shadow: 0 4px 14px -2px rgba(0, 113, 227, 0.45);
       }
       .siu-btn-send:hover:not(:disabled) {
-        filter: brightness(1.1);
+        transform: scale(1.02);
+        filter: brightness(1.08);
       }
       .siu-btn-send:active:not(:disabled) {
-        filter: brightness(0.94);
-      }
-      .siu-btn-send:disabled {
-        opacity: 0.4;
-        cursor: not-allowed;
-        filter: none;
+        transform: scale(0.97);
+        filter: brightness(0.95);
       }
       .siu-btn-stop {
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        height: 36px;
-        padding: 0 var(--siu-space-4);
+        height: 32px;
+        padding: 0 12px;
         border: 1px solid var(--siu-danger-bd);
-        border-radius: var(--siu-radius-md);
+        border-radius: 999px;
         background: var(--siu-danger-bg);
         color: var(--siu-danger-fg);
-        font-size: var(--siu-text-sm);
+        font-size: 12.5px;
         font-weight: 500;
         cursor: pointer;
         transition: background var(--siu-dur-fast) var(--siu-ease-out);
@@ -1664,69 +1862,150 @@
         border-radius: 2px;
         background: currentColor;
       }
+      .siu-composer-footer {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        margin-top: 8px;
+      }
+      .siu-composer-hints {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--siu-text-muted);
+      }
 
       /* =====================================================================
-         Empty state
+         Empty state (macOS Apple Intelligence Aura & Quick Cards)
          ===================================================================== */
       .siu-empty {
+        position: relative;
         display: flex;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         gap: var(--siu-space-3);
         text-align: center;
+        padding: var(--siu-space-8) var(--siu-space-4);
+      }
+      .siu-empty-aura {
+        position: absolute;
+        width: 480px;
+        height: 320px;
+        border-radius: 50%;
+        background: radial-gradient(
+          circle at 50% 50%,
+          rgba(0, 113, 227, 0.12) 0%,
+          rgba(168, 85, 247, 0.08) 40%,
+          transparent 70%
+        );
+        filter: blur(48px);
+        pointer-events: none;
+        z-index: 0;
+      }
+      /* A bare frame, not a second plate: the app icon already carries its own
+         white squircle and the ambient shadow macOS reserves in the margin. */
+      .siu-empty-icon {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 88px;
+        height: 88px;
+        margin-bottom: var(--siu-space-1);
+        position: relative;
+        z-index: 1;
+        pointer-events: none;
+      }
+      .siu-empty-icon img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        -webkit-user-drag: none;
+      }
+      /* The plate is white; on the light app layer that is barely 2% off the
+         background. `drop-shadow` follows the icon's own alpha, so it traces
+         the squircle instead of its bounding box — a `box-shadow` would draw a
+         hard rectangle over the transparent margin. */
+      [data-color-scheme='light'] .siu-empty-icon img {
+        filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.14)) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.08));
       }
       .siu-empty-eyebrow {
         font-family: var(--siu-font-mono);
         font-size: var(--siu-text-micro);
         text-transform: uppercase;
-        letter-spacing: 0.28em;
-        color: var(--siu-text-muted);
+        letter-spacing: 0.24em;
+        color: var(--siu-accent);
+        font-weight: 600;
+        position: relative;
+        z-index: 1;
       }
       .siu-empty-title {
-        font-family: var(--siu-font-display);
-        font-size: var(--siu-text-display);
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif;
+        font-size: 26px;
         font-weight: 600;
-        letter-spacing: -0.32px;
+        letter-spacing: -0.03em;
         color: var(--siu-text-primary);
+        position: relative;
+        z-index: 1;
       }
       .siu-empty-body {
-        max-width: 30rem;
-        font-size: var(--siu-text-sm);
-        line-height: 19px;
+        max-width: 32rem;
+        font-size: 13.5px;
+        line-height: 22px;
         color: var(--siu-text-secondary);
+        position: relative;
+        z-index: 1;
       }
-      .siu-empty-chips {
+      .siu-empty-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 12px;
+        width: 100%;
+        max-width: 520px;
+        margin-top: var(--siu-space-4);
+        position: relative;
+        z-index: 1;
+      }
+      @media (max-width: 600px) {
+        .siu-empty-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+      .siu-empty-card {
         display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: var(--siu-space-2);
-        margin-top: var(--siu-space-1);
-      }
-      .siu-empty-chip {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        height: 28px;
-        padding: 0 var(--siu-space-3);
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+        padding: 12px 14px;
+        border-radius: 14px;
         border: 1px solid var(--siu-border);
-        border-radius: var(--siu-radius-md);
-        background: var(--siu-bg-inset);
-        color: var(--siu-text-secondary);
-        font-family: var(--siu-font-mono);
-        font-size: var(--siu-text-sm);
+        background: var(--siu-bg-panel);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        box-shadow: 0 4px 16px -4px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.12);
         cursor: pointer;
-        transition: background var(--siu-dur-base) var(--siu-ease-out),
-          border-color var(--siu-dur-base) var(--siu-ease-out),
-          color var(--siu-dur-base) var(--siu-ease-out);
+        text-align: left;
+        transition: all var(--siu-dur-base) var(--siu-ease-out);
       }
-      .siu-empty-chip:hover {
+      .siu-empty-card:hover {
+        transform: translateY(-2px);
+        border-color: var(--siu-accent-border);
         background: var(--siu-bg-hover);
-        border-color: var(--siu-border-strong);
+        box-shadow: 0 8px 24px -4px rgba(0, 113, 227, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+      }
+      .siu-empty-card-header {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        font-size: 12.5px;
+        font-weight: 600;
         color: var(--siu-text-primary);
       }
-      .siu-empty-chip span {
+      .siu-empty-card-desc {
+        font-size: 11px;
         color: var(--siu-text-muted);
+        line-height: 15px;
       }
 
       /* =====================================================================
@@ -2118,200 +2397,312 @@
             A plain browser tab has no native lights, so it keeps this fallback.
           -->
           <div class="traffic-group no-drag" id="fake-traffic">
-            <button id="tl-close" class="traffic traffic-close" title="Close window" aria-label="Close window">
+            <button id="tl-close" class="traffic traffic-close" title="关闭窗口" aria-label="关闭窗口" data-i18n-title="traffic.close" data-i18n-aria-label="traffic.close">
               <span class="traffic-glyph">
                 <svg viewBox="0 0 10 10" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 2l6 6M8 2l-6 6" stroke-linecap="round" /></svg>
               </span>
             </button>
-            <button id="tl-min" class="traffic traffic-min" title="Collapse the right rail" aria-label="Collapse the right rail">
+            <button id="tl-min" class="traffic traffic-min" title="更多" aria-label="更多" data-i18n-title="traffic.more" data-i18n-aria-label="traffic.more">
               <span class="traffic-glyph">
                 <svg viewBox="0 0 10 10" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 5h6" stroke-linecap="round" /></svg>
               </span>
             </button>
-            <button id="tl-max" class="traffic traffic-max" title="Enter fullscreen" aria-label="Enter fullscreen">
+            <button id="tl-max" class="traffic traffic-max" title="进入全屏" aria-label="进入全屏" data-i18n-title="traffic.fullscreen" data-i18n-aria-label="traffic.fullscreen">
               <span class="traffic-glyph">
                 <svg viewBox="0 0 10 10" width="6" height="6" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3.2 3.2h3.6v3.6H3.2z" stroke-linejoin="round" /></svg>
               </span>
+            </button>
+          </div>
+          <div class="siu-titlebar-leading no-drag">
+            <button
+              id="btn-toggle-sidebar"
+              class="siu-btn-icon no-drag"
+              title="切换消息列表 (⌘B)"
+              aria-label="切换消息列表"
+              data-i18n-title="sidebar.toggle.title"
+              data-i18n-aria-label="sidebar.toggle"
+              aria-expanded="true"
+              data-active="true"
+            >
+              <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8">
+                <rect x="3" y="4" width="18" height="16" rx="2" />
+                <path d="M9 4v16" />
+              </svg>
             </button>
           </div>
 
           <div class="siu-titlebar-center">
             <span class="text-[12.5px] font-medium text-primary">SuperIU</span>
             <span class="siu-divider"></span>
-            <span id="title-status" class="font-mono text-[11px] text-muted">idle</span>
+            <span id="title-status" class="font-mono text-[11px] text-muted" data-i18n="status.idle">空闲</span>
           </div>
 
           <div class="siu-titlebar-actions">
-            <button id="btn-notify" class="siu-btn no-drag" title="Enable desktop notifications">
+            <button
+              id="btn-menu"
+              class="siu-btn no-drag"
+              title="更多 (⌘J)"
+              aria-label="更多"
+              data-i18n-title="titlebar.more.title"
+              data-i18n-aria-label="titlebar.more"
+              aria-haspopup="dialog"
+              aria-controls="menu-panel"
+              aria-expanded="false"
+            >
               <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.9">
-                <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" stroke-linejoin="round" />
-                <path d="M13.7 21a2 2 0 0 1-3.4 0" stroke-linecap="round" />
+                <path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round" />
               </svg>
-              <span id="notify-label" class="hidden sm:inline">Notify</span>
+              <span class="hidden sm:inline" data-i18n="titlebar.more">更多</span>
+              <span class="siu-kbd">⌘J</span>
             </button>
-            <button id="btn-palette" class="siu-btn no-drag" title="Command Palette (⌘K)">
-              <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.9">
-                <circle cx="11" cy="11" r="7" />
-                <path d="m20 20-3.5-3.5" stroke-linecap="round" />
-              </svg>
-              <span class="hidden sm:inline">Commands</span>
-              <span class="siu-kbd">⌘K</span>
-            </button>
-            <button id="btn-settings" class="siu-btn no-drag" title="Settings (⌘,)" aria-label="Settings">
-              <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.9">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 3 15a1.7 1.7 0 0 0-1.2-2.9H1.7a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 3.6 7a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 3.6a1.7 1.7 0 0 0 1-1.53V1.7a2 2 0 1 1 4 0v.1A1.7 1.7 0 0 0 15 3.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 20.4 9v.1a1.7 1.7 0 0 0 1.53 1h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.53 1Z" />
-              </svg>
-              <span class="hidden sm:inline">Settings</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- ============ live workstation / session bar ============ -->
-        <div class="siu-sessionbar">
-          <div
-            id="workstation-badge"
-            class="flex items-center gap-2 rounded-lg border border-line bg-fill-subtle px-2.5 py-1 font-mono text-[11px] text-muted"
-            title="Live workstation snapshot"
-          >
-            <svg viewBox="0 0 10 10" class="h-2.5 w-2.5 text-accent" fill="currentColor" aria-hidden="true">
-              <path d="M5 0l5 5-5 5-5-5z" />
-            </svg>
-            <span id="ws-text">detecting…</span>
-          </div>
-
-          <div class="flex items-center gap-2 rounded-lg border border-line bg-fill-subtle px-2.5 py-1">
-            <span id="status-dot" class="siu-status-dot siu-pulse" data-status="idle"></span>
-            <span id="status-text" class="font-mono text-[11px] uppercase tracking-wider text-secondary">idle</span>
-          </div>
-
-          <!-- main model selector lives in the chat header -->
-          <div class="flex items-center gap-2 rounded-lg border border-line bg-fill-subtle px-2 py-1">
-            <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 text-muted" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-              <rect x="4" y="4" width="16" height="16" rx="4" />
-              <path d="M9 9h6v6H9z" />
-            </svg>
-            <select id="model-select" class="siu-select max-w-[13rem]" title="Main model (agent loop)"></select>
-            <span id="model-effort-chip" class="siu-chip siu-chip--effort" title="Reasoning effort (main route)"></span>
-            <span id="tool-model-chip" class="siu-chip siu-chip--tool" title="Tool / review model"></span>
-          </div>
-
-          <div class="ml-auto flex flex-wrap items-center gap-2">
-            <select id="session-select" class="siu-select max-w-[22rem]" title="Active session"></select>
-            <button id="btn-new" class="siu-btn siu-btn--mono" title="New session (⌘N)">+ New</button>
-            <button id="btn-clear" class="siu-btn siu-btn--mono" title="Append reset_boundary">/clear</button>
           </div>
         </div>
       </header>
 
       <!-- ===================== BODY ===================== -->
       <div class="siu-workspace">
+        <!-- 消息列表 (Sessions List Sidebar) -->
+        <aside id="session-sidebar" class="siu-session-sidebar">
+          <div class="siu-session-sidebar-header">
+            <div class="flex items-center gap-1.5 min-w-0">
+              <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 text-accent shrink-0" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+              </svg>
+              <span class="siu-session-sidebar-title truncate" data-i18n="sidebar.title">消息列表</span>
+            </div>
+            <div class="flex items-center gap-1">
+              <button id="btn-sidebar-new" class="siu-btn siu-btn--accent text-[11px] py-0.5 px-2" title="新建会话 (⌘N)" data-i18n-title="sidebar.new.title">
+                <span data-i18n="sidebar.new">+ 新建</span>
+              </button>
+              <button id="btn-sidebar-collapse" class="siu-btn-icon text-muted hover:text-primary" title="收起消息列表 (⌘B)" aria-label="收起消息列表" data-i18n-title="sidebar.collapse.title" data-i18n-aria-label="sidebar.collapse">
+                <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+          <div class="siu-session-sidebar-body">
+            <ul id="session-list" class="siu-session-list siu-no-scrollbar"></ul>
+          </div>
+        </aside>
+
         <main class="siu-main">
           <div id="transcript" class="siu-transcript"></div>
 
           <div class="siu-composer">
             <div class="siu-composer-inner">
-              <div class="siu-composer-row">
-                <button class="siu-slash-pill" data-cmd="/clear">/clear</button>
-                <button class="siu-slash-pill" data-cmd="/status">/status</button>
-                <button class="siu-slash-pill" data-cmd="/sessions">/sessions</button>
-              </div>
               <div class="siu-composer-well">
                 <textarea
                   id="prompt"
                   rows="1"
-                  placeholder="Describe a task for the autonomous agent…"
+                  placeholder="描述一个交给自主智能体的任务…"
+                  data-i18n-placeholder="composer.placeholder"
                   class="siu-composer-input"
                 ></textarea>
-                <button id="btn-abort" class="siu-btn-stop hidden" title="Abort (⌘. / Esc)">
-                  <span class="siu-stop-glyph"></span> Stop
-                </button>
-                <button id="btn-send" class="siu-btn-send" title="Send (⌘↵ or ↵)">
-                  Send
-                  <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.2">
-                    <path d="M5 12h13M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
-                  </svg>
-                </button>
+                <div class="siu-composer-toolbar">
+                  <div class="siu-composer-pills">
+                    <button class="siu-slash-pill" data-cmd="/status">/status</button>
+                    <button class="siu-slash-pill" data-cmd="/clear">/clear</button>
+                    <button class="siu-slash-pill" data-cmd="/sessions">/sessions</button>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <button id="btn-abort" class="siu-btn-stop hidden" title="中止本轮 (⌘. / Esc)" data-i18n-title="composer.stop.title">
+                      <span class="siu-stop-glyph"></span> <span data-i18n="composer.stop">停止</span>
+                    </button>
+                    <button id="btn-send" class="siu-btn-send" title="发送 (⌘↵ 或 ↵)" data-i18n-title="composer.send.title">
+                      <span data-i18n="composer.send">发送</span>
+                      <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.2">
+                        <path d="M5 12h13M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
               </div>
-              <!-- Anchored to the composer, not floating above it. -->
               <div class="siu-composer-footer">
-                <span class="siu-composer-hints">
-                  <span class="siu-kbd">⌘↵</span> send · <span class="siu-kbd">↑↓</span> history ·
-                  <span class="siu-kbd">⌘.</span> stop
+                <span class="siu-composer-hints" data-i18n-html="composer.hints">
+                  <span class="siu-kbd">⌘↵</span> 发送 · <span class="siu-kbd">↑↓</span> 历史 ·
+                  <span class="siu-kbd">⌘.</span> 停止
                 </span>
               </div>
             </div>
           </div>
         </main>
-
-        <aside id="rail" class="siu-rail">
-          <section class="siu-section">
-            <header class="mb-3 flex items-center justify-between">
-              <h2 class="siu-section-title">Emotion State</h2>
-              <span class="font-mono text-[10px] text-muted">VA · τ 5m</span>
-            </header>
-            <div class="space-y-3">
-              <div>
-                <div class="mb-1 flex items-center justify-between">
-                  <span class="siu-label">Valence</span>
-                  <span id="valence-value" class="siu-value">0.00</span>
-                </div>
-                <div class="siu-meter siu-meter--valence">
-                  <div class="siu-meter-center"></div>
-                  <div id="valence-bar" class="siu-meter-fill" style="left: 50%; width: 0%"></div>
-                </div>
-                <div class="mt-1 flex justify-between font-mono text-[9px] text-secondary"><span>-1 negative</span><span>positive +1</span></div>
-              </div>
-              <div>
-                <div class="mb-1 flex items-center justify-between">
-                  <span class="siu-label">Arousal</span>
-                  <span id="arousal-value" class="siu-value">0.00</span>
-                </div>
-                <div class="siu-meter siu-meter--arousal">
-                  <div id="arousal-bar" class="siu-meter-fill" style="width: 0%"></div>
-                </div>
-                <div class="mt-1 flex justify-between font-mono text-[9px] text-secondary"><span>calm</span><span>alert</span></div>
-              </div>
-              <div>
-                <div class="mb-1 flex items-center justify-between">
-                  <span class="siu-label">Fatigue</span>
-                  <span id="fatigue-value" class="siu-value">0.00</span>
-                </div>
-                <div class="siu-meter siu-meter--fatigue">
-                  <div id="fatigue-bar" class="siu-meter-fill" style="width: 0%"></div>
-                </div>
-                <div class="mt-1 flex justify-between font-mono text-[9px] text-secondary"><span>energetic</span><span>tired</span></div>
-              </div>
-            </div>
-          </section>
-
-          <section class="siu-section">
-            <h2 class="siu-section-title mb-2">Operational Posture</h2>
-            <div id="posture-badge" class="inline-flex items-center gap-2 rounded-lg border border-accent-border bg-accent-weak px-3 py-1.5 text-[12px] font-medium text-accent-text">
-              <span class="h-1.5 w-1.5 rounded-full bg-accent-text"></span>
-              <span id="posture-label">Pragmatic &amp; Rigorous</span>
-            </div>
-            <div id="posture-modifier" class="mt-3 space-y-1.5 font-mono text-[10.5px] leading-relaxed text-muted"></div>
-          </section>
-
-          <section class="siu-section">
-            <h2 class="siu-section-title mb-3">Session Info</h2>
-            <dl class="space-y-2">
-              <div class="flex items-start justify-between gap-3"><dt class="siu-label">Session ID</dt><dd id="info-session" class="siu-value truncate">—</dd></div>
-              <div class="flex items-start justify-between gap-3"><dt class="siu-label">Leaf ID</dt><dd id="info-leaf" class="siu-value truncate">—</dd></div>
-              <div class="flex items-start justify-between gap-3"><dt class="siu-label">Active msgs</dt><dd id="info-count" class="siu-value">0</dd></div>
-              <div class="flex items-start justify-between gap-3"><dt class="siu-label">Step</dt><dd id="info-step" class="siu-value">0</dd></div>
-              <div class="flex items-start gap-3"><dt class="siu-label shrink-0">Log file</dt><dd id="info-file" class="siu-value min-w-0 flex-1 truncate text-right">—</dd></div>
-            </dl>
-          </section>
-
-          <section class="siu-section">
-            <h2 class="siu-section-title mb-2">Prompt History</h2>
-            <ul id="history-list" class="siu-no-scrollbar max-h-56 space-y-1 overflow-y-auto"></ul>
-          </section>
-        </aside>
       </div>
     </div>
+
+    <!-- ===================== SECONDARY MENU (⌘J) ===================== -->
+    <!--
+      Everything that is not the message list or the main conversation lives
+      here: session switching, model routing, live status, the emotion/posture
+      read-outs, session internals and the auxiliary actions. The panel is a
+      fixed drawer so opening it never reflows the transcript, and every
+      element keeps the ID it had in the old rail — the render functions and
+      listeners are unchanged.
+    -->
+    <div id="menu-scrim" class="siu-scrim" data-open="false" aria-hidden="true"></div>
+    <aside
+      id="menu-panel"
+      class="siu-menu"
+      data-open="false"
+      aria-hidden="true"
+      aria-label="更多"
+      data-i18n-aria-label="menu.title"
+    >
+      <header class="siu-menu-header">
+        <h2 class="siu-menu-title" data-i18n="menu.title">更多</h2>
+        <button id="btn-menu-close" class="siu-modal-close" aria-label="关闭菜单" data-i18n-aria-label="menu.close">
+          <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke-linecap="round" /></svg>
+        </button>
+      </header>
+
+      <div class="siu-menu-body">
+        <section class="siu-section">
+          <h2 class="siu-section-title mb-3" data-i18n="menu.section.session">会话</h2>
+          <div class="space-y-3">
+            <select id="session-select" class="siu-select w-full" title="当前会话" data-i18n-title="menu.session.select"></select>
+            <div class="siu-menu-actions">
+              <button id="btn-new" class="siu-btn siu-btn--mono" title="新建会话 (⌘N)" data-i18n-title="menu.session.new.title"><span data-i18n="menu.session.new">+ 新建</span></button>
+              <button id="btn-clear" class="siu-btn siu-btn--mono" title="追加 reset_boundary" data-i18n-title="menu.session.clear.title"><span data-i18n="menu.session.clear">/clear</span></button>
+            </div>
+          </div>
+        </section>
+
+        <section class="siu-section">
+          <h2 class="siu-section-title mb-3" data-i18n="menu.section.model">模型</h2>
+          <div class="space-y-3">
+            <div class="flex items-center gap-2">
+              <svg viewBox="0 0 24 24" class="h-3.5 w-3.5 text-muted" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+                <rect x="4" y="4" width="16" height="16" rx="4" />
+                <path d="M9 9h6v6H9z" />
+              </svg>
+              <select id="model-select" class="siu-select w-full" title="主模型（智能体循环）" data-i18n-title="menu.model.select"></select>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <span id="model-effort-chip" class="siu-chip siu-chip--effort" title="推理强度（主路由）" data-i18n-title="menu.model.effort.title"></span>
+              <span id="tool-model-chip" class="siu-chip siu-chip--tool" title="工具 / 审查模型" data-i18n-title="menu.model.tool.title"></span>
+            </div>
+          </div>
+        </section>
+
+        <section class="siu-section">
+          <h2 class="siu-section-title mb-3" data-i18n="menu.section.status">状态</h2>
+          <div class="space-y-2">
+            <div
+              id="workstation-badge"
+              class="flex items-center gap-2 rounded-lg border border-line bg-fill-subtle px-2.5 py-1 font-mono text-[11px] text-muted"
+              title="实时工作站快照"
+              data-i18n-title="menu.status.workstation"
+            >
+              <svg viewBox="0 0 10 10" class="h-2.5 w-2.5 text-accent" fill="currentColor" aria-hidden="true">
+                <path d="M5 0l5 5-5 5-5-5z" />
+              </svg>
+              <span id="ws-text" class="truncate" data-i18n="menu.status.detecting">检测中…</span>
+            </div>
+
+            <div class="flex items-center gap-2 rounded-lg border border-line bg-fill-subtle px-2.5 py-1">
+              <span id="status-dot" class="siu-status-dot siu-pulse" data-status="idle"></span>
+              <span id="status-text" class="font-mono text-[11px] uppercase tracking-wider text-secondary" data-i18n="status.idle">空闲</span>
+            </div>
+          </div>
+        </section>
+
+        <section class="siu-section">
+          <header class="mb-3 flex items-center justify-between">
+            <h2 class="siu-section-title" data-i18n="menu.emotion.title">情绪状态</h2>
+            <span class="font-mono text-[10px] text-muted" data-i18n="menu.emotion.scale">VA · τ 5m</span>
+          </header>
+          <div class="space-y-3">
+            <div>
+              <div class="mb-1 flex items-center justify-between">
+                <span class="siu-label" data-i18n="menu.emotion.valence">效价</span>
+                <span id="valence-value" class="siu-value">0.00</span>
+              </div>
+              <div class="siu-meter siu-meter--valence">
+                <div class="siu-meter-center"></div>
+                <div id="valence-bar" class="siu-meter-fill" style="left: 50%; width: 0%"></div>
+              </div>
+              <div class="mt-1 flex justify-between font-mono text-[9px] text-secondary"><span data-i18n="menu.emotion.valence.min">-1 消极</span><span data-i18n="menu.emotion.valence.max">积极 +1</span></div>
+            </div>
+            <div>
+              <div class="mb-1 flex items-center justify-between">
+                <span class="siu-label" data-i18n="menu.emotion.arousal">唤醒度</span>
+                <span id="arousal-value" class="siu-value">0.00</span>
+              </div>
+              <div class="siu-meter siu-meter--arousal">
+                <div id="arousal-bar" class="siu-meter-fill" style="width: 0%"></div>
+              </div>
+              <div class="mt-1 flex justify-between font-mono text-[9px] text-secondary"><span data-i18n="menu.emotion.arousal.min">平静</span><span data-i18n="menu.emotion.arousal.max">警觉</span></div>
+            </div>
+            <div>
+              <div class="mb-1 flex items-center justify-between">
+                <span class="siu-label" data-i18n="menu.emotion.fatigue">疲劳度</span>
+                <span id="fatigue-value" class="siu-value">0.00</span>
+              </div>
+              <div class="siu-meter siu-meter--fatigue">
+                <div id="fatigue-bar" class="siu-meter-fill" style="width: 0%"></div>
+              </div>
+              <div class="mt-1 flex justify-between font-mono text-[9px] text-secondary"><span data-i18n="menu.emotion.fatigue.min">精力充沛</span><span data-i18n="menu.emotion.fatigue.max">疲惫</span></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="siu-section">
+          <h2 class="siu-section-title mb-2" data-i18n="menu.posture.title">运行姿态</h2>
+          <div id="posture-badge" class="inline-flex items-center gap-2 rounded-lg border border-accent-border bg-accent-weak px-3 py-1.5 text-[12px] font-medium text-accent-text">
+            <span class="h-1.5 w-1.5 rounded-full bg-accent-text"></span>
+            <span id="posture-label" data-i18n="posture.pragmatic">务实严谨</span>
+          </div>
+          <div id="posture-modifier" class="mt-3 space-y-1.5 font-mono text-[10.5px] leading-relaxed text-muted"></div>
+          <!-- The modifier body above is injected system-prompt text and stays
+               verbatim English; only this caption is UI prose. -->
+          <p class="siu-field-hint" data-i18n="menu.posture.caption">以下为注入系统提示词的原文（保持英文，模型按原文执行）</p>
+        </section>
+
+        <section class="siu-section">
+          <h2 class="siu-section-title mb-3" data-i18n="menu.info.title">会话信息</h2>
+          <dl class="space-y-2">
+            <div class="flex items-start justify-between gap-3"><dt class="siu-label" data-i18n="menu.info.session">会话 ID</dt><dd id="info-session" class="siu-value truncate">—</dd></div>
+            <div class="flex items-start justify-between gap-3"><dt class="siu-label" data-i18n="menu.info.leaf">叶子 ID</dt><dd id="info-leaf" class="siu-value truncate">—</dd></div>
+            <div class="flex items-start justify-between gap-3"><dt class="siu-label" data-i18n="menu.info.count">有效消息</dt><dd id="info-count" class="siu-value">0</dd></div>
+            <div class="flex items-start justify-between gap-3"><dt class="siu-label" data-i18n="menu.info.step">步骤</dt><dd id="info-step" class="siu-value">0</dd></div>
+            <div class="flex items-start gap-3"><dt class="siu-label shrink-0" data-i18n="menu.info.file">日志文件</dt><dd id="info-file" class="siu-value min-w-0 flex-1 truncate text-right">—</dd></div>
+          </dl>
+        </section>
+
+        <section class="siu-section">
+          <h2 class="siu-section-title mb-2" data-i18n="menu.history.title">输入历史</h2>
+          <ul id="history-list" class="siu-no-scrollbar max-h-56 space-y-1 overflow-y-auto"></ul>
+        </section>
+
+        <section class="siu-section">
+          <h2 class="siu-section-title mb-3" data-i18n="menu.section.actions">操作</h2>
+          <div class="siu-menu-actions">
+            <button id="btn-notify" class="siu-btn no-drag" title="开启桌面通知" data-i18n-title="menu.actions.notify.title">
+              <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.9">
+                <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" stroke-linejoin="round" />
+                <path d="M13.7 21a2 2 0 0 1-3.4 0" stroke-linecap="round" />
+              </svg>
+              <span id="notify-label">通知</span>
+            </button>
+            <button id="btn-palette" class="siu-btn no-drag" title="命令面板 (⌘K)" data-i18n-title="menu.actions.commands.title">
+              <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.9">
+                <circle cx="11" cy="11" r="7" />
+                <path d="m20 20-3.5-3.5" stroke-linecap="round" />
+              </svg>
+              <span data-i18n="menu.actions.commands">命令</span>
+              <span class="siu-kbd">⌘K</span>
+            </button>
+            <button id="btn-settings" class="siu-btn no-drag" title="设置 (⌘,)" aria-label="设置" data-i18n-title="menu.actions.settings.title" data-i18n-aria-label="menu.actions.settings">
+              <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.9">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 3 15a1.7 1.7 0 0 0-1.2-2.9H1.7a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 3.6 7a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 3.6a1.7 1.7 0 0 0 1-1.53V1.7a2 2 0 1 1 4 0v.1A1.7 1.7 0 0 0 15 3.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 20.4 9v.1a1.7 1.7 0 0 0 1.53 1h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.53 1Z" />
+              </svg>
+              <span data-i18n="menu.actions.settings">设置</span>
+            </button>
+          </div>
+        </section>
+      </div>
+    </aside>
 
     <!-- Live region: announces status transitions without reading the transcript. -->
     <div id="status-live" class="sr-only" role="status" aria-live="polite"></div>
@@ -2320,81 +2711,90 @@
     <div id="settings-modal" class="siu-overlay" data-open="false">
       <div class="siu-modal siu-pop" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div class="siu-modal-header">
-          <h2 id="settings-title" class="siu-modal-title">Settings</h2>
+          <h2 id="settings-title" class="siu-modal-title" data-i18n="settings.title">设置</h2>
           <span class="min-w-0 flex-1 truncate font-mono text-[10.5px] text-muted" id="settings-file-label"></span>
-          <button class="siu-modal-close" data-close="settings" aria-label="Close settings">
+          <button class="siu-modal-close" data-close="settings" aria-label="关闭设置" data-i18n-aria-label="settings.close">
             <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke-linecap="round" /></svg>
           </button>
         </div>
 
         <div class="siu-modal-body">
           <div>
-            <label class="siu-field-label" for="set-api-key">OPENAI_API_KEY</label>
+            <label class="siu-field-label" for="set-api-key" data-i18n="settings.apiKey">OPENAI_API_KEY</label>
             <input id="set-api-key" type="password" class="siu-field" placeholder="sk-…" autocomplete="off" spellcheck="false" />
-            <p class="siu-field-hint">Stored locally in <code>.myagent/ui-settings.json</code> (0600). Leave blank to keep the current key.</p>
+            <p class="siu-field-hint" data-i18n-html="settings.apiKey.hint">本地保存在 <code>.myagent/ui-settings.json</code>（权限 0600）。留空则保留当前密钥。</p>
           </div>
 
           <div>
-            <label class="siu-field-label" for="set-base-url">OPENAI_BASE_URL</label>
+            <label class="siu-field-label" for="set-base-url" data-i18n="settings.baseURL">OPENAI_BASE_URL</label>
             <input id="set-base-url" type="text" class="siu-field" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false" />
-            <p class="siu-field-hint">Any OpenAI-compatible endpoint (DeepSeek, SiliconFlow, Ollama, Moonshot…).</p>
+            <p class="siu-field-hint" data-i18n="settings.baseURL.hint">任意 OpenAI 兼容端点（DeepSeek、SiliconFlow、Ollama、Moonshot…）。</p>
           </div>
 
           <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div>
-              <label class="siu-field-label" for="set-model">Main Model Name</label>
+              <label class="siu-field-label" for="set-model" data-i18n="settings.model">主模型名称</label>
               <input id="set-model" type="text" class="siu-field" list="model-choices" placeholder="gpt-4o" autocomplete="off" spellcheck="false" />
-              <p class="siu-field-hint">Also switchable from the chat header.</p>
+              <p class="siu-field-hint" data-i18n="settings.model.hint">也可在「更多」面板（⌘J）中切换。</p>
             </div>
             <div>
-              <label class="siu-field-label" for="set-review-model">Tool / Review Model Name</label>
+              <label class="siu-field-label" for="set-review-model" data-i18n="settings.reviewModel">工具 / 审查模型名称</label>
               <input id="set-review-model" type="text" class="siu-field" list="model-choices" placeholder="gpt-4o-mini" autocomplete="off" spellcheck="false" />
-              <p class="siu-field-hint">Used for AutoReview verdicts.</p>
+              <p class="siu-field-hint" data-i18n="settings.reviewModel.hint">用于 AutoReview 的判定。</p>
             </div>
           </div>
           <datalist id="model-choices"></datalist>
 
           <div>
-            <label class="siu-field-label" for="set-reasoning-effort">Reasoning Effort</label>
+            <label class="siu-field-label" for="set-reasoning-effort" data-i18n="settings.effort">推理强度</label>
             <select id="set-reasoning-effort" class="siu-field">
-              <option value="">Unset — derive from OPENAI_REASONING_EFFORT</option>
+              <option value="" data-i18n="settings.effort.unset">未设置 —— 从 OPENAI_REASONING_EFFORT 推导</option>
               <option value="low">low</option>
               <option value="medium">medium</option>
               <option value="high">high</option>
             </select>
-            <p class="siu-field-hint" id="set-reasoning-hint">
-              Only sent to reasoning models (o-series, gpt-5+); higher effort reasons longer and raises the output budget.
-            </p>
+            <!-- Rewritten by renderReasoningHint(); the initial text is the
+                 translated "none" variant so the first paint is not English. -->
+            <p class="siu-field-hint" id="set-reasoning-hint">主路由不发送 reasoningEffort。</p>
+          </div>
+
+          <div>
+            <label class="siu-field-label" for="set-language" data-i18n="settings.language">界面语言</label>
+            <select id="set-language" class="siu-field"></select>
+            <p class="siu-field-hint" data-i18n="settings.language.hint">立即生效并保存，重启后保持。</p>
           </div>
 
           <div class="siu-toggle-row">
             <div class="flex-1">
-              <div class="siu-toggle-row-title">AutoReview</div>
-              <p class="siu-toggle-row-hint">
-                Gate every tool call through the tool model. Escalated calls surface an interactive approval card.
+              <div class="siu-toggle-row-title" data-i18n="settings.autoReview">AutoReview</div>
+              <p class="siu-toggle-row-hint" data-i18n="settings.autoReview.hint">
+                让每一次工具调用都经过工具模型审核；升级为人工确认的调用会弹出审批卡片。
               </p>
             </div>
-            <button id="set-auto-review" class="siu-switch" data-on="false" role="switch" aria-checked="false" aria-label="Toggle AutoReview"></button>
+            <button id="set-auto-review" class="siu-switch" data-on="false" role="switch" aria-checked="false" aria-label="AutoReview" data-i18n-aria-label="settings.autoReview"></button>
           </div>
 
           <div class="siu-toggle-row">
             <div class="flex-1">
-              <div class="siu-toggle-row-title">Desktop notifications &amp; chime</div>
-              <p class="siu-toggle-row-hint">Alert on approval requests and task completion.</p>
+              <div class="siu-toggle-row-title" data-i18n="settings.notifications">桌面通知与提示音</div>
+              <p class="siu-toggle-row-hint" data-i18n="settings.notifications.hint">在审批请求与任务完成时提醒。</p>
             </div>
-            <button id="set-notifications" class="siu-switch" data-on="false" role="switch" aria-checked="false" aria-label="Toggle notifications"></button>
+            <button id="set-notifications" class="siu-switch" data-on="false" role="switch" aria-checked="false" aria-label="桌面通知与提示音" data-i18n-aria-label="settings.notifications"></button>
           </div>
 
           <div class="rounded-lg border border-line bg-fill-subtle px-4 py-3 font-mono text-[10.5px] leading-relaxed text-muted">
-            <div class="mb-1 uppercase tracking-wider text-muted">Environment</div>
+            <div class="mb-1 uppercase tracking-wider text-muted" data-i18n="settings.env">环境变量</div>
             <div id="set-env-info">—</div>
+            <!-- Sibling, not a child of #set-env-info: fillSettingsForm() replaces
+                 that node's innerHTML wholesale, which would drop this note. -->
+            <div class="text-muted" data-i18n="settings.env.note">已保存的设置优先于环境变量默认值。</div>
           </div>
         </div>
 
         <div class="siu-modal-footer">
           <span id="settings-msg" class="mr-auto font-mono text-[11px]"></span>
-          <button data-close="settings" class="siu-btn">Cancel</button>
-          <button id="settings-save" class="siu-btn siu-btn--primary">Save</button>
+          <button data-close="settings" class="siu-btn" data-i18n="settings.cancel">取消</button>
+          <button id="settings-save" class="siu-btn siu-btn--primary" data-i18n="settings.save">保存</button>
         </div>
       </div>
     </div>
@@ -2403,34 +2803,34 @@
     <div id="quit-modal" class="siu-overlay" data-open="false">
       <div class="siu-modal siu-modal--sm siu-pop text-center" role="dialog" aria-modal="true" aria-labelledby="quit-title">
         <div class="px-6 pt-6">
-          <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl border border-accent/30 bg-accent/10">
+          <div class="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl border border-accent-border bg-accent-weak">
             <svg viewBox="0 0 24 24" class="h-6 w-6 text-accent" fill="none" stroke="currentColor" stroke-width="1.8">
               <path d="M13 2 4.5 13.5H11l-1 8.5 8.5-11.5H12l1-8.5Z" stroke-linejoin="round" />
             </svg>
           </div>
-          <h2 id="quit-title" class="text-[14px] font-semibold text-primary">Quit SuperIU?</h2>
-          <p class="mt-2 text-[12px] leading-relaxed text-muted">
-            The web shell will shut down and the agent session is saved to its JSONL log.
+          <h2 id="quit-title" class="text-[14px] font-semibold text-primary" data-i18n="quit.title">退出 SuperIU？</h2>
+          <p class="mt-2 text-[12px] leading-relaxed text-muted" data-i18n="quit.body">
+            Web 外壳将关闭，智能体会话已保存到其 JSONL 日志。
           </p>
         </div>
         <div class="mt-5 flex gap-2 px-6 pb-6">
-          <button data-close="quit" class="siu-btn flex-1">Cancel</button>
-          <button id="quit-confirm" class="siu-btn siu-btn--danger flex-1">Quit</button>
+          <button data-close="quit" class="siu-btn flex-1" data-i18n="quit.cancel">取消</button>
+          <button id="quit-confirm" class="siu-btn siu-btn--danger flex-1" data-i18n="quit.confirm">退出</button>
         </div>
       </div>
     </div>
 
     <!-- ===================== COMMAND PALETTE (⌘K) ===================== -->
     <div id="palette-modal" class="siu-overlay siu-overlay--top" data-open="false">
-      <div class="siu-palette siu-pop" role="dialog" aria-modal="true" aria-label="Command palette">
+      <div class="siu-palette siu-pop" role="dialog" aria-modal="true" aria-label="命令面板" data-i18n-aria-label="palette.aria">
         <div class="siu-palette-input-row">
           <svg viewBox="0 0 24 24" class="h-4 w-4 text-muted" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true">
             <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" stroke-linecap="round" />
           </svg>
-          <input id="palette-input" class="siu-palette-input" placeholder="Type a command…" autocomplete="off" spellcheck="false" />
+          <input id="palette-input" class="siu-palette-input" placeholder="输入命令…" data-i18n-placeholder="palette.placeholder" autocomplete="off" spellcheck="false" />
           <span class="siu-kbd">esc</span>
         </div>
-        <ul id="palette-list" class="siu-palette-list siu-no-scrollbar" role="listbox" aria-label="Commands"></ul>
+        <ul id="palette-list" class="siu-palette-list siu-no-scrollbar" role="listbox" aria-label="命令面板" data-i18n-aria-label="palette.aria"></ul>
       </div>
     </div>
 
@@ -2438,10 +2838,23 @@
       <div id="toast-body" class="siu-toastbar"></div>
     </div>
 
+    <!-- Module scripts run in document order, so the dictionary is installed on
+         `window` before notifications.js and the inline module below evaluate. -->
+    <script type="module" src="/i18n.js"></script>
     <script type="module" src="/notifications.js"></script>
     <script type="module">
       const Notifications = window.SuperIUNotifications;
       if (!Notifications) console.warn('notifications.js unavailable — desktop alerts disabled');
+
+      const I18n = window.SuperIUi18n;
+      if (!I18n) console.warn('i18n.js unavailable — interface language disabled');
+      const { t, apply: applyI18n, getLanguage, setLanguage, onChange, postureLabel } = I18n ?? {};
+
+      /** Falls back to the key itself so a missing dictionary degrades to text,
+       *  never to blanks or a throw. */
+      function tr(key, params) {
+        return t ? t(key, params) : key;
+      }
 
       // =======================================================================
       // State
@@ -2456,7 +2869,24 @@
         historyDraft: '',
         promptsSent: [],
         settings: null,
-        notifyEnabled: false
+        notifyEnabled: false,
+        // Whether the session log exists on disk. Default true so a read before
+        // the first /api/status response never mislabels a persisted session
+        // with the "not written yet" qualifier; renderStatus() sets the truth.
+        sessionPersisted: true,
+        sessionFile: '',
+        // Last /api/status payload, so a language switch can re-render the
+        // status panel without another round trip.
+        lastStatus: null,
+        // Same idea for the session list (sidebar + select).
+        sessions: [],
+        // Restored history, kept so a language switch can re-render the
+        // transcript. Valid only while the DOM still equals it: a live turn and
+        // the slash-command cards append directly and are not in here, so they
+        // set `transcriptDirty` and a switch leaves them alone rather than
+        // silently discarding whatever the user is looking at.
+        messages: [],
+        transcriptDirty: false
       };
 
       const $ = (id) => document.getElementById(id);
@@ -2600,9 +3030,96 @@
         api(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 
       // =======================================================================
+      // Secondary menu (⌘J)
+      //
+      // Declared before the modal plumbing because `MODAL_LIKE` references
+      // `closeMenu` at module-evaluation time.
+      // =======================================================================
+      /**
+       * Mirror open state onto the panel, scrim and trigger ARIA, and move
+       * focus with it — a closed panel is `visibility: hidden`, so leaving
+       * focus inside it would strand the caret on an invisible control.
+       * Focus is only reclaimed when it is actually inside the panel, so a
+       * scrim click from elsewhere never yanks it.
+       */
+      function renderMenuState(open) {
+        const panel = $('menu-panel');
+        const hadFocus = panel.contains(document.activeElement);
+        panel.dataset.open = String(open);
+        $('menu-scrim').dataset.open = String(open);
+        panel.setAttribute('aria-hidden', String(!open));
+        $('btn-menu').setAttribute('aria-expanded', String(open));
+        if (open) {
+          panel.querySelector('button, select, [href]')?.focus?.();
+        } else if (hadFocus) {
+          $('btn-menu').focus();
+        }
+      }
+
+      function menuOpen() {
+        return $('menu-panel').dataset.open === 'true';
+      }
+
+      /** `force` makes the call idempotent, which the callers need. */
+      function toggleMenu(force) {
+        renderMenuState(typeof force === 'boolean' ? force : !menuOpen());
+      }
+
+      /**
+       * Toggle the drawer, but never *open* it behind an already-open modal:
+       * the modal layer sits above the drawer (z 50 vs 40), so opening would
+       * both hide the panel and move focus onto a covered control. Closing is
+       * always allowed, so the shortcut can still dismiss the drawer.
+       */
+      function toggleMenuUnobstructed() {
+        if (anyModalOpen() && !menuOpen()) return;
+        toggleMenu();
+      }
+
+      function closeMenu() {
+        if (menuOpen()) renderMenuState(false);
+      }
+
+      // =======================================================================
+      // Sidebar collapse (⌘B)
+      // =======================================================================
+      function isSidebarCollapsed() {
+        return $('session-sidebar')?.dataset.collapsed === 'true';
+      }
+
+      function setSidebarCollapsed(collapsed) {
+        const sidebar = $('session-sidebar');
+        const btnToggle = $('btn-toggle-sidebar');
+        if (!sidebar) return;
+        sidebar.dataset.collapsed = String(collapsed);
+        sidebar.setAttribute('aria-hidden', String(collapsed));
+        if (btnToggle) {
+          btnToggle.setAttribute('aria-expanded', String(!collapsed));
+          btnToggle.dataset.active = String(!collapsed);
+        }
+        try {
+          localStorage.setItem('superiu.sidebar-collapsed', String(collapsed));
+        } catch {
+          /* ignore storage quota/security issues */
+        }
+      }
+
+      function toggleSidebar() {
+        setSidebarCollapsed(!isSidebarCollapsed());
+      }
+
+      // =======================================================================
       // Modal plumbing
       // =======================================================================
       const MODALS = { settings: 'settings-modal', quit: 'quit-modal', palette: 'palette-modal' };
+
+      /**
+       * The secondary menu is modal in effect — its scrim blocks the composer —
+       * but it is a drawer, not an overlay, so it lives outside `MODALS` and
+       * registers its own close with the shared predicate. Without this the
+       * `anyModalOpen()` gates let ⌘N / ⌘. / ⌘↵ fire behind the open drawer.
+       */
+      const MODAL_LIKE = [{ id: 'menu-panel', close: () => closeMenu() }];
 
       function openModal(name) {
         const node = $(MODALS[name]);
@@ -2621,10 +3138,14 @@
 
       function closeAllModals() {
         Object.keys(MODALS).forEach(closeModal);
+        MODAL_LIKE.forEach((entry) => entry.close());
       }
 
       function anyModalOpen() {
-        return Object.values(MODALS).some((id) => $(id).dataset.open === 'true');
+        return (
+          Object.values(MODALS).some((id) => $(id).dataset.open === 'true') ||
+          MODAL_LIKE.some((entry) => $(entry.id).dataset.open === 'true')
+        );
       }
 
       Object.values(MODALS).forEach((id) => {
@@ -2666,6 +3187,13 @@
             if (!anyModalOpen()) void createNewSession();
             return;
           }
+          // ⌘B — Toggle the session list sidebar
+          if (meta && (key === 'b' || key === 'B')) {
+            event.preventDefault();
+            toggleSidebar();
+            return;
+          }
+
 
           // ⌘K — Command palette
           if (meta && (key === 'k' || key === 'K')) {
@@ -2681,10 +3209,17 @@
             return;
           }
 
-          // ⌘M — Toggle the right rail
-          if (meta && (key === 'm' || key === 'M')) {
+          // ⌘J — Toggle the secondary menu.
+          //
+          // Not ⌘M: macOS reserves that for Minimize in a plain browser tab
+          // (the page never sees the keydown), and in the Electron shell the
+          // Window menu's `{ role: 'minimize' }` carries `CommandOrControl+M`
+          // with `registerAccelerator: true`, so the native menu consumes it
+          // before the renderer. Verified against electron 44.4.3's role table.
+          // ⌘J is free in both shells and in Electron's default role set.
+          if (meta && (key === 'j' || key === 'J')) {
             event.preventDefault();
-            if (!anyModalOpen()) toggleRail();
+            toggleMenuUnobstructed();
             return;
           }
 
@@ -2695,7 +3230,9 @@
             return;
           }
 
-          // Esc — close modal, else abort the running turn
+          // Esc — close the topmost dismissible layer, else abort the turn.
+          // The secondary menu is part of `anyModalOpen()` now, so this closes
+          // it exactly like a modal instead of competing with a second listener.
           if (key === 'Escape') {
             if (anyModalOpen()) {
               event.preventDefault();
@@ -2712,7 +3249,7 @@
           // ⌘/ — shortcut help
           if (meta && key === '/') {
             event.preventDefault();
-            toast('⌘, settings · ⌘N new · ⌘K palette · ⌘↵ send · ⌘. stop · ⌘Q quit', 'ok');
+            toast(tr('toast.shortcuts'), 'ok');
           }
         },
         { capture: true }
@@ -2738,17 +3275,24 @@
             case 'abort':
               if (!anyModalOpen() && state.running) void abortTurn();
               break;
+            case 'more':
+              // Toggle semantics, like the in-page ⌘J handler.
+              toggleMenuUnobstructed();
+              break;
+            case 'toggle-sidebar':
+              toggleSidebar();
+              break;
             case 'focus-input':
               closeAllModals();
               promptInput.focus();
               break;
             case 'about':
-              toast('SuperIU · One Core, Two Shells — autonomous agent console', 'ok');
+              toast(tr('toast.about'), 'ok');
               break;
             case 'docs':
               // No hosted docs URL is configured for this repo, so point at the
               // local guides rather than opening a dead placeholder link.
-              toast('Docs: docs/shells-guide.md · docs/agent-loop-and-context-architecture.md', 'ok');
+              toast(tr('toast.docs'), 'ok');
               break;
           }
         });
@@ -2810,29 +3354,79 @@
       function renderEmptyState() {
         transcript.innerHTML = '';
         const wrap = el('div', 'siu-empty ' + enterClass());
-        wrap.appendChild(el('div', 'siu-empty-eyebrow', 'Autonomous Agent Loop'));
-        wrap.appendChild(el('h2', 'siu-empty-title', 'SuperIU is standing by'));
-        wrap.appendChild(
-          el(
-            'p',
-            'siu-empty-body',
-            'Describe a task below. The agent plans, executes bash / read_file / write_file in an unbounded loop, and streams every step here.'
-          )
-        );
-        // Reuses commands the composer already exposes — no new capability.
-        const chips = el('div', 'siu-empty-chips');
-        for (const [cmd, hint] of [
-          ['/status', 'current state'],
-          ['/sessions', 'past sessions'],
-          ['/clear', 'reset context']
-        ]) {
-          const chip = el('button', 'siu-empty-chip');
-          chip.appendChild(el('span', '', cmd));
-          chip.appendChild(el('span', '', hint));
-          chip.addEventListener('click', () => void runSlash(cmd));
-          chips.appendChild(chip);
+
+        // Ambient glow aura behind title
+        wrap.appendChild(el('div', 'siu-empty-aura'));
+
+        // The real SuperIU app icon — the same 1024px master the .app bundle
+        // ships, so the hero and the Dock/Spotlight tile never drift apart.
+        const iconBox = el('div', 'siu-empty-icon');
+        const iconImg = el('img', '');
+        iconImg.src = '/app-icon.png';
+        iconImg.alt = '';
+        iconImg.setAttribute('aria-hidden', 'true');
+        iconImg.draggable = false;
+        iconBox.appendChild(iconImg);
+        wrap.appendChild(iconBox);
+
+        wrap.appendChild(el('div', 'siu-empty-eyebrow', tr('empty.eyebrow')));
+        wrap.appendChild(el('h2', 'siu-empty-title', tr('empty.title')));
+        wrap.appendChild(el('p', 'siu-empty-body', tr('empty.body')));
+
+        const grid = el('div', 'siu-empty-grid');
+        const cards = [
+          {
+            icon: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+            title: tr('empty.card.code.title'),
+            desc: tr('empty.card.code.desc'),
+            action: () => {
+              promptInput.value = '请帮我梳理当前项目的代码架构并分析主要模块。';
+              autosize();
+              syncComposerState();
+              promptInput.focus();
+            }
+          },
+          {
+            icon: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 17 6-6-6-6M12 19h8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+            title: tr('empty.card.term.title'),
+            desc: tr('empty.card.term.desc'),
+            action: () => {
+              promptInput.value = '请检查系统当前运行状态与 git 状态。';
+              autosize();
+              syncComposerState();
+              promptInput.focus();
+            }
+          },
+          {
+            icon: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke-linecap="round"/></svg>',
+            title: tr('empty.card.status.title'),
+            desc: tr('empty.card.status.desc'),
+            action: () => void runSlash('/status')
+          },
+          {
+            icon: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+            title: tr('empty.card.session.title'),
+            desc: tr('empty.card.session.desc'),
+            action: () => void createNewSession()
+          }
+        ];
+
+        for (const c of cards) {
+          const cardEl = el('button', 'siu-empty-card');
+          cardEl.type = 'button';
+          const header = el('div', 'siu-empty-card-header');
+          const iconSpan = el('span', 'text-accent', '');
+          iconSpan.innerHTML = c.icon;
+          header.appendChild(iconSpan);
+          header.appendChild(el('span', '', c.title));
+          const desc = el('div', 'siu-empty-card-desc', c.desc);
+          cardEl.appendChild(header);
+          cardEl.appendChild(desc);
+          cardEl.addEventListener('click', c.action);
+          grid.appendChild(cardEl);
         }
-        wrap.appendChild(chips);
+
+        wrap.appendChild(grid);
         transcript.appendChild(wrap);
       }
 
@@ -2853,8 +3447,8 @@
       function attachCopy(bubble, getText) {
         const button = el('button', 'siu-bubble-copy');
         button.type = 'button';
-        button.title = 'Copy message';
-        button.setAttribute('aria-label', 'Copy message');
+        button.title = tr('transcript.copy');
+        button.setAttribute('aria-label', tr('transcript.copy'));
         button.innerHTML = COPY_GLYPH;
         button.addEventListener('click', async () => {
           try {
@@ -2864,15 +3458,16 @@
               button.innerHTML = COPY_GLYPH;
             }, 1200);
           } catch {
-            toast('Clipboard unavailable', 'error');
+            toast(tr('toast.clipboard'), 'error');
           }
         });
         bubble.appendChild(button);
       }
 
       function statusBadge(status) {
-        const labels = { running: 'RUNNING', done: 'DONE', error: 'ERROR', denied: 'DENIED', pending: 'AWAITING' };
-        const badge = el('span', 'siu-badge', labels[status] || String(status).toUpperCase());
+        const known = ['running', 'done', 'error', 'denied', 'pending'];
+        const label = known.includes(status) ? tr('badge.' + status) : String(status).toUpperCase();
+        const badge = el('span', 'siu-badge', label);
         badge.dataset.state = status;
         badge.dataset.role = 'badge';
         if (status === 'pending') badge.classList.add('siu-pulse');
@@ -2901,8 +3496,8 @@
           const command = args.then_run.trim();
           const chained = el('span', 'siu-tool-chain');
           chained.innerHTML = CHAIN_GLYPH;
-          chained.appendChild(el('span', '', 'THEN RUN: ' + command));
-          chained.title = 'Chained command executed immediately after the write: ' + command;
+          chained.appendChild(el('span', '', tr('transcript.thenRun', { command })));
+          chained.title = tr('transcript.thenRun.title', { command });
           summary.appendChild(chained);
         }
 
@@ -2920,7 +3515,7 @@
         if (args && Object.keys(args).length > 0) {
           const argDetails = el('details');
           const argSummary = el('summary');
-          argSummary.innerHTML = CHEVRON + '<span>arguments</span>';
+          argSummary.innerHTML = CHEVRON + '<span>' + escapeHtml(tr('transcript.arguments')) + '</span>';
           argDetails.appendChild(argSummary);
           const pre = el('pre', 'siu-tool-well');
           pre.textContent = JSON.stringify(args, null, 2);
@@ -2931,7 +3526,7 @@
         const outDetails = el('details');
         outDetails.open = true;
         const outSummary = el('summary');
-        outSummary.innerHTML = CHEVRON + '<span>output</span>';
+        outSummary.innerHTML = CHEVRON + '<span>' + escapeHtml(tr('transcript.output')) + '</span>';
         outDetails.appendChild(outSummary);
         const outPre = el('pre', 'siu-tool-well', '…');
         outDetails.appendChild(outPre);
@@ -2956,7 +3551,7 @@
         details.open = true;
         details.dataset.kind = 'thinking';
         const summary = el('summary');
-        summary.innerHTML = CHEVRON + THINK_GLYPH + '<span data-role="label">Thinking…</span>';
+        summary.innerHTML = CHEVRON + THINK_GLYPH + '<span data-role="label">' + escapeHtml(tr('transcript.thinking')) + '</span>';
         details.appendChild(summary);
         const body = el('div', 'siu-think-body');
         details.appendChild(body);
@@ -2973,7 +3568,7 @@
         summary.innerHTML =
           CHEVRON +
           '<span data-role="label">' +
-          (phase === 'review' ? 'review · step ' + step : 'step ' + step) +
+          escapeHtml(phase === 'review' ? tr('transcript.stepReview', { n: step }) : tr('transcript.step', { n: step })) +
           '</span>' +
           '<span class="siu-tool-spacer"></span>' +
           '<span data-role="meta" class="siu-step-meta"></span>';
@@ -3001,11 +3596,11 @@
         const icon = el('span', 'siu-approval-icon');
         icon.innerHTML = WARN_GLYPH;
         head.appendChild(icon);
-        head.appendChild(el('span', 'siu-approval-title', 'Approval required'));
+        head.appendChild(el('span', 'siu-approval-title', tr('approval.title')));
         head.appendChild(el('span', 'siu-approval-name', event.name));
         const risk = riskChip(event.riskLevel);
         if (risk) head.appendChild(risk);
-        if (event.reviewedBy) head.appendChild(el('span', 'siu-label', 'via ' + event.reviewedBy));
+        if (event.reviewedBy) head.appendChild(el('span', 'siu-label', tr('approval.via', { name: event.reviewedBy })));
         card.appendChild(head);
 
         if (event.reason) {
@@ -3019,13 +3614,13 @@
         }
 
         const actions = el('div', 'siu-approval-actions');
-        const approve = el('button', 'siu-btn-approve', '允许执行 · Approve');
-        const reject = el('button', 'siu-btn-reject', '拒绝 · Reject');
+        const approve = el('button', 'siu-btn-approve', tr('approval.approve'));
+        const reject = el('button', 'siu-btn-reject', tr('approval.reject'));
         approve.type = 'button';
         reject.type = 'button';
         actions.appendChild(approve);
         actions.appendChild(reject);
-        const status = el('span', 'siu-approval-status', 'waiting for your decision…');
+        const status = el('span', 'siu-approval-status', tr('approval.waiting'));
         actions.appendChild(status);
         card.appendChild(actions);
 
@@ -3039,10 +3634,7 @@
           approve.disabled = true;
           reject.disabled = true;
           card.dataset.state = approved ? 'approved' : 'rejected';
-          setNote(
-            approved ? '✓ approved — executing' : '✕ rejected — agent will adapt',
-            approved ? 'ok' : 'error'
-          );
+          setNote(approved ? tr('approval.approved') : tr('approval.rejected'), approved ? 'ok' : 'error');
           try {
             await postJson('/api/approve', { toolCallId: event.toolCallId, approved });
           } catch (err) {
@@ -3060,16 +3652,21 @@
       function retireApproval(approval) {
         approval.approve.disabled = true;
         approval.reject.disabled = true;
-        approval.approve.replaceWith(el('span', 'siu-chip', 'Retired'));
+        approval.approve.replaceWith(el('span', 'siu-chip', tr('approval.retired')));
         approval.reject.remove();
         approval.card.dataset.state = 'stale';
-        approval.setNote('Turn ended before a decision was made');
+        approval.setNote(tr('approval.retiredNote'));
       }
 
       // =======================================================================
       // History rendering (from the JSONL session branch)
       // =======================================================================
       function renderMessages(messages) {
+        // Every caller of this is a RESTORED view (boot, session load/switch),
+        // so the payload is safe to keep for a language re-render. A live turn
+        // streams into the transcript without ever coming through here.
+        state.messages = messages;
+        state.transcriptDirty = false;
         transcript.innerHTML = '';
         if (!messages.length) {
           renderEmptyState();
@@ -3133,26 +3730,29 @@
       // =======================================================================
       // Status / dashboard
       // =======================================================================
-      const STATUS_LABELS = {
-        idle: 'Idle',
-        running: 'Running',
-        thinking: 'Thinking',
-        streaming: 'Streaming',
-        tool_calling: 'Running a tool',
-        completed: 'Completed',
-        aborted: 'Aborted',
-        error: 'Error'
-      };
+      /** The status ids the server can report; each maps to a `status.<id>` key. */
+      const STATUS_IDS = ['idle', 'running', 'thinking', 'streaming', 'tool_calling', 'completed', 'aborted', 'error'];
+
+      /** A known id renders its translation; anything else passes through raw so
+       *  a future server status is still legible rather than blank. */
+      function statusLabel(status) {
+        return STATUS_IDS.includes(status) ? tr('status.' + status) : String(status);
+      }
 
       function setStatus(status) {
         state.status = status;
+        // The SSE stream sets status directly, so the cached payload must follow
+        // it — otherwise a language switch mid-turn would re-render the panel
+        // from a payload captured before the turn started.
+        if (state.lastStatus) state.lastStatus.status = status;
         const dot = $('status-dot');
-        dot.dataset.status = status in STATUS_LABELS ? status : 'idle';
-        $('status-text').textContent = status;
-        $('title-status').textContent = status;
+        // The raw id stays on the attribute: the CSS status colours key off it.
+        dot.dataset.status = STATUS_IDS.includes(status) ? status : 'idle';
+        $('status-text').textContent = statusLabel(status);
+        $('title-status').textContent = statusLabel(status);
         // Announce transitions rather than the streaming transcript, which would
         // produce continuous screen-reader noise.
-        $('status-live').textContent = STATUS_LABELS[status] || status;
+        $('status-live').textContent = statusLabel(status);
         // Dock badge mirrors "agent is working" in the desktop shell; no-op in a tab.
         void window.superiuDesktop?.setBadgeCount?.(status === 'idle' ? 0 : 1).catch?.(() => {});
       }
@@ -3177,26 +3777,48 @@
         $('fatigue-value').textContent = fatigue.toFixed(2);
 
         if (!posture) return;
-        $('posture-label').textContent = posture.label;
+        // `key` is the stable id; `label` is the server's English string, kept
+        // for CLI/API consumers. An older server sends only `label`.
+        $('posture-label').textContent = posture.key ? postureLabel(posture.key) : posture.label;
         const host = $('posture-modifier');
         host.innerHTML = '';
         const lines = (posture.modifier || '')
           .split('\n')
           .map((line) => line.trim())
           .filter((line) => line.startsWith('- '));
-        if (!lines.length) host.appendChild(el('div', 'text-muted', 'baseline — no active modifier'));
+        if (!lines.length) host.appendChild(el('div', 'text-muted', tr('menu.posture.baseline')));
         for (const line of lines) host.appendChild(el('div', '', '› ' + line.slice(2)));
       }
 
+      /**
+       * The Log file row advertises where the session lives, which is also its
+       * identity — so keep showing the path even before the file exists, and
+       * qualify it instead. `sessionPersisted` comes from /api/status, which is
+       * the only side that can stat; the renderer must not infer it from
+       * `/api/sessions` membership, because a draft that has only been
+       * `/clear`ed is on disk yet still absent from that list.
+       */
+      function renderSessionFile() {
+        const label = state.sessionFile || tr('session.file.inMemory');
+        const text = state.sessionFile && !state.sessionPersisted
+          ? tr('session.file.notWritten', { path: label })
+          : label;
+        $('info-file').textContent = text;
+        $('info-file').title = text;
+      }
+
       function renderStatus(payload) {
+        // Kept so a language switch can re-render this panel without a fetch.
+        state.lastStatus = payload;
         setStatus(payload.status);
         $('info-session').textContent = payload.sessionId || '—';
         $('info-session').title = payload.sessionId || '';
         $('info-leaf').textContent = payload.leafId || '(root)';
         $('info-leaf').title = payload.leafId || '';
         $('info-count').textContent = String(payload.messageCount ?? 0);
-        $('info-file').textContent = payload.sessionFile || '(in-memory)';
-        $('info-file').title = payload.sessionFile || '(in-memory)';
+        state.sessionFile = payload.sessionFile || '';
+        state.sessionPersisted = payload.sessionPersisted !== false;
+        renderSessionFile();
 
         fillModelSelect(payload.model, payload.modelChoices || []);
         const effort = payload.modelRoutes && payload.modelRoutes.main ? payload.modelRoutes.main.reasoningEffort : undefined;
@@ -3204,14 +3826,17 @@
         // The level drives the colour; the prefix would just repeat the chip's role.
         // A bare em-dash for "unset" reads as a stray separator next to the model
         // name, so spell out the one state that is not self-evident.
-        effortChip.textContent = effort || 'no effort';
+        effortChip.textContent = effort || tr('menu.model.noEffort');
         effortChip.dataset.level = effort || 'unset';
+        // The level itself is an API value, so it stays verbatim; only the frame
+        // around it is prose.
         effortChip.title = effort
-          ? 'Reasoning effort sent on the main route: ' + effort
-          : 'Main model does not accept reasoning_effort (or no effort configured) — nothing is sent';
+          ? tr('menu.model.effort.title') + ' · ' + effort
+          : tr('menu.model.effort.title') + ' · ' + tr('menu.model.noEffort');
         const chip = $('tool-model-chip');
-        chip.textContent = (payload.reviewModel || '—') + (payload.autoReview === false ? ' (off)' : '');
-        chip.title = 'Tool / review model' + (payload.autoReview === false ? ' — AutoReview disabled' : '');
+        const autoReviewOff = payload.autoReview === false;
+        chip.textContent = (payload.reviewModel || '—') + (autoReviewOff ? ' · ' + tr('menu.model.autoReviewOff') : '');
+        chip.title = tr('menu.model.tool.title') + (autoReviewOff ? ' · ' + tr('menu.model.autoReviewOff') : '');
 
         renderEmotion(payload.emotion, payload.posture);
 
@@ -3248,7 +3873,7 @@
         try {
           renderStatus(await api('/api/status'));
         } catch (err) {
-          toast('Status unavailable: ' + err.message, 'error');
+          toast(tr('toast.statusUnavailable', { message: err.message }), 'error');
         }
       }
 
@@ -3260,14 +3885,42 @@
 
       async function refreshSessions() {
         try {
-          const sessions = await api('/api/sessions');
-          const select = $('session-select');
+          state.sessions = await api('/api/sessions');
+          renderSessions(state.sessions);
+          return state.sessions;
+        } catch (err) {
+          toast(tr('toast.sessionsUnavailable', { message: err.message }), 'error');
+          return [];
+        }
+      }
+
+      /** Pure: renders from a list, so a language switch can re-run it from the
+       *  cached payload instead of paying another round trip. */
+      function renderSessions(sessions) {
+        // A draft session — created but no message sent yet — has a planned
+        // file path but nothing on disk, so the server omits it and no entry
+        // comes back active. Without a placeholder the select falls back to
+        // its first option, which makes an unrelated past session look like
+        // the one that is open.
+        const active = sessions.find((session) => session.active);
+
+        const select = $('session-select');
+        if (select) {
           select.innerHTML = '';
-          if (!sessions.length) {
-            const option = el('option', '', '(no sessions)');
+          // The list only carries sessions that hold at least one message, so
+          // "nothing is active" is the normal shape for a draft — not an empty
+          // workspace. Without a placeholder the select would fall back to its
+          // first option, which is how an unrelated past conversation comes to
+          // look like the one that is open. No ● marker on it: this is not a
+          // session, it is the absence of one, and its empty value makes the
+          // change handler a no-op. A current session with no file at all is
+          // the one case that really has nothing to fall back to.
+          const empty = !active && !sessions.length && !state.sessionFile;
+          if (empty || !active) {
+            const option = el('option', '', empty ? tr('session.select.none') : tr('session.select.empty'));
             option.value = '';
             select.appendChild(option);
-            return sessions;
+            select.value = '';
           }
           for (const session of sessions) {
             const option = el('option', '');
@@ -3279,10 +3932,36 @@
             select.appendChild(option);
             if (session.active) select.value = session.id;
           }
-          return sessions;
-        } catch (err) {
-          toast('Sessions unavailable: ' + err.message, 'error');
-          return [];
+        }
+
+        const list = $('session-list');
+        if (list) {
+          list.innerHTML = '';
+          if (!sessions.length) {
+            list.appendChild(el('li', 'siu-label p-3 text-muted', tr('session.select.none')));
+          } else {
+            for (const session of sessions) {
+              const item = el('li', 'siu-session-item');
+              item.dataset.active = String(session.active);
+              item.setAttribute('role', 'button');
+              item.tabIndex = 0;
+
+              const titleText = session.title || tr('session.untitled', { id: session.id.slice(0, 8) });
+              const titleEl = el('div', 'siu-session-item-title', titleText);
+
+              const metaEl = el('div', 'siu-session-item-meta');
+              const timeSpan = el('span', '', shortTime(session.timestamp));
+              const idSpan = el('span', 'opacity-60 font-mono', session.id.slice(0, 8));
+              metaEl.appendChild(timeSpan);
+              metaEl.appendChild(idSpan);
+
+              item.appendChild(titleEl);
+              item.appendChild(metaEl);
+
+              item.addEventListener('click', () => void switchSession(session.id));
+              list.appendChild(item);
+            }
+          }
         }
       }
 
@@ -3299,7 +3978,7 @@
         const list = $('history-list');
         list.innerHTML = '';
         if (!state.history.length) {
-          list.appendChild(el('li', 'siu-label', '(empty)'));
+          list.appendChild(el('li', 'siu-label', tr('menu.history.empty')));
           return;
         }
         for (const entry of state.history) {
@@ -3338,16 +4017,19 @@
         $('btn-abort').hidden = !running;
       }
 
-      function toggleRail() {
-        const rail = $('rail');
-        const collapsed = rail.hasAttribute('hidden');
-        rail.toggleAttribute('hidden', !collapsed);
-        toast(collapsed ? 'Rail shown' : 'Rail collapsed', 'ok');
-      }
-
       async function sendPrompt(rawPrompt) {
         if (state.running || !rawPrompt.trim()) return;
         const text = rawPrompt.trim();
+
+        // Must be set here, not only cleared in the `finally`: `state.running`
+        // gates re-entrant submits AND the language re-render, and the turn
+        // appends its DOM directly. Leaving it false meant the transcript could
+        // be rebuilt out from under a live turn.
+        setRunning(true);
+
+        // Any DOM the restored history did not produce invalidates its cache, so
+        // a language switch will not try to reconcile against a stale snapshot.
+        state.transcriptDirty = true;
 
         if (transcript.querySelector('.siu-empty')) transcript.innerHTML = '';
         transcript.appendChild(userBubble(text));
@@ -3419,7 +4101,7 @@
           if (!thinking) return;
           thinking.details.open = false;
           const words = thinking.body.textContent.trim().split(/\s+/).filter(Boolean).length;
-          thinking.label.textContent = 'Thinking summary (' + words + ' words)';
+          thinking.label.textContent = tr('transcript.thinkingSummary', { n: words });
           thinking = null;
         };
 
@@ -3439,7 +4121,7 @@
         const updateStepMeta = () => {
           if (!group) return;
           const parts = [];
-          if (toolCount) parts.push(toolCount + (toolCount === 1 ? ' tool' : ' tools'));
+          if (toolCount) parts.push(tr('transcript.tools', { n: toolCount }));
           // Human decision time is not agent work; exclude it from the elapsed clock.
           // Clamped: a client that joins mid-turn, or a clock skew, must not show negative time.
           const elapsed = Date.now() - turnStartedAt - stepApprovalWait;
@@ -3514,8 +4196,7 @@
                   // in the right cluster rather than adding a second line.
                   target.wait.classList.remove('hidden');
                   target.wait.innerHTML = CLOCK_GLYPH + '<span>' + (event.approvalWaitMs / 1000).toFixed(1) + 's</span>';
-                  target.wait.title =
-                    'Blocked ' + (event.approvalWaitMs / 1000).toFixed(1) + 's waiting for your approval decision';
+                  target.wait.title = tr('transcript.waitBlocked', { seconds: (event.approvalWaitMs / 1000).toFixed(1) });
                 }
                 const idx = pendingCards.indexOf(target);
                 if (idx >= 0) pendingCards.splice(idx, 1);
@@ -3535,7 +4216,7 @@
               openApprovals.push(approval);
               if (Notifications) {
                 Notifications.notifyApprovalRequired(
-                  'SuperIU: 需要审批 / Approval required',
+                  tr('notify.approvalRequired'),
                   event.name + ' — ' + (event.reason || 'flagged by AutoReview'),
                   { tag: 'superiu-approval-' + event.toolCallId }
                 );
@@ -3546,7 +4227,7 @@
 
             case 'error':
               turn.appendChild(systemNote('✕ ' + event.message, 'error'));
-              if (Notifications) Notifications.notifyError('SuperIU: 执行出错 / Error', event.message);
+              if (Notifications) Notifications.notifyError(tr('notify.error'), event.message);
               scrollToBottom();
               break;
 
@@ -3568,7 +4249,7 @@
               for (const card of turn.querySelectorAll('details[data-kind="tool"]')) card.open = false;
 
               if (!turn.querySelector('.siu-md')) {
-                turn.appendChild(el('div', 'siu-label', '[no output]'));
+                turn.appendChild(el('div', 'siu-label', tr('transcript.noOutput')));
               }
               // The newest bubble is the answer: never leave it folded away.
               if (lastTextBubble && !lastTextBubble.textContent.trim()) lastTextBubble.remove();
@@ -3580,8 +4261,8 @@
                 // The toast cannot render markdown, and the raw text is the
                 // model's answer — flatten it rather than showing `##` and URLs.
                 Notifications.notifyTaskComplete(
-                  'SuperIU: 任务完成 / Task complete',
-                  truncateWords(plainText(event.finalText), 180) || 'The agent loop has settled.'
+                  tr('notify.taskComplete'),
+                  truncateWords(plainText(event.finalText), 180) || tr('notify.settled')
                 );
               }
               scrollToBottom();
@@ -3637,7 +4318,7 @@
             turn.appendChild(systemNote('✕ ' + err.message, 'error'));
             toast(err.message, 'error');
           } else {
-            turn.appendChild(systemNote('■ turn aborted by user'));
+            turn.appendChild(systemNote(tr('transcript.aborted')));
           }
         } finally {
           closeThinking();
@@ -3646,7 +4327,22 @@
           state.controller = null;
           setRunning(false);
           await refreshStatus();
+          // The first turn is what persists a draft session, so the select, the
+          // sidebar, and the Log file qualifier all change here — not at /api/chat.
+          await refreshSessions();
           await refreshHistory();
+          // The turn drew its DOM by streaming, which the cache never saw. Re-read
+          // the committed branch so the cache is valid again and a later language
+          // switch can rebuild the transcript — without this the conversation
+          // would be stuck in whatever language the turn ran in. The cache is
+          // updated in place rather than via renderMessages() so the turn's fold
+          // state and scroll position survive.
+          try {
+            state.messages = await api('/api/messages');
+            state.transcriptDirty = false;
+          } catch {
+            /* keep the transcript marked dirty; a switch simply leaves it alone */
+          }
           scrollToBottom();
         }
       }
@@ -3658,7 +4354,7 @@
         } catch {
           /* stream teardown already aborted the turn */
         }
-        toast('Aborting turn…');
+        toast(tr('toast.aborting'));
       }
 
       // =======================================================================
@@ -3671,9 +4367,17 @@
           try {
             const payload = await postJson('/api/clear', {});
             renderStatus(payload.status);
+            // reset_boundary is a message, so this can be the first write of a
+            // draft session — re-read the list rather than leave it stale.
+            await refreshSessions();
+            // The cleared branch is gone from `state.messages` too: without this
+            // a later language re-render would resurrect the history the user
+            // just cleared out of the transcript.
+            state.messages = [];
+            state.transcriptDirty = true;
             transcript.innerHTML = '';
-            transcript.appendChild(systemNote('✓ reset_boundary appended · active context truncated'));
-            toast('Context cleared', 'ok');
+            transcript.appendChild(systemNote(tr('note.resetBoundary')));
+            toast(tr('toast.contextCleared'), 'ok');
           } catch (err) {
             toast(err.message, 'error');
           }
@@ -3689,18 +4393,26 @@
               'session:    ' + payload.sessionId,
               'leaf:       ' + (payload.leafId || '(root)'),
               'messages:   ' + payload.messageCount,
-              'file:       ' + (payload.sessionFile || '(in-memory)'),
+              // Same honesty rule as the status panel: a draft has a planned path
+              // but nothing on disk yet, so do not present it as an existing log.
+              'file:       ' + (payload.sessionFile || tr('session.file.inMemory')) +
+                (payload.sessionFile && payload.sessionPersisted === false
+                  ? tr('session.file.notWritten', { path: '' })
+                  : ''),
               'main model: ' + payload.model,
               'tool model: ' + payload.reviewModel + (payload.autoReview ? '' : ' (autoReview off)'),
               'effort:     ' + ((payload.modelRoutes && payload.modelRoutes.main && payload.modelRoutes.main.reasoningEffort) || '(none sent)'),
               'valence:    ' + Number(payload.emotion.valence).toFixed(3) +
                 '   arousal: ' + Number(payload.emotion.arousal).toFixed(3) +
                 '   fatigue: ' + Number(payload.emotion.fatigue).toFixed(3),
-              'posture:    ' + payload.posture.label
+              'posture:    ' + (payload.posture.key ? postureLabel(payload.posture.key) : payload.posture.label)
             ];
             const card = el('div', 'siu-turn ' + enterClass());
             card.dataset.role = 'content';
             card.appendChild(el('pre', 'siu-tool-well siu-tool-well--block', lines.join('\n')));
+            // Transient card, not part of the restored history: keep the cache
+            // from claiming it can be rebuilt.
+            state.transcriptDirty = true;
             transcript.appendChild(card);
             scrollToBottom(true);
           } catch (err) {
@@ -3719,29 +4431,30 @@
                     shortTime(s.timestamp) + '  ' + (s.title || '')
                 )
                 .join('\n')
-            : '(no sessions)';
+            : tr('session.select.none');
           const card = el('div', 'siu-turn ' + enterClass());
           card.dataset.role = 'content';
           card.appendChild(el('pre', 'siu-tool-well siu-tool-well--block', body));
+          state.transcriptDirty = true;
           transcript.appendChild(card);
           scrollToBottom(true);
           return;
         }
 
-        toast('Unknown command: ' + cmd, 'error');
+        toast(tr('toast.unknownCommand', { cmd }), 'error');
       }
 
       // =======================================================================
       // Session actions
       // =======================================================================
       async function createNewSession() {
-        if (state.running) return toast('Abort the running turn first', 'error');
+        if (state.running) return toast(tr('toast.abortFirst'), 'error');
         try {
           const payload = await postJson('/api/sessions/new', {});
           renderStatus(payload.status);
           renderMessages(payload.messages || []);
           await refreshSessions();
-          toast('New session created', 'ok');
+          toast(tr('toast.newSession'), 'ok');
         } catch (err) {
           toast(err.message, 'error');
         }
@@ -3752,22 +4465,22 @@
       // =======================================================================
       function renderNotifyButton() {
         const enabled = Boolean(Notifications) && state.notifyEnabled;
-        $('notify-label').textContent = enabled ? 'Alerts on' : 'Notify';
+        $('notify-label').textContent = enabled ? tr('menu.actions.notify.on') : tr('menu.actions.notify');
         $('btn-notify').className = 'siu-btn no-drag' + (enabled ? ' siu-btn--accent' : '');
         $('set-notifications').dataset.on = String(enabled);
         $('set-notifications').setAttribute('aria-checked', String(enabled));
       }
 
       async function enableNotifications() {
-        if (!Notifications) return toast('notifications.js unavailable', 'error');
+        if (!Notifications) return toast(tr('toast.notifyUnavailable'), 'error');
         const permission = await Notifications.requestPermission();
         state.notifyEnabled = permission === 'granted';
         renderNotifyButton();
         if (state.notifyEnabled) {
-          Notifications.notifyTaskComplete('SuperIU: 通知已启用 / Alerts enabled', 'You will be notified when a task completes or an approval is needed.');
-          toast('Desktop notifications enabled', 'ok');
+          Notifications.notifyTaskComplete(tr('notify.alertsEnabled'), tr('notify.alertsEnabledBody'));
+          toast(tr('toast.notifyEnabled'), 'ok');
         } else {
-          toast('Notification permission ' + permission, 'error');
+          toast(tr('toast.notifyPermission', { permission }), 'error');
         }
       }
 
@@ -3787,6 +4500,11 @@
         $('set-auto-review').dataset.on = String(view.autoReview);
         $('set-auto-review').setAttribute('aria-checked', String(view.autoReview));
         $('set-reasoning-effort').value = view.reasoningEffort || '';
+        // The select is a live preview, so it shows the language actually in
+        // force — not the last value read from disk, which Save is what commits.
+        // (Assigning `.value` fires no `change`, so this cannot loop back into
+        // setLanguage().)
+        $('set-language').value = getLanguage?.() ?? view.language ?? '';
         renderReasoningHint(view);
         $('settings-file-label').textContent = view.settingsFile;
         $('set-env-info').innerHTML =
@@ -3794,8 +4512,7 @@
           '<br />OPENAI_BASE_URL: ' + escapeHtml(view.env.OPENAI_BASE_URL || '(unset)') +
           '<br />OPENAI_MODEL_NAME: ' + escapeHtml(view.env.OPENAI_MODEL_NAME || '(unset)') +
           '<br />OPENAI_REVIEW_MODEL_NAME: ' + escapeHtml(view.env.OPENAI_REVIEW_MODEL_NAME || '(unset)') +
-          '<br />OPENAI_REASONING_EFFORT: ' + escapeHtml(view.env.OPENAI_REASONING_EFFORT || '(unset)') +
-          '<br /><span class="text-muted">Saved settings override environment defaults.</span>';
+          '<br />OPENAI_REASONING_EFFORT: ' + escapeHtml(view.env.OPENAI_REASONING_EFFORT || '(unset)');
         $('settings-msg').textContent = '';
         delete $('settings-msg').dataset.tone;
 
@@ -3819,17 +4536,14 @@
         if (supported) {
           parts.push(
             effective
-              ? 'Main route currently sends <span class="text-secondary">reasoningEffort: ' +
-                  escapeHtml(effective) + '</span>.'
-              : 'Main route sends no reasoningEffort.'
+              ? tr('settings.effort.active', { level: escapeHtml(effective) })
+              : tr('settings.effort.none')
           );
         } else {
-          parts.push(
-            'The current main model does not accept reasoning_effort, so nothing is sent (a non-reasoning model rejects the parameter with HTTP 400).'
-          );
+          parts.push(tr('settings.effort.unsupported'));
         }
         if (chosen && !supported) {
-          parts.push('Saved anyway — it will apply once you switch to a reasoning model.');
+          parts.push(tr('settings.effort.pending'));
         }
         hint.innerHTML = parts.join(' ');
         if (supported) delete hint.dataset.tone;
@@ -3858,7 +4572,7 @@
 
       $('settings-save').addEventListener('click', async () => {
         const message = $('settings-msg');
-        message.textContent = 'Saving…';
+        message.textContent = tr('settings.saving');
         message.className = 'siu-approval-status mr-auto';
         delete message.dataset.tone;
 
@@ -3867,7 +4581,8 @@
           modelName: $('set-model').value,
           reviewModelName: $('set-review-model').value,
           autoReview: $('set-auto-review').dataset.on === 'true',
-          reasoningEffort: $('set-reasoning-effort').value
+          reasoningEffort: $('set-reasoning-effort').value,
+          language: $('set-language').value
         };
         const apiKey = $('set-api-key').value.trim();
         if (apiKey) patch.apiKey = apiKey;
@@ -3879,10 +4594,10 @@
             await postJson('/api/model', { role: 'review', model: view.reviewModelName }).catch(() => {});
           }
           fillSettingsForm(view);
-          message.textContent = view.restarted ? '✓ Saved · runner restarted' : '✓ Saved';
+          message.textContent = view.restarted ? tr('settings.savedRestarted') : tr('settings.saved');
           message.className = 'siu-approval-status mr-auto';
           message.dataset.tone = 'ok';
-          toast('Settings saved', 'ok');
+          toast(tr('toast.settingsSaved'), 'ok');
           await refreshStatus();
           setTimeout(() => closeModal('settings'), 650);
         } catch (err) {
@@ -3895,30 +4610,36 @@
       // =======================================================================
       // Command palette
       // =======================================================================
-      const PALETTE_COMMANDS = [
-        { id: 'new', label: 'New Session', hint: '⌘N', run: () => createNewSession() },
-        { id: 'clear', label: 'Clear Context (/clear)', hint: '', run: () => runSlash('/clear') },
-        { id: 'status', label: 'Show Status (/status)', hint: '', run: () => runSlash('/status') },
-        { id: 'sessions', label: 'List Sessions (/sessions)', hint: '', run: () => runSlash('/sessions') },
-        { id: 'settings', label: 'Open Settings', hint: '⌘,', run: () => openSettings() },
-        { id: 'notify', label: 'Enable Desktop Notifications', hint: '', run: () => enableNotifications() },
-        { id: 'abort', label: 'Abort Running Turn', hint: '⌘.', run: () => (state.running ? abortTurn() : toast('Nothing is running')) },
-        { id: 'quit', label: 'Quit SuperIU', hint: '⌘Q', run: () => openModal('quit') },
-        { id: 'focus', label: 'Focus Prompt Input', hint: '', run: () => promptInput.focus() }
-      ];
+      /**
+       * Built fresh per render: `renderPalette` filters on `label`, so a
+       * language switch must re-resolve the labels, not mutate cached ones.
+       */
+      function paletteCommands() {
+        return [
+          { id: 'new', label: tr('palette.new'), hint: '⌘N', run: () => createNewSession() },
+          { id: 'clear', label: tr('palette.clear'), hint: '', run: () => runSlash('/clear') },
+          { id: 'status', label: tr('palette.status'), hint: '', run: () => runSlash('/status') },
+          { id: 'sessions', label: tr('palette.sessions'), hint: '', run: () => runSlash('/sessions') },
+          { id: 'settings', label: tr('palette.settings'), hint: '⌘,', run: () => openSettings() },
+          { id: 'notify', label: tr('palette.notify'), hint: '', run: () => enableNotifications() },
+          { id: 'abort', label: tr('palette.abort'), hint: '⌘.', run: () => (state.running ? abortTurn() : toast(tr('toast.nothingRunning'))) },
+          { id: 'quit', label: tr('palette.quit'), hint: '⌘Q', run: () => openModal('quit') },
+          { id: 'focus', label: tr('palette.focus'), hint: '', run: () => promptInput.focus() }
+        ];
+      }
 
-      let paletteItems = PALETTE_COMMANDS;
+      let paletteItems = paletteCommands();
       let paletteIndex = 0;
 
       function renderPalette(query) {
         const list = $('palette-list');
         list.innerHTML = '';
         const needle = query.trim().toLowerCase();
-        paletteItems = PALETTE_COMMANDS.filter((cmd) => cmd.label.toLowerCase().includes(needle));
+        paletteItems = paletteCommands().filter((cmd) => cmd.label.toLowerCase().includes(needle));
         paletteIndex = Math.min(paletteIndex, Math.max(0, paletteItems.length - 1));
 
         if (!paletteItems.length) {
-          list.appendChild(el('li', 'siu-palette-empty', 'No matching commands'));
+          list.appendChild(el('li', 'siu-palette-empty', tr('palette.empty')));
           return;
         }
 
@@ -3988,9 +4709,15 @@
         // are labelled for what they actually do — not for the macOS
         // accelerators their appearance might suggest.
         $('tl-close')?.addEventListener('click', () => openModal('quit'));
-        $('tl-min')?.addEventListener('click', () => toggleRail());
+        $('tl-min')?.addEventListener('click', () => toggleMenu());
         $('tl-max')?.addEventListener('click', () => document.documentElement.requestFullscreen?.().catch(() => {}));
       }
+
+      // Secondary menu triggers: the titlebar button, its own close button, the
+      // scrim, and any action inside it that replaces the panel with a modal.
+      $('btn-menu').addEventListener('click', () => toggleMenu());
+      $('btn-menu-close').addEventListener('click', () => closeMenu());
+      $('menu-scrim').addEventListener('click', () => closeMenu());
       $('quit-confirm').addEventListener('click', async () => {
         try {
           await postJson('/api/shutdown', {});
@@ -3998,26 +4725,30 @@
           /* server is going down */
         }
         closeAllModals();
+        state.messages = [];
+        state.transcriptDirty = true;
         transcript.innerHTML = '';
-        transcript.appendChild(systemNote('SuperIU web shell shut down. This tab can be closed.'));
+        transcript.appendChild(systemNote(tr('toast.shutdown')));
       });
 
       $('btn-settings').addEventListener('click', () => void openSettings());
       $('btn-palette').addEventListener('click', () => openModal('palette'));
+      $('btn-toggle-sidebar')?.addEventListener('click', toggleSidebar);
+      $('btn-sidebar-collapse')?.addEventListener('click', () => setSidebarCollapsed(true));
 
       // =======================================================================
-      // Main model selector (chat header)
+      // Main model selector (secondary menu)
       // =======================================================================
       $('model-select').addEventListener('change', async (event) => {
         const modelName = event.target.value;
         if (!modelName || state.running) {
-          if (state.running) toast('Abort the running turn first', 'error');
+          if (state.running) toast(tr('toast.abortFirst'), 'error');
           return;
         }
         try {
           await postJson('/api/model', { role: 'main', model: modelName });
           await refreshStatus();
-          toast('Main model → ' + modelName, 'ok');
+          toast(tr('toast.modelChanged', { model: modelName }), 'ok');
         } catch (err) {
           toast(err.message, 'error');
           await refreshStatus();
@@ -4027,9 +4758,18 @@
       // =======================================================================
       // Input bar
       // =======================================================================
+      function syncComposerState() {
+        const hasText = Boolean(promptInput.value.trim());
+        const sendBtn = $('btn-send');
+        if (sendBtn) {
+          sendBtn.dataset.ready = String(hasText);
+        }
+      }
+
       function autosize() {
         promptInput.style.height = 'auto';
         promptInput.style.height = Math.min(promptInput.scrollHeight, 192) + 'px';
+        syncComposerState();
       }
 
       function submit() {
@@ -4037,6 +4777,7 @@
         if (!value.trim() || state.running) return;
         promptInput.value = '';
         autosize();
+        syncComposerState();
 
         if (value.trim().startsWith('/')) {
           void runSlash(value.trim());
@@ -4045,7 +4786,10 @@
         void sendPrompt(value);
       }
 
-      promptInput.addEventListener('input', autosize);
+      promptInput.addEventListener('input', () => {
+        autosize();
+        syncComposerState();
+      });
       promptInput.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' && !event.shiftKey && !event.metaKey) {
           event.preventDefault();
@@ -4087,14 +4831,10 @@
         pill.addEventListener('click', () => void runSlash(pill.dataset.cmd));
       });
 
-      $('btn-new').addEventListener('click', () => void createNewSession());
-      $('btn-clear').addEventListener('click', () => void runSlash('/clear'));
-
-      $('session-select').addEventListener('change', async (event) => {
-        const reference = event.target.value;
+      async function switchSession(reference) {
         if (!reference) return;
         if (state.running) {
-          toast('Abort the running turn first', 'error');
+          toast(tr('toast.abortFirst'), 'error');
           await refreshSessions();
           return;
         }
@@ -4102,28 +4842,107 @@
           const payload = await postJson('/api/sessions/load', { sessionIdOrPath: reference });
           renderStatus(payload.status);
           renderMessages(payload.messages || []);
-          toast('Loaded session ' + reference.slice(0, 8), 'ok');
+          toast(tr('toast.loadedSession', { id: reference.slice(0, 8) }), 'ok');
+          await refreshSessions();
         } catch (err) {
+          toast(err.message, 'error');
+          await refreshSessions();
+        }
+      }
+
+      $('btn-new')?.addEventListener('click', () => void createNewSession());
+      $('btn-sidebar-new')?.addEventListener('click', () => void createNewSession());
+      $('btn-clear')?.addEventListener('click', () => void runSlash('/clear'));
+      $('session-select')?.addEventListener('change', (event) => void switchSession(event.target.value));
+
+      // =======================================================================
+      // Interface language
+      // =======================================================================
+      // The select must be populated before fillSettingsForm() assigns its
+      // value, or the assignment would land on an empty option list and stick.
+      for (const language of I18n?.LANGUAGES ?? []) {
+        const option = el('option', '');
+        option.value = language.id;
+        option.textContent = language.label;
+        $('set-language').appendChild(option);
+      }
+
+      /** Re-render every region that is built in JS rather than annotated. */
+      function rerenderLocalizedRegions() {
+        renderNotifyButton();
+        if (state.lastStatus) renderStatus(state.lastStatus);
+        renderSessions(state.sessions);
+        renderHistoryList();
+        renderPalette($('palette-input').value);
+        if (state.settings) fillSettingsForm(state.settings);
+        // The transcript is JS-built too (tool cards, badges, step labels,
+        // approval buttons), so it has to be rebuilt or it keeps the language it
+        // was drawn in. Skipped while a turn is streaming (the DOM holds state a
+        // rebuild would destroy) and while the DOM holds anything the cache does
+        // not account for — `transcriptDirty` means a re-render would silently
+        // drop what the user is looking at.
+        if (!state.running && !state.transcriptDirty) renderMessages(state.messages);
+      }
+
+      // A switch from anywhere — this select, or a future caller — refreshes the
+      // dynamic regions. The subscriber must never call setLanguage() back.
+      onChange?.(() => rerenderLocalizedRegions());
+
+      // Language applies the moment it is chosen — matching the hint ("applies
+      // immediately and persists") and the model selector's behaviour. Deferring
+      // the write to Save would leave localStorage holding the previewed value
+      // while the settings file held the old one, and the next boot's pre-paint
+      // script reads localStorage, so a cancelled preview would flash the wrong
+      // language on every subsequent launch.
+      $('set-language').addEventListener('change', async (event) => {
+        const previous = getLanguage?.() ?? 'zh';
+        const next = event.target.value;
+        setLanguage?.(next);
+        try {
+          const view = await postJson('/api/settings', { language: next });
+          // The server is now authoritative; mirror what it actually stored.
+          setLanguage?.(view.language);
+        } catch (err) {
+          // Nothing was persisted, so put the UI back where it was.
+          setLanguage?.(previous);
           toast(err.message, 'error');
         }
       });
+
+      // Translate the static markup before the first render pass. A no-op when
+      // `i18n.js` already did it at module load (it always has, unless the
+      // module failed to load, in which case `applyI18n` is undefined) — kept
+      // as the single documented entry point for the shell's own markup.
+      applyI18n?.(document);
 
       // =======================================================================
       // Boot
       // =======================================================================
       (async function boot() {
         autosize();
+        if (localStorage.getItem('superiu.sidebar-collapsed') === 'true') {
+          setSidebarCollapsed(true);
+        }
         try {
           renderStatus(await api('/api/status'));
           renderMessages(await api('/api/messages'));
         } catch (err) {
-          toast('Boot failed: ' + err.message, 'error');
+          toast(tr('toast.bootFailed', { message: err.message }), 'error');
           renderEmptyState();
         }
         await refreshSessions();
         await refreshHistory();
         try {
-          fillSettingsForm(await api('/api/settings'));
+          const view = await api('/api/settings');
+          // The settings file is authoritative, so push it in AND let it correct
+          // localStorage. Skipping the write here would leave a stale stored
+          // value in place, and the pre-paint script reads it — so every launch
+          // after a settings-file change outside the UI would paint the wrong
+          // language and then flip, which is exactly the flash this key exists
+          // to prevent.
+          setLanguage?.(view.language, { force: true });
+          fillSettingsForm(view);
+          rerenderLocalizedRegions();
         } catch {
           /* settings stay unavailable until the modal is opened */
         }

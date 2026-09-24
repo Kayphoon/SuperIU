@@ -44,6 +44,11 @@ export interface ServerHandle {
   port: number;
   host: string;
   url: string;
+  /**
+   * Language resolved at boot, so the desktop shell can build its native menu
+   * in the right language before the renderer has loaded.
+   */
+  language: UiLanguage;
   /** Idempotent: resolves pending approvals, closes the HTTP server and the agent runner. */
   close(): Promise<void>;
 }
@@ -52,7 +57,7 @@ export interface ServerHandle {
 let PUBLIC_DIR = path.resolve(HERE, '..', 'public');
 let SETTINGS_FILE = path.join(process.cwd(), '.myagent', 'ui-settings.json');
 
-/** Models offered in the chat header selector; free-text entry is also accepted. */
+/** Models offered in the secondary menu's model selector; free-text entry is also accepted. */
 const MODEL_CHOICES: string[] = [
   'gpt-4o',
   'gpt-4o-mini',
@@ -65,10 +70,28 @@ const MODEL_CHOICES: string[] = [
   'moonshot-v1-128k'
 ];
 
+/**
+ * UI language ids, shared with the SPA's `i18n.js` and persisted verbatim in
+ * `ui-settings.json`. Chinese is the product default; English stays first-class.
+ */
+export type UiLanguage = 'zh' | 'en';
+export const UI_LANGUAGES: readonly UiLanguage[] = ['zh', 'en'];
+export const DEFAULT_LANGUAGE: UiLanguage = 'zh';
+
+/**
+ * Accepts stray case/whitespace from a hand-edited settings file; anything
+ * unrecognised yields `undefined` so each caller picks its own fallback.
+ */
+function parseLanguage(value: unknown): UiLanguage | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  return UI_LANGUAGES.find((id) => id === normalized);
+}
+
 interface UiSettings {
   apiKey: string;
   baseURL: string;
-  /** Main agent model — editable from both Settings and the chat header. */
+  /** Main agent model — editable from both Settings and the secondary menu. */
   modelName: string;
   /** Tool/review model — Settings only. */
   reviewModelName: string;
@@ -78,21 +101,30 @@ interface UiSettings {
    * `''` means "derive": the env value, else the core default (`medium`).
    */
   reasoningEffort: ReasoningEffort | '';
+  /** Presentation only: switching it must never rebuild the runner. */
+  language: UiLanguage;
 }
 
+export type PostureKey = 'terse' | 'cautious' | 'constructive' | 'driven' | 'pragmatic';
+
 interface PostureView {
+  key: PostureKey;
   label: string;
   modifier: string;
 }
 
-/** Posture badge derived from the same thresholds as the core prompt modifier. */
+/**
+ * Posture badge derived from the same thresholds as the core prompt modifier.
+ * `label` stays English for the CLI and API consumers that already read it;
+ * the SPA ignores it and renders `t('posture.' + key)` in the active language.
+ */
 function describePosture(emotion: EmotionState): PostureView {
   const modifier = getEmotionPromptModifier(emotion);
-  if (emotion.fatigue > 0.7) return { label: 'Terse & Direct', modifier };
-  if (emotion.valence < -0.3) return { label: 'Cautious & Focused', modifier };
-  if (emotion.valence > 0.5) return { label: 'Constructive & Proactive', modifier };
-  if (emotion.arousal > 0.6) return { label: 'Driven & Deep-Diving', modifier };
-  return { label: 'Pragmatic & Rigorous', modifier };
+  if (emotion.fatigue > 0.7) return { key: 'terse', label: 'Terse & Direct', modifier };
+  if (emotion.valence < -0.3) return { key: 'cautious', label: 'Cautious & Focused', modifier };
+  if (emotion.valence > 0.5) return { key: 'constructive', label: 'Constructive & Proactive', modifier };
+  if (emotion.arousal > 0.6) return { key: 'driven', label: 'Driven & Deep-Diving', modifier };
+  return { key: 'pragmatic', label: 'Pragmatic & Rigorous', modifier };
 }
 
 function serializeMessages(messages: ContextMessage[]) {
@@ -113,7 +145,8 @@ function loadSettings(): UiSettings {
     modelName: process.env.OPENAI_MODEL_NAME ?? DEFAULT_MAIN_MODEL,
     reviewModelName: process.env.OPENAI_REVIEW_MODEL_NAME ?? DEFAULT_REVIEW_MODEL,
     autoReview: (process.env.SUPERIU_AUTO_REVIEW ?? '1') !== '0',
-    reasoningEffort: parseReasoningEffort(process.env.OPENAI_REASONING_EFFORT) ?? ''
+    reasoningEffort: parseReasoningEffort(process.env.OPENAI_REASONING_EFFORT) ?? '',
+    language: parseLanguage(process.env.SUPERIU_LANGUAGE) ?? DEFAULT_LANGUAGE
   };
 
   try {
@@ -127,7 +160,10 @@ function loadSettings(): UiSettings {
           ? raw.reviewModelName
           : defaults.reviewModelName,
       autoReview: typeof raw.autoReview === 'boolean' ? raw.autoReview : defaults.autoReview,
-      reasoningEffort: parseReasoningEffort(raw.reasoningEffort) ?? defaults.reasoningEffort
+      reasoningEffort: parseReasoningEffort(raw.reasoningEffort) ?? defaults.reasoningEffort,
+      // The file is authoritative, but an unknown id (hand-edited or written by
+      // a newer build) must not pin the UI to a language it cannot render.
+      language: parseLanguage(raw.language) ?? defaults.language
     };
   } catch {
     // Missing or corrupt file: fall back to environment defaults.
@@ -181,7 +217,7 @@ function recordApprovalWait(toolCallId: string): void {
   approvalToolNames.delete(toolCallId);
 }
 
-function runnerOptions(sessionReference?: string, historyDbPath?: string) {
+function runnerOptions(sessionReference?: string, historyDbPath?: string, newSession = false) {
   return {
     apiKey: settings.apiKey || undefined,
     baseURL: settings.baseURL || undefined,
@@ -192,6 +228,9 @@ function runnerOptions(sessionReference?: string, historyDbPath?: string) {
     // over `OPENAI_REASONING_EFFORT`, matching how the other settings resolve.
     defaultReasoningEffort: settings.reasoningEffort || undefined,
     sessionId: sessionReference,
+    // A draft has no file to reopen, so a rebuild must skip the resume path
+    // rather than be handed a path that does not exist yet.
+    newSession,
     historyDbPath,
     permissionGate: async (toolCall: ToolCallItem, review: ReviewResult): Promise<boolean> =>
       new Promise<boolean>((resolve) => {
@@ -250,11 +289,19 @@ function publicRoutes(): Record<string, PublicModelRoute> {
 }
 
 function buildStatus() {
+  const sessionFile = runner.getSessionFile();
   return {
     status: runner.status,
     sessionId: runner.getSessionId(),
     leafId: runner.getLeafId(),
-    sessionFile: runner.getSessionFile(),
+    sessionFile,
+    /**
+     * Whether the session log exists on disk yet. A draft has a planned path but
+     * no file, and the renderer cannot stat, so it must be told rather than left
+     * to infer persistence from `/api/sessions` membership — a draft that has
+     * only been `/clear`ed is on disk yet still absent from that list.
+     */
+    sessionPersisted: runner.session.materialized,
     messageCount: runner.getMessages().length,
     model: settings.modelName,
     reviewModel: settings.reviewModelName,
@@ -333,6 +380,7 @@ function settingsView() {
     modelName: settings.modelName,
     reviewModelName: settings.reviewModelName,
     autoReview: settings.autoReview,
+    language: settings.language,
     /** '' means "derive": env value, else the core default. */
     reasoningEffort: settings.reasoningEffort,
     /** Effort the main route actually resolves to right now (undefined when the model rejects it). */
@@ -374,6 +422,16 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
     }
     next.reasoningEffort = parsed;
   }
+  if (patch.language !== undefined) {
+    const raw = typeof patch.language === 'string' ? patch.language.trim() : String(patch.language);
+    const parsed = parseLanguage(raw);
+    if (parsed === undefined) {
+      throw new Error(`Invalid language '${raw}'. Expected one of: ${UI_LANGUAGES.join(', ')}.`);
+    }
+    // Deliberately absent from `runnerChanged`: language is presentation only,
+    // so switching it must not swap the runner and drop the live session.
+    next.language = parsed;
+  }
 
   const runnerChanged =
     next.apiKey !== settings.apiKey ||
@@ -391,9 +449,16 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
   }
 
   const activeSession = runner.getSessionFile();
+  // A draft has no file on disk yet, so `resolveSessionFile` cannot find it and
+  // the rebuild would silently start a different session. Carry the plan
+  // forward as a fresh draft instead — an unsent draft holds no messages, so
+  // nothing is lost and the new session still materializes on its first one.
+  const draft = !runner.session.materialized;
   const carriedEmotion = runner.emotion;
   runner.close();
-  runner = new AgentRunner(runnerOptions(activeSession ?? undefined));
+  runner = new AgentRunner(
+    runnerOptions(draft ? undefined : activeSession ?? undefined, undefined, draft)
+  );
   runner.emotion = carriedEmotion;
 
   return { restarted: true, sessionId: runner.getSessionId() };
@@ -495,7 +560,13 @@ async function handleApi(
       return true;
     }
 
-    if (runner.status !== 'idle') {
+    // `language` is presentation-only and never touches the runner, so a patch
+    // that carries nothing else must not be gated on an idle agent — otherwise
+    // switching the interface language mid-turn fails with a 409 and the UI
+    // visibly snaps back. Any other key still requires an idle runner.
+    const presentationOnly = Object.keys(body).every((key) => key === 'language');
+
+    if (!presentationOnly && runner.status !== 'idle') {
       sendError(res, 409, `Cannot apply settings while the agent is ${runner.status}. Abort the turn first.`);
       return true;
     }
@@ -895,9 +966,15 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
     console.log('=== SuperIU Web UI (@agent/ui) ===');
     console.log(`  Listening:   http://${host}:${listening}`);
     console.log(`  Main model:  ${settings.modelName}`);
+    console.log(`  Language:    ${settings.language}`);
     console.log(`  Tool model:  ${settings.reviewModelName} (autoReview ${settings.autoReview ? 'on' : 'off'})`);
     console.log(`  Session:     ${runner.getSessionId()}`);
-    console.log(`  Log:         ${runner.getSessionFile() ?? '(in-memory)'}`);
+    // A boot with no resumable session starts a draft, so the path printed here
+    // may not exist yet; do not present it as an existing log.
+    console.log(
+      `  Log:         ${runner.getSessionFile() ?? '(in-memory)'}` +
+        (runner.session.materialized ? '' : ' (not written yet)')
+    );
     console.log(`  Memory:      ${memoryDir}`);
     console.log(`  Settings:    ${SETTINGS_FILE}`);
     console.log(`  Workspace:   ${workstation.cwd}`);
@@ -921,7 +998,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
   };
 
   shutdownHook = () => void close();
-  return { port: listening, host, url: `http://${host}:${listening}`, close };
+  return { port: listening, host, url: `http://${host}:${listening}`, language: settings.language, close };
 }
 
 // Standalone entry point: `node dist/server.js` (used by `pnpm ui`).

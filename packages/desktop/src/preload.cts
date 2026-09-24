@@ -30,6 +30,7 @@ const SHOW_NOTIFICATION: typeof import('./ipc.js').INVOKE.showNotification =
   'superiu:show-notification';
 const FLASH_FRAME: typeof import('./ipc.js').INVOKE.flashFrame = 'superiu:flash-frame';
 const QUIT: typeof import('./ipc.js').INVOKE.quit = 'superiu:quit';
+const SET_LANGUAGE: typeof import('./ipc.js').INVOKE.setLanguage = 'superiu:set-language';
 
 const { contextBridge, ipcRenderer } = require('electron');
 
@@ -65,6 +66,10 @@ const bridge: SuperiuDesktopBridge = {
 
   quit(): Promise<void> {
     return ipcRenderer.invoke(QUIT);
+  },
+
+  setLanguage(language: string): Promise<void> {
+    return ipcRenderer.invoke(SET_LANGUAGE, language);
   }
 };
 
