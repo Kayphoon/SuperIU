@@ -137,6 +137,7 @@ description: |
 - **设置持久化**: `<workspace>/.myagent/ui-settings.json`，含 `apiKey`（展示时掩码）、`baseURL`、`modelName`、`reviewModelName`、`autoReview`、`reasoningEffort`、`language`（`zh`/`en`）；显式设置优先于环境变量。
 - **界面语言**: 默认中文。解析顺序 设置文件 `language` → `SUPERIU_LANGUAGE` → `zh`（文件优先，与 `apiKey` 等所有其它字段一致；env 只在文件未设该值时兜底）；无法渲染的值一律忽略并回落到默认，故旧版本外壳读新设置文件只会降级而不会半翻译。`packages/ui/public/i18n.js` 是浏览器字典（`t`/`apply`/`setLanguage`/`onChange`/`postureLabel`），`<html data-i18n*>` 标注静态文本；`localStorage['superiu.language']` 仅供首屏免闪烁，**设置文件才是权威**（改语言必须立即 POST 持久化，否则「预览后取消」会让 localStorage 与文件长期不一致，之后每次启动都闪错语言）。语言是纯展示设置，**不进入 `applySettings` 的 `runnerChanged`**，切换绝不重建 runner。`/api/status` 的 `posture` 为 `{ key, label, modifier }`：`key` 供前端本地化，`label` 保留英文给非本地化消费者，`modifier` 是注入系统提示词的原文（**故意不翻译**）。三张字典表（web `i18n.js` / 桌面 `menu.ts` 的 `MENU_LABELS` / CLI `language.ts` 的 `DICTS`）因运行环境隔离而各存一份，但共享概念的 **key 名与措辞必须逐字一致**（如 8 个 `status.*`），这是「单核双驱」措辞一致约定的落点。
 - **单一在途轮次**: `runner.status !== 'idle'` 时新请求返回 `409`。
+- **斜杠补全**: 输入框输入 `/` 弹出补全面板（`#complete`），仅在仍是命令名阶段匹配（含空白即视为参数，不再提示）；ArrowUp/Down 移动（循环）、Tab/Enter 补全、Esc 关闭。补全只插入名字，**再按一次 Enter 才执行**；因此 `/status` 这类精确名 + Enter 的行为与手输完全一致。Esc 必须在全局 `capture` 监听里优先关面板，否则会误触中止在途轮次。命令面板（⌘K）是独立入口，二者共用 `runSlash`。
 
 #### 9.2 `@agent/desktop` — Electron 原生外壳
 - **动机**: 浏览器标签页无法拦截 `Cmd+Q` / `Cmd+,`——系统与浏览器独占这些组合键，因此"原生 macOS 操作"（退出、设置、窗口控制）必须由原生外壳交付。

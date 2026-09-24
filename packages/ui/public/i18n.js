@@ -163,6 +163,11 @@ const DICT = {
     'quit.cancel': '取消',
     'quit.confirm': '退出',
 
+    'complete.aria': '命令补全',
+    'slash.clear.desc': '清空当前上下文（追加 reset_boundary）',
+    'slash.status.desc': '查看智能体与工作台状态',
+    'slash.sessions.desc': '列出已落盘会话',
+
     'palette.aria': '命令面板',
     'palette.placeholder': '输入命令…',
     'palette.empty': '没有匹配的命令',
@@ -393,6 +398,11 @@ const DICT = {
     'quit.body': 'The web shell will shut down and the agent session is saved to its JSONL log.',
     'quit.cancel': 'Cancel',
     'quit.confirm': 'Quit',
+
+    'complete.aria': 'Command completion',
+    'slash.clear.desc': 'Clear the current context (appends reset_boundary)',
+    'slash.status.desc': 'Show agent and workstation status',
+    'slash.sessions.desc': 'List persisted sessions',
 
     'palette.aria': 'Command palette',
     'palette.placeholder': 'Type a command…',

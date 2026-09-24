@@ -1740,6 +1740,7 @@
         pointer-events: none;
       }
       .siu-composer-inner {
+        position: relative;
         max-width: min(740px, 100%);
         margin-inline: auto;
         pointer-events: auto;
@@ -1786,27 +1787,53 @@
         margin-top: 8px;
         padding-top: 6px;
       }
-      .siu-composer-pills {
+      /* Slash autocomplete: anchored above the well, so opening it never
+         reflows the transcript the way an inline block would. */
+      .siu-complete {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: calc(100% + 8px);
+        z-index: 40;
+        max-height: 260px;
+        overflow-y: auto;
+        padding: 5px;
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-md);
+        background: var(--siu-bg-panel);
+        backdrop-filter: blur(36px) saturate(190%);
+        -webkit-backdrop-filter: blur(36px) saturate(190%);
+        box-shadow: 0 16px 42px -10px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.08);
+      }
+      .siu-complete[hidden] {
+        display: none;
+      }
+      .siu-complete-item {
         display: flex;
-        align-items: center;
-        gap: 6px;
-      }
-      .siu-slash-pill {
-        height: 22px;
-        padding: 0 10px;
-        border: 1px solid var(--siu-border-subtle);
-        border-radius: var(--siu-radius-full);
-        background: var(--siu-bg-inset);
-        color: var(--siu-text-muted);
-        font-family: var(--siu-font-mono);
-        font-size: 11px;
+        align-items: baseline;
+        gap: 10px;
+        padding: 7px 10px;
+        border-radius: var(--siu-radius-sm);
         cursor: pointer;
-        transition: all var(--siu-dur-fast) var(--siu-ease-out);
       }
-      .siu-slash-pill:hover {
-        border-color: var(--siu-border-strong);
-        background: var(--siu-bg-hover);
+      /* `data-active` is the single source of truth, so hover and keyboard
+         selection can never disagree. */
+      .siu-complete-item[data-active='true'] {
+        background: var(--siu-accent-weak);
+      }
+      .siu-complete-name {
+        flex: none;
         color: var(--siu-text-primary);
+        font-family: var(--siu-font-mono);
+        font-size: 12px;
+      }
+      .siu-complete-desc {
+        flex: 1;
+        overflow: hidden;
+        color: var(--siu-text-muted);
+        font-size: 11px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
       .siu-btn-send {
         display: inline-flex;
@@ -2476,6 +2503,10 @@
 
           <div class="siu-composer">
             <div class="siu-composer-inner">
+              <!-- Slash autocomplete. Populated by renderCompletions(); kept in
+                   the markup (rather than built per keystroke) so the list is a
+                   stable node the keydown handler can address. -->
+              <div id="complete" class="siu-complete" role="listbox" aria-label="命令补全" data-i18n-aria-label="complete.aria" hidden></div>
               <div class="siu-composer-well">
                 <textarea
                   id="prompt"
@@ -2485,11 +2516,6 @@
                   class="siu-composer-input"
                 ></textarea>
                 <div class="siu-composer-toolbar">
-                  <div class="siu-composer-pills">
-                    <button class="siu-slash-pill" data-cmd="/status">/status</button>
-                    <button class="siu-slash-pill" data-cmd="/clear">/clear</button>
-                    <button class="siu-slash-pill" data-cmd="/sessions">/sessions</button>
-                  </div>
                   <div class="flex items-center gap-2">
                     <button id="btn-abort" class="siu-btn-stop hidden" title="中止本轮" data-i18n-title="composer.stop.title">
                       <span class="siu-stop-glyph"></span> <span data-i18n="composer.stop">停止</span>
@@ -2864,6 +2890,10 @@
         // silently discarding whatever the user is looking at.
         messages: [],
         transcriptDirty: false,
+        // Slash autocomplete: the current matches and the highlighted row. Kept
+        // in `state` so the keydown handler and the renderer agree on one index.
+        completions: [],
+        completionIndex: 0,
         // Set when the language changes while a turn is streaming: the DOM holds
         // state a rebuild would destroy, so the rebuild is deferred to the turn's
         // `finally` rather than dropped. Without it a mid-turn switch left the
@@ -3216,6 +3246,15 @@
           // The secondary menu is part of `anyModalOpen()` now, so this closes
           // it exactly like a modal instead of competing with a second listener.
           if (key === 'Escape') {
+            // The completion menu is the topmost layer when it is open, so it
+            // closes first — otherwise Esc would abort a running turn while the
+            // user was only dismissing the list. This handler is on `capture`,
+            // so it runs before the composer's own keydown.
+            if (completionOpen()) {
+              event.preventDefault();
+              closeCompletions();
+              return;
+            }
             if (anyModalOpen()) {
               event.preventDefault();
               closeAllModals();
@@ -4303,33 +4342,44 @@
           closeBubble();
           settleOpenApprovals();
           state.controller = null;
-          setRunning(false);
-          await refreshStatus();
-          // The first turn is what persists a draft session, so the select, the
-          // sidebar, and the Log file qualifier all change here — not at /api/chat.
-          await refreshSessions();
-          await refreshHistory();
-          // The turn drew its DOM by streaming, which the cache never saw. Re-read
-          // the committed branch so the cache is valid again and a later language
-          // switch can rebuild the transcript — without this the conversation
-          // would be stuck in whatever language the turn ran in. The cache is
-          // updated in place rather than via renderMessages() so the turn's fold
-          // state and scroll position survive.
+          // Everything below runs while `running` is still true, and the flag is
+          // cleared in the inner `finally`. Two constraints meet here:
+          //   - The cache refresh must finish BEFORE the flag clears. Clearing it
+          //     re-enables Submit, and a deferred rebuild running after that could
+          //     wipe a new turn's freshly streamed DOM — the "rebuild clobbers a
+          //     live turn" hazard this code guards against.
+          //   - The flag must clear even if the rebuild throws, or Send stays
+          //     hidden forever and submit/new/switch all return early.
           try {
-            state.messages = await api('/api/messages');
-            state.transcriptDirty = false;
-          } catch {
-            /* keep the transcript marked dirty; a switch simply leaves it alone */
+            await refreshStatus();
+            // The first turn is what persists a draft session, so the select, the
+            // sidebar, and the Log file qualifier all change here — not at /api/chat.
+            await refreshSessions();
+            await refreshHistory();
+            // The turn drew its DOM by streaming, which the cache never saw.
+            // Re-read the committed branch so the cache is valid again and a
+            // later language switch can rebuild the transcript — without this the
+            // conversation would be stuck in whatever language the turn ran in.
+            // The cache is updated in place rather than via renderMessages() so
+            // the turn's fold state and scroll position survive.
+            try {
+              state.messages = await api('/api/messages');
+              state.transcriptDirty = false;
+            } catch {
+              /* keep the transcript marked dirty; a switch simply leaves it alone */
+            }
+            // A language switch that landed mid-turn could not rebuild the
+            // transcript (the DOM held the live step). Now that the turn is over
+            // and the cache is valid, honour it — otherwise the conversation
+            // stays in the language it was drawn in until the next switch.
+            if (state.rerenderPending) {
+              state.rerenderPending = false;
+              renderMessages(state.messages);
+            }
+          } finally {
+            setRunning(false);
+            scrollToBottom();
           }
-          // A language switch that landed mid-turn could not rebuild the
-          // transcript (the DOM held the live step). Now that the turn is over
-          // and the cache is valid, honour it — otherwise the conversation stays
-          // in the language it was drawn in until the next switch.
-          if (state.rerenderPending) {
-            state.rerenderPending = false;
-            renderMessages(state.messages);
-          }
-          scrollToBottom();
         }
       }
 
@@ -4428,6 +4478,99 @@
         }
 
         toast(tr('toast.unknownCommand', { cmd }), 'error');
+      }
+
+      // =======================================================================
+      // Slash autocomplete
+      // =======================================================================
+      /**
+       * The commands the composer offers. `name` is what gets inserted and what
+       * `runSlash` dispatches on; the descriptions are dictionary keys so the
+       * menu follows the interface language like everything else.
+       */
+      function slashCommands() {
+        return [
+          { name: '/status', desc: tr('slash.status.desc') },
+          { name: '/clear', desc: tr('slash.clear.desc') },
+          { name: '/sessions', desc: tr('slash.sessions.desc') }
+        ];
+      }
+
+      /**
+       * Matches only while the user is still typing the command *name* — once a
+       * space is entered the rest is an argument, and offering command names
+       * over it would be noise.
+       */
+      function completionMatches() {
+        const value = promptInput.value;
+        if (!value.startsWith('/') || /\s/.test(value)) return [];
+        const needle = value.toLowerCase();
+        return slashCommands().filter((cmd) => cmd.name.startsWith(needle));
+      }
+
+      function renderCompletions() {
+        const box = $('complete');
+        const matches = completionMatches();
+        state.completions = matches;
+        if (!matches.length) {
+          closeCompletions();
+          return;
+        }
+        state.completionIndex = Math.min(state.completionIndex, matches.length - 1);
+        box.innerHTML = '';
+        matches.forEach((cmd, index) => {
+          const item = el('div', 'siu-complete-item');
+          item.dataset.active = String(index === state.completionIndex);
+          item.setAttribute('role', 'option');
+          item.setAttribute('aria-selected', String(index === state.completionIndex));
+          item.appendChild(el('span', 'siu-complete-name', cmd.name));
+          item.appendChild(el('span', 'siu-complete-desc', cmd.desc));
+          // mousedown, not click: click would land after the textarea blurs and
+          // the menu closes, so the selection would never register.
+          item.addEventListener('mousedown', (event) => {
+            event.preventDefault();
+            acceptCompletion(index);
+          });
+          box.appendChild(item);
+        });
+        box.hidden = false;
+      }
+
+      /** True while the menu is showing — the keydown handler gates on this so
+       *  ArrowUp/Down drive the menu instead of prompt history. */
+      function completionOpen() {
+        const box = $('complete');
+        return Boolean(box) && !box.hidden;
+      }
+
+      function closeCompletions() {
+        const box = $('complete');
+        if (!box) return;
+        box.hidden = true;
+        box.innerHTML = '';
+        state.completions = [];
+        state.completionIndex = 0;
+      }
+
+      function moveCompletion(delta) {
+        const count = state.completions.length;
+        if (!count) return;
+        // Wraps, so ArrowDown from the last entry returns to the first.
+        state.completionIndex = (state.completionIndex + delta + count) % count;
+        renderCompletions();
+      }
+
+      /** Replace the typed name with the chosen command and dispatch nothing —
+       *  the user still presses Enter to run it, exactly like typing it out. */
+      function acceptCompletion(index = state.completionIndex) {
+        const cmd = state.completions[index];
+        if (!cmd) return;
+        promptInput.value = cmd.name + ' ';
+        closeCompletions();
+        autosize();
+        syncComposerState();
+        promptInput.focus();
+        promptInput.setSelectionRange(promptInput.value.length, promptInput.value.length);
       }
 
       // =======================================================================
@@ -4761,6 +4904,7 @@
       function submit() {
         const value = promptInput.value;
         if (!value.trim() || state.running) return;
+        closeCompletions();
         promptInput.value = '';
         autosize();
         syncComposerState();
@@ -4775,8 +4919,53 @@
       promptInput.addEventListener('input', () => {
         autosize();
         syncComposerState();
+        // Typing re-derives the matches from scratch, so the highlight resets
+        // to the first entry rather than pointing at a row that moved.
+        state.completionIndex = 0;
+        renderCompletions();
+      });
+
+      // Dismiss on blur and on any click outside the composer. `mousedown` on a
+      // row calls preventDefault, so selecting an entry never fires these.
+      promptInput.addEventListener('blur', () => closeCompletions());
+      document.addEventListener('mousedown', (event) => {
+        if (!event.target.closest('.siu-composer-inner')) closeCompletions();
       });
       promptInput.addEventListener('keydown', (event) => {
+        // The completion menu owns these three keys while it is open, so
+        // ArrowUp/Down scroll the list instead of reaching into prompt history
+        // and Enter commits the highlighted command rather than submitting a
+        // half-typed name.
+        if (completionOpen()) {
+          if (event.key === 'ArrowDown') {
+            event.preventDefault();
+            moveCompletion(1);
+            return;
+          }
+          if (event.key === 'ArrowUp') {
+            event.preventDefault();
+            moveCompletion(-1);
+            return;
+          }
+          if (event.key === 'Tab') {
+            event.preventDefault();
+            acceptCompletion();
+            return;
+          }
+          if (event.key === 'Enter' && !event.shiftKey && !event.metaKey) {
+            // Only steal Enter while the typed text is still a bare command
+            // name: `acceptCompletion` completes it, and the user presses Enter
+            // again to run it. Typing an exact command plus Enter submits as
+            // before, so `/clear` is unchanged.
+            const exact = state.completions.some((cmd) => cmd.name === promptInput.value.trim());
+            if (!exact) {
+              event.preventDefault();
+              acceptCompletion();
+              return;
+            }
+          }
+        }
+
         if (event.key === 'Enter' && !event.shiftKey && !event.metaKey) {
           event.preventDefault();
           submit();
@@ -4812,10 +5001,6 @@
       transcript.addEventListener('scroll', syncScrollEdges, { passive: true });
       new ResizeObserver(syncScrollEdges).observe(transcript);
       syncScrollEdges();
-
-      document.querySelectorAll('.siu-slash-pill').forEach((pill) => {
-        pill.addEventListener('click', () => void runSlash(pill.dataset.cmd));
-      });
 
       async function switchSession(reference) {
         if (!reference) return;
@@ -4860,6 +5045,9 @@
         renderSessions(state.sessions);
         renderHistoryList();
         renderPalette($('palette-input').value);
+        // The descriptions are dictionary lookups, so an open menu has to be
+        // redrawn or it keeps the language it was opened in.
+        if (completionOpen()) renderCompletions();
         if (state.settings) fillSettingsForm(state.settings);
         // The transcript is JS-built too (tool cards, badges, step labels,
         // approval buttons), so it has to be rebuilt or it keeps the language it

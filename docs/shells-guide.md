@@ -143,7 +143,7 @@ Open the printed URL. Bind address and port come from `HOST` and `PORT` (default
 
 > The console has **no authentication** and can run shell commands through the agent. Keep it on loopback unless you understand the exposure.
 
-The console covers the same ground as the CLI: streaming turns, the approval card, session switching, prompt history, and a Settings dialog (⌘,) for credentials, models, and the interface language. Settings are persisted to `.myagent/ui-settings.json`, seeded from the environment on first run; the file wins once written. Slash pills in the UI expose `/clear`, `/status`, and `/sessions`.
+The console covers the same ground as the CLI: streaming turns, the approval card, session switching, prompt history, and a Settings dialog (⌘,) for credentials, models, and the interface language. Settings are persisted to `.myagent/ui-settings.json`, seeded from the environment on first run; the file wins once written. Typing `/` in the composer opens an autocomplete menu offering `/clear`, `/status`, and `/sessions`; ArrowUp/ArrowDown move through it, Tab or Enter completes the highlighted name, and Esc dismisses it. Completing a name only inserts it — a second Enter runs the command, exactly as if it had been typed out.
 
 The interface defaults to Chinese; see [Interface language](#interface-language) for the switch and the resolution order.
 

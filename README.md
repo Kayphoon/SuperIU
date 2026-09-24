@@ -210,4 +210,4 @@ Available in the CLI REPL (`packages/cli/src/index.ts`):
 | `/help` | Display the command list. |
 | `/exit`, `/quit` | Close the runner and exit. |
 
-The web console exposes a subset through its command palette (⌘K) and slash pills: `/clear`, `/status`, and `/sessions`.
+The web console exposes a subset through its command palette (⌘K) and the composer's slash autocomplete (type `/`): `/clear`, `/status`, and `/sessions`.
