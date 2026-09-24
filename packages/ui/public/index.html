@@ -1970,56 +1970,6 @@
         position: relative;
         z-index: 1;
       }
-      .siu-empty-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 12px;
-        width: 100%;
-        max-width: 520px;
-        margin-top: var(--siu-space-4);
-        position: relative;
-        z-index: 1;
-      }
-      @media (max-width: 600px) {
-        .siu-empty-grid {
-          grid-template-columns: 1fr;
-        }
-      }
-      .siu-empty-card {
-        display: flex;
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 4px;
-        padding: 12px 14px;
-        border-radius: 14px;
-        border: 1px solid var(--siu-border);
-        background: var(--siu-bg-panel);
-        backdrop-filter: blur(20px);
-        -webkit-backdrop-filter: blur(20px);
-        box-shadow: 0 4px 16px -4px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.12);
-        cursor: pointer;
-        text-align: left;
-        transition: all var(--siu-dur-base) var(--siu-ease-out);
-      }
-      .siu-empty-card:hover {
-        transform: translateY(-2px);
-        border-color: var(--siu-accent-border);
-        background: var(--siu-bg-hover);
-        box-shadow: 0 8px 24px -4px rgba(0, 113, 227, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-      }
-      .siu-empty-card-header {
-        display: flex;
-        align-items: center;
-        gap: 7px;
-        font-size: 12.5px;
-        font-weight: 600;
-        color: var(--siu-text-primary);
-      }
-      .siu-empty-card-desc {
-        font-size: 11px;
-        color: var(--siu-text-muted);
-        line-height: 15px;
-      }
 
       /* =====================================================================
          Overlay, modal, palette
@@ -3388,60 +3338,6 @@
         wrap.appendChild(el('h2', 'siu-empty-title', tr('empty.title')));
         wrap.appendChild(el('p', 'siu-empty-body', tr('empty.body')));
 
-        const grid = el('div', 'siu-empty-grid');
-        const cards = [
-          {
-            icon: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="m16 18 6-6-6-6M8 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-            title: tr('empty.card.code.title'),
-            desc: tr('empty.card.code.desc'),
-            action: () => {
-              promptInput.value = tr('empty.card.code.prompt');
-              autosize();
-              syncComposerState();
-              promptInput.focus();
-            }
-          },
-          {
-            icon: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="m4 17 6-6-6-6M12 19h8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-            title: tr('empty.card.term.title'),
-            desc: tr('empty.card.term.desc'),
-            action: () => {
-              promptInput.value = tr('empty.card.term.prompt');
-              autosize();
-              syncComposerState();
-              promptInput.focus();
-            }
-          },
-          {
-            icon: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" stroke-linecap="round"/></svg>',
-            title: tr('empty.card.status.title'),
-            desc: tr('empty.card.status.desc'),
-            action: () => void runSlash('/status')
-          },
-          {
-            icon: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14" stroke-linecap="round" stroke-linejoin="round"/></svg>',
-            title: tr('empty.card.session.title'),
-            desc: tr('empty.card.session.desc'),
-            action: () => void createNewSession()
-          }
-        ];
-
-        for (const c of cards) {
-          const cardEl = el('button', 'siu-empty-card');
-          cardEl.type = 'button';
-          const header = el('div', 'siu-empty-card-header');
-          const iconSpan = el('span', 'text-accent', '');
-          iconSpan.innerHTML = c.icon;
-          header.appendChild(iconSpan);
-          header.appendChild(el('span', '', c.title));
-          const desc = el('div', 'siu-empty-card-desc', c.desc);
-          cardEl.appendChild(header);
-          cardEl.appendChild(desc);
-          cardEl.addEventListener('click', c.action);
-          grid.appendChild(cardEl);
-        }
-
-        wrap.appendChild(grid);
         transcript.appendChild(wrap);
       }
 
