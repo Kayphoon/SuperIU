@@ -28,9 +28,9 @@ Every shell ships **Chinese by default**; English is a first-class alternative, 
 | --- | --- | --- |
 | Web console / desktop | Settings dialog (⌘,) → **界面语言 / Interface Language** | `.myagent/ui-settings.json` → `language` |
 | macOS desktop | same control; the native menu bar rebuilds immediately | same file |
-| Terminal | `SUPERIU_LANGUAGE=zh\|en pnpm cli` | read-only — the CLI never writes the settings file |
+| Terminal | edit the `language` field, or set `SUPERIU_LANGUAGE=zh\|en` before `pnpm cli` when the file has no `language` | read-only — the CLI never writes the settings file, it only reads it |
 
-Resolution order is the same everywhere: an explicit `SUPERIU_LANGUAGE` environment variable, then the `language` field in `.myagent/ui-settings.json`, then `zh`. A value the build cannot render is ignored rather than honored, so an older shell reading a newer settings file degrades to the default instead of showing a half-translated UI.
+Resolution order is the same everywhere: the `language` field in `.myagent/ui-settings.json` first, then an explicit `SUPERIU_LANGUAGE` environment variable, then `zh`. The file wins because it is the setting the dialog edits and the one the next launch reads — the environment variable only seeds the default for a workspace whose file does not set a language, exactly as it does for `apiKey` and the model names. A value the build cannot render is ignored rather than honored, so an older shell reading a newer settings file degrades to the default instead of showing a half-translated UI.
 
 The web console also mirrors the choice into `localStorage` so the first paint after a reload is already in the right language, with no English flash while `/api/settings` is in flight. The settings file remains authoritative — it is what the dialog edits and what the desktop shell reads at launch to build its menu bar.
 

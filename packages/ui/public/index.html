@@ -1862,20 +1862,6 @@
         border-radius: 2px;
         background: currentColor;
       }
-      .siu-composer-footer {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        margin-top: 8px;
-      }
-      .siu-composer-hints {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
-        font-size: 11px;
-        color: var(--siu-text-muted);
-      }
-
       /* =====================================================================
          Empty state (macOS Apple Intelligence Aura & Quick Cards)
          ===================================================================== */
@@ -2417,7 +2403,7 @@
             <button
               id="btn-toggle-sidebar"
               class="siu-btn-icon no-drag"
-              title="切换消息列表 (⌘B)"
+              title="切换消息列表"
               aria-label="切换消息列表"
               data-i18n-title="sidebar.toggle.title"
               data-i18n-aria-label="sidebar.toggle"
@@ -2441,7 +2427,7 @@
             <button
               id="btn-menu"
               class="siu-btn no-drag"
-              title="更多 (⌘J)"
+              title="更多"
               aria-label="更多"
               data-i18n-title="titlebar.more.title"
               data-i18n-aria-label="titlebar.more"
@@ -2453,7 +2439,6 @@
                 <path d="M4 7h16M4 12h16M4 17h16" stroke-linecap="round" />
               </svg>
               <span class="hidden sm:inline" data-i18n="titlebar.more">更多</span>
-              <span class="siu-kbd">⌘J</span>
             </button>
           </div>
         </div>
@@ -2471,10 +2456,10 @@
               <span class="siu-session-sidebar-title truncate" data-i18n="sidebar.title">消息列表</span>
             </div>
             <div class="flex items-center gap-1">
-              <button id="btn-sidebar-new" class="siu-btn siu-btn--accent text-[11px] py-0.5 px-2" title="新建会话 (⌘N)" data-i18n-title="sidebar.new.title">
+              <button id="btn-sidebar-new" class="siu-btn siu-btn--accent text-[11px] py-0.5 px-2" title="新建会话" data-i18n-title="sidebar.new.title">
                 <span data-i18n="sidebar.new">+ 新建</span>
               </button>
-              <button id="btn-sidebar-collapse" class="siu-btn-icon text-muted hover:text-primary" title="收起消息列表 (⌘B)" aria-label="收起消息列表" data-i18n-title="sidebar.collapse.title" data-i18n-aria-label="sidebar.collapse">
+              <button id="btn-sidebar-collapse" class="siu-btn-icon text-muted hover:text-primary" title="收起消息列表" aria-label="收起消息列表" data-i18n-title="sidebar.collapse.title" data-i18n-aria-label="sidebar.collapse">
                 <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M15 18l-6-6 6-6" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
@@ -2506,10 +2491,10 @@
                     <button class="siu-slash-pill" data-cmd="/sessions">/sessions</button>
                   </div>
                   <div class="flex items-center gap-2">
-                    <button id="btn-abort" class="siu-btn-stop hidden" title="中止本轮 (⌘. / Esc)" data-i18n-title="composer.stop.title">
+                    <button id="btn-abort" class="siu-btn-stop hidden" title="中止本轮" data-i18n-title="composer.stop.title">
                       <span class="siu-stop-glyph"></span> <span data-i18n="composer.stop">停止</span>
                     </button>
-                    <button id="btn-send" class="siu-btn-send" title="发送 (⌘↵ 或 ↵)" data-i18n-title="composer.send.title">
+                    <button id="btn-send" class="siu-btn-send" title="发送" data-i18n-title="composer.send.title">
                       <span data-i18n="composer.send">发送</span>
                       <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="2.2">
                         <path d="M5 12h13M13 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round" />
@@ -2517,12 +2502,6 @@
                     </button>
                   </div>
                 </div>
-              </div>
-              <div class="siu-composer-footer">
-                <span class="siu-composer-hints" data-i18n-html="composer.hints">
-                  <span class="siu-kbd">⌘↵</span> 发送 · <span class="siu-kbd">↑↓</span> 历史 ·
-                  <span class="siu-kbd">⌘.</span> 停止
-                </span>
               </div>
             </div>
           </div>
@@ -2561,7 +2540,7 @@
           <div class="space-y-3">
             <select id="session-select" class="siu-select w-full" title="当前会话" data-i18n-title="menu.session.select"></select>
             <div class="siu-menu-actions">
-              <button id="btn-new" class="siu-btn siu-btn--mono" title="新建会话 (⌘N)" data-i18n-title="menu.session.new.title"><span data-i18n="menu.session.new">+ 新建</span></button>
+              <button id="btn-new" class="siu-btn siu-btn--mono" title="新建会话" data-i18n-title="menu.session.new.title"><span data-i18n="menu.session.new">+ 新建</span></button>
               <button id="btn-clear" class="siu-btn siu-btn--mono" title="追加 reset_boundary" data-i18n-title="menu.session.clear.title"><span data-i18n="menu.session.clear">/clear</span></button>
             </div>
           </div>
@@ -2684,15 +2663,14 @@
               </svg>
               <span id="notify-label">通知</span>
             </button>
-            <button id="btn-palette" class="siu-btn no-drag" title="命令面板 (⌘K)" data-i18n-title="menu.actions.commands.title">
+            <button id="btn-palette" class="siu-btn no-drag" title="命令面板" data-i18n-title="menu.actions.commands.title">
               <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.9">
                 <circle cx="11" cy="11" r="7" />
                 <path d="m20 20-3.5-3.5" stroke-linecap="round" />
               </svg>
               <span data-i18n="menu.actions.commands">命令</span>
-              <span class="siu-kbd">⌘K</span>
             </button>
-            <button id="btn-settings" class="siu-btn no-drag" title="设置 (⌘,)" aria-label="设置" data-i18n-title="menu.actions.settings.title" data-i18n-aria-label="menu.actions.settings">
+            <button id="btn-settings" class="siu-btn no-drag" title="设置" aria-label="设置" data-i18n-title="menu.actions.settings.title" data-i18n-aria-label="menu.actions.settings">
               <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.9">
                 <circle cx="12" cy="12" r="3" />
                 <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 3 15a1.7 1.7 0 0 0-1.2-2.9H1.7a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 3.6 7a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 3.6a1.7 1.7 0 0 0 1-1.53V1.7a2 2 0 1 1 4 0v.1A1.7 1.7 0 0 0 15 3.6a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 20.4 9v.1a1.7 1.7 0 0 0 1.53 1h.1a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.53 1Z" />
@@ -2735,7 +2713,7 @@
             <div>
               <label class="siu-field-label" for="set-model" data-i18n="settings.model">主模型名称</label>
               <input id="set-model" type="text" class="siu-field" list="model-choices" placeholder="gpt-4o" autocomplete="off" spellcheck="false" />
-              <p class="siu-field-hint" data-i18n="settings.model.hint">也可在「更多」面板（⌘J）中切换。</p>
+              <p class="siu-field-hint" data-i18n="settings.model.hint">也可在「更多」面板中切换。</p>
             </div>
             <div>
               <label class="siu-field-label" for="set-review-model" data-i18n="settings.reviewModel">工具 / 审查模型名称</label>
@@ -2828,7 +2806,6 @@
             <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" stroke-linecap="round" />
           </svg>
           <input id="palette-input" class="siu-palette-input" placeholder="输入命令…" data-i18n-placeholder="palette.placeholder" autocomplete="off" spellcheck="false" />
-          <span class="siu-kbd">esc</span>
         </div>
         <ul id="palette-list" class="siu-palette-list siu-no-scrollbar" role="listbox" aria-label="命令面板" data-i18n-aria-label="palette.aria"></ul>
       </div>
@@ -2848,7 +2825,7 @@
 
       const I18n = window.SuperIUi18n;
       if (!I18n) console.warn('i18n.js unavailable — interface language disabled');
-      const { t, apply: applyI18n, getLanguage, setLanguage, onChange, postureLabel } = I18n ?? {};
+      const { t, getLanguage, setLanguage, onChange, postureLabel } = I18n ?? {};
 
       /** Falls back to the key itself so a missing dictionary degrades to text,
        *  never to blanks or a throw. */
@@ -2886,7 +2863,12 @@
         // set `transcriptDirty` and a switch leaves them alone rather than
         // silently discarding whatever the user is looking at.
         messages: [],
-        transcriptDirty: false
+        transcriptDirty: false,
+        // Set when the language changes while a turn is streaming: the DOM holds
+        // state a rebuild would destroy, so the rebuild is deferred to the turn's
+        // `finally` rather than dropped. Without it a mid-turn switch left the
+        // transcript in the old language until the *next* switch.
+        rerenderPending: false
       };
 
       const $ = (id) => document.getElementById(id);
@@ -3245,12 +3227,6 @@
             }
             return;
           }
-
-          // ⌘/ — shortcut help
-          if (meta && key === '/') {
-            event.preventDefault();
-            toast(tr('toast.shortcuts'), 'ok');
-          }
         },
         { capture: true }
       );
@@ -3380,7 +3356,7 @@
             title: tr('empty.card.code.title'),
             desc: tr('empty.card.code.desc'),
             action: () => {
-              promptInput.value = '请帮我梳理当前项目的代码架构并分析主要模块。';
+              promptInput.value = tr('empty.card.code.prompt');
               autosize();
               syncComposerState();
               promptInput.focus();
@@ -3391,7 +3367,7 @@
             title: tr('empty.card.term.title'),
             desc: tr('empty.card.term.desc'),
             action: () => {
-              promptInput.value = '请检查系统当前运行状态与 git 状态。';
+              promptInput.value = tr('empty.card.term.prompt');
               autosize();
               syncComposerState();
               promptInput.focus();
@@ -3667,6 +3643,7 @@
         // streams into the transcript without ever coming through here.
         state.messages = messages;
         state.transcriptDirty = false;
+        state.rerenderPending = false;
         transcript.innerHTML = '';
         if (!messages.length) {
           renderEmptyState();
@@ -4021,16 +3998,6 @@
         if (state.running || !rawPrompt.trim()) return;
         const text = rawPrompt.trim();
 
-        // Must be set here, not only cleared in the `finally`: `state.running`
-        // gates re-entrant submits AND the language re-render, and the turn
-        // appends its DOM directly. Leaving it false meant the transcript could
-        // be rebuilt out from under a live turn.
-        setRunning(true);
-
-        // Any DOM the restored history did not produce invalidates its cache, so
-        // a language switch will not try to reconcile against a stale snapshot.
-        state.transcriptDirty = true;
-
         if (transcript.querySelector('.siu-empty')) transcript.innerHTML = '';
         transcript.appendChild(userBubble(text));
 
@@ -4275,6 +4242,17 @@
         state.controller = controller;
 
         try {
+          // Both must be inside the `try` so the `finally` below always pairs
+          // with them: `state.running` gates re-entrant submits AND the language
+          // re-render, and the turn appends its DOM directly, so a throw between
+          // here and the `finally` would strand `running` true forever —
+          // permanently hiding Send, disabling submit/new/switch, and arming the
+          // beforeunload prompt.
+          setRunning(true);
+          // Any DOM the restored history did not produce invalidates its cache,
+          // so a language switch will not reconcile against a stale snapshot.
+          state.transcriptDirty = true;
+
           const response = await fetch('/api/chat', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -4342,6 +4320,14 @@
             state.transcriptDirty = false;
           } catch {
             /* keep the transcript marked dirty; a switch simply leaves it alone */
+          }
+          // A language switch that landed mid-turn could not rebuild the
+          // transcript (the DOM held the live step). Now that the turn is over
+          // and the cache is valid, honour it — otherwise the conversation stays
+          // in the language it was drawn in until the next switch.
+          if (state.rerenderPending) {
+            state.rerenderPending = false;
+            renderMessages(state.messages);
           }
           scrollToBottom();
         }
@@ -4881,7 +4867,17 @@
         // rebuild would destroy) and while the DOM holds anything the cache does
         // not account for — `transcriptDirty` means a re-render would silently
         // drop what the user is looking at.
-        if (!state.running && !state.transcriptDirty) renderMessages(state.messages);
+        if (state.running) {
+          // Defer, do not drop: the live turn's `finally` rebuilds once the DOM
+          // is safe to discard. A switch mid-turn would otherwise leave the
+          // transcript in the old language until the next switch.
+          state.rerenderPending = true;
+          return;
+        }
+        // Dirty with no turn in flight: the DOM holds something the cache does
+        // not account for, and nothing will ever clear it — leave it alone.
+        if (state.transcriptDirty) return;
+        renderMessages(state.messages);
       }
 
       // A switch from anywhere — this select, or a future caller — refreshes the
@@ -4908,12 +4904,6 @@
           toast(err.message, 'error');
         }
       });
-
-      // Translate the static markup before the first render pass. A no-op when
-      // `i18n.js` already did it at module load (it always has, unless the
-      // module failed to load, in which case `applyI18n` is undefined) — kept
-      // as the single documented entry point for the shell's own markup.
-      applyI18n?.(document);
 
       // =======================================================================
       // Boot

@@ -26,12 +26,13 @@ function isUiLanguage(value: unknown): value is UiLanguage {
  * Synchronous by design: the banner prints before any await would be useful.
  * A missing or corrupt settings file is the normal first-run case, not an error,
  * so every failure path falls through to the default instead of throwing.
+ *
+ * The settings file wins over the environment, matching the web shell's
+ * `loadSettings()` and every other field (`apiKey: raw.apiKey ?? defaults.apiKey`).
+ * The env var only seeds the default for a workspace whose file does not set a
+ * language.
  */
 export function resolveLanguage(cwd = process.cwd()): UiLanguage {
-  if (isUiLanguage(process.env.SUPERIU_LANGUAGE)) {
-    return process.env.SUPERIU_LANGUAGE;
-  }
-
   try {
     const raw = fs.readFileSync(path.join(cwd, SETTINGS_FILE), 'utf-8');
     const settings = JSON.parse(raw) as { language?: unknown };
@@ -39,7 +40,11 @@ export function resolveLanguage(cwd = process.cwd()): UiLanguage {
       return settings.language;
     }
   } catch {
-    // No settings file yet, or unparseable: use the default.
+    // No settings file yet, or unparseable: fall through to the environment.
+  }
+
+  if (isUiLanguage(process.env.SUPERIU_LANGUAGE)) {
+    return process.env.SUPERIU_LANGUAGE;
   }
 
   return DEFAULT_LANGUAGE;

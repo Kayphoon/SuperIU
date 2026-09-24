@@ -21,7 +21,7 @@
  *   `data-i18n`               → textContent
  *   `data-i18n-html`          → innerHTML (dictionary values are authored here,
  *                               never user input; only used where a key carries
- *                               inline `<code>` / `<span class="siu-kbd">`)
+ *                               inline `<code>`)
  *   `data-i18n-title`         → title attribute
  *   `data-i18n-placeholder`   → placeholder attribute
  *   `data-i18n-aria-label`    → aria-label attribute
@@ -46,26 +46,23 @@ const DICT = {
     'app.title': 'SuperIU · 智能体控制台',
 
     'titlebar.more': '更多',
-    'titlebar.more.title': '更多 (⌘J)',
+    'titlebar.more.title': '更多',
     'traffic.close': '关闭窗口',
     'traffic.more': '更多',
     'traffic.fullscreen': '进入全屏',
 
     'sidebar.title': '消息列表',
     'sidebar.new': '+ 新建',
-    'sidebar.new.title': '新建会话 (⌘N)',
+    'sidebar.new.title': '新建会话',
     'sidebar.toggle': '切换侧边栏',
-    'sidebar.toggle.title': '切换侧边栏 (⌘B)',
+    'sidebar.toggle.title': '切换侧边栏',
     'sidebar.collapse': '收起侧边栏',
-    'sidebar.collapse.title': '收起侧边栏 (⌘B)',
+    'sidebar.collapse.title': '收起侧边栏',
     'composer.placeholder': '描述一个交给自主智能体的任务…',
     'composer.stop': '停止',
-    'composer.stop.title': '中止本轮 (⌘. / Esc)',
+    'composer.stop.title': '中止本轮',
     'composer.send': '发送',
-    'composer.send.title': '发送 (⌘↵ 或 ↵)',
-    'composer.hints':
-      '<span class="siu-kbd">⌘↵</span> 发送 · <span class="siu-kbd">↑↓</span> 历史 · <span class="siu-kbd">⌘.</span> 停止',
-
+    'composer.send.title': '发送',
     'menu.title': '更多',
     'menu.close': '关闭菜单',
 
@@ -76,7 +73,7 @@ const DICT = {
 
     'menu.session.select': '当前会话',
     'menu.session.new': '+ 新建',
-    'menu.session.new.title': '新建会话 (⌘N)',
+    'menu.session.new.title': '新建会话',
     'menu.session.clear': '/clear',
     'menu.session.clear.title': '追加 reset_boundary',
 
@@ -125,9 +122,9 @@ const DICT = {
     'menu.actions.notify.on': '通知已开',
     'menu.actions.notify.title': '开启桌面通知',
     'menu.actions.commands': '命令',
-    'menu.actions.commands.title': '命令面板 (⌘K)',
+    'menu.actions.commands.title': '命令面板',
     'menu.actions.settings': '设置',
-    'menu.actions.settings.title': '设置 (⌘,)',
+    'menu.actions.settings.title': '设置',
 
     'settings.title': '设置',
     'settings.close': '关闭设置',
@@ -137,7 +134,7 @@ const DICT = {
     'settings.baseURL': 'OPENAI_BASE_URL',
     'settings.baseURL.hint': '任意 OpenAI 兼容端点（DeepSeek、SiliconFlow、Ollama、Moonshot…）。',
     'settings.model': '主模型名称',
-    'settings.model.hint': '也可在「更多」面板（⌘J）中切换。',
+    'settings.model.hint': '也可在「更多」面板中切换。',
     'settings.reviewModel': '工具 / 审查模型名称',
     'settings.reviewModel.hint': '用于 AutoReview 的判定。',
     'settings.effort': '推理强度',
@@ -184,8 +181,10 @@ const DICT = {
     'empty.body': '随时就绪，为你执行自主推理、代码开发与系统操作。',
     'empty.card.code.title': '代码与架构',
     'empty.card.code.desc': '梳理代码结构或编写新功能',
+    'empty.card.code.prompt': '请帮我梳理当前项目的代码架构并分析主要模块。',
     'empty.card.term.title': '终端与命令',
     'empty.card.term.desc': '执行自动化命令与脚本排查',
+    'empty.card.term.prompt': '请检查系统当前运行状态与 git 状态。',
     'empty.card.status.title': '系统与模型',
     'empty.card.status.desc': '查看模型路由与工作台状态',
     'empty.card.session.title': '新建会话',
@@ -252,8 +251,6 @@ const DICT = {
     'toast.modelChanged': '主模型 → {model}',
     'toast.settingsSaved': '设置已保存',
     'toast.shutdown': 'SuperIU Web 外壳已关闭，此标签页可以关闭了。',
-    'toast.shortcuts':
-      '⌘, 设置 · ⌘N 新建 · ⌘J 更多 · ⌘K 命令面板 · ⌘↵ 发送 · ⌘. 停止 · ⌘Q 退出',
     'toast.about': 'SuperIU · 单核双驱 —— 自主智能体控制台',
     'toast.docs': '文档：docs/shells-guide.md · docs/agent-loop-and-context-architecture.md',
 
@@ -279,26 +276,23 @@ const DICT = {
     'app.title': 'SuperIU · Agent Console',
 
     'titlebar.more': 'More',
-    'titlebar.more.title': 'More (⌘J)',
+    'titlebar.more.title': 'More',
     'traffic.close': 'Close window',
     'traffic.more': 'More',
     'traffic.fullscreen': 'Enter fullscreen',
 
     'sidebar.title': 'Sessions',
     'sidebar.new': '+ New',
-    'sidebar.new.title': 'New session (⌘N)',
+    'sidebar.new.title': 'New session',
     'sidebar.toggle': 'Toggle Sidebar',
-    'sidebar.toggle.title': 'Toggle Sidebar (⌘B)',
+    'sidebar.toggle.title': 'Toggle Sidebar',
     'sidebar.collapse': 'Collapse Sidebar',
-    'sidebar.collapse.title': 'Collapse Sidebar (⌘B)',
+    'sidebar.collapse.title': 'Collapse Sidebar',
     'composer.placeholder': 'Describe a task for the autonomous agent…',
     'composer.stop': 'Stop',
-    'composer.stop.title': 'Abort (⌘. / Esc)',
+    'composer.stop.title': 'Abort',
     'composer.send': 'Send',
-    'composer.send.title': 'Send (⌘↵ or ↵)',
-    'composer.hints':
-      '<span class="siu-kbd">⌘↵</span> send · <span class="siu-kbd">↑↓</span> history · <span class="siu-kbd">⌘.</span> stop',
-
+    'composer.send.title': 'Send',
     'menu.title': 'More',
     'menu.close': 'Close menu',
 
@@ -309,7 +303,7 @@ const DICT = {
 
     'menu.session.select': 'Active session',
     'menu.session.new': '+ New',
-    'menu.session.new.title': 'New session (⌘N)',
+    'menu.session.new.title': 'New session',
     'menu.session.clear': '/clear',
     'menu.session.clear.title': 'Append reset_boundary',
 
@@ -358,9 +352,9 @@ const DICT = {
     'menu.actions.notify.on': 'Alerts on',
     'menu.actions.notify.title': 'Enable desktop notifications',
     'menu.actions.commands': 'Commands',
-    'menu.actions.commands.title': 'Command Palette (⌘K)',
+    'menu.actions.commands.title': 'Command Palette',
     'menu.actions.settings': 'Settings',
-    'menu.actions.settings.title': 'Settings (⌘,)',
+    'menu.actions.settings.title': 'Settings',
 
     'settings.title': 'Settings',
     'settings.close': 'Close settings',
@@ -370,7 +364,7 @@ const DICT = {
     'settings.baseURL': 'OPENAI_BASE_URL',
     'settings.baseURL.hint': 'Any OpenAI-compatible endpoint (DeepSeek, SiliconFlow, Ollama, Moonshot…).',
     'settings.model': 'Main Model Name',
-    'settings.model.hint': 'Also switchable from the secondary menu (⌘J).',
+    'settings.model.hint': 'Also switchable from the secondary menu.',
     'settings.reviewModel': 'Tool / Review Model Name',
     'settings.reviewModel.hint': 'Used for AutoReview verdicts.',
     'settings.effort': 'Reasoning Effort',
@@ -418,8 +412,10 @@ const DICT = {
     'empty.body': 'Standing by for autonomous reasoning, coding, and system operations.',
     'empty.card.code.title': 'Code & Architecture',
     'empty.card.code.desc': 'Inspect repository or refactor features',
+    'empty.card.code.prompt': 'Walk me through this project\u2019s code architecture and its main modules.',
     'empty.card.term.title': 'Terminal & Shell',
     'empty.card.term.desc': 'Run automated commands and tests',
+    'empty.card.term.prompt': 'Check the current system status and git state.',
     'empty.card.status.title': 'System Status',
     'empty.card.status.desc': 'View model routing & workstation snapshot',
     'empty.card.session.title': 'New Session',
@@ -465,7 +461,7 @@ const DICT = {
 
     'session.file.inMemory': '(in-memory)',
     'session.file.notWritten': '{path} (not written yet)',
-    'session.select.empty': '(未开始的新会话)',
+    'session.select.empty': '(no session yet)',
     'session.select.none': '(no sessions)',
     'session.untitled': 'Session {id}',
 
@@ -486,8 +482,6 @@ const DICT = {
     'toast.modelChanged': 'Main model → {model}',
     'toast.settingsSaved': 'Settings saved',
     'toast.shutdown': 'SuperIU web shell shut down. This tab can be closed.',
-    'toast.shortcuts':
-      '⌘, settings · ⌘N new · ⌘J more · ⌘K palette · ⌘↵ send · ⌘. stop · ⌘Q quit',
     'toast.about': 'SuperIU · One Core, Two Shells — autonomous agent console',
     'toast.docs': 'Docs: docs/shells-guide.md · docs/agent-loop-and-context-architecture.md',
 
@@ -615,11 +609,6 @@ export function setLanguage(next, options = {}) {
   return language;
 }
 
-/** The id the OS/browser reports, used only to seed a first-run default. */
-export function preferredLanguage() {
-  return normalize(window.navigator?.language) ?? DEFAULT_LANGUAGE;
-}
-
 const SuperIUi18n = {
   LANGUAGES,
   DEFAULT_LANGUAGE,
@@ -628,8 +617,7 @@ const SuperIUi18n = {
   getLanguage,
   setLanguage,
   onChange,
-  postureLabel,
-  preferredLanguage
+  postureLabel
 };
 
 if (typeof window !== 'undefined') {
