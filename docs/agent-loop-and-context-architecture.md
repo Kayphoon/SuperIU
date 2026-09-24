@@ -182,11 +182,11 @@ flowchart TD
 
 | 函数 | 作用 |
 |---|---|
-| `listSessions(cwd, workspaceDir)` | 列出工作区桶内全部会话，**按 mtime 降序** |
-| `findMostRecentSession(cwd, workspaceDir)` | 最新会话文件路径，无则 `null` |
+| `listSessions(cwd, workspaceDir)` | 列出工作区桶内全部会话，**按 mtime 降序**；跳过不含任何 `message` 条目的文件（草稿从未落盘，旧版遗留的 header-only 文件同样被忽略，但不删除） |
+| `findMostRecentSession(cwd, workspaceDir)` | 最新会话文件路径，无则 `null`；同样跳过无 message 的文件 |
 | `resolveSessionFile(ref, cwd, workspaceDir)` | 按绝对路径 / 文件名 / session id / **id 前缀**解析 |
 
-> **为什么按 mtime 而不是 header.timestamp 排序**：同一毫秒内创建的多个会话，`header.timestamp` 会打平，排序结果不确定。mtime 反映的是"最后被写入的文件"，语义更准确。`SessionDescriptor` 因此额外携带 `mtimeMs`。
+> **为什么按 mtime 而不是 header.timestamp 排序**：同一毫秒内创建的多个会话，`header.timestamp` 会打平，排序结果不确定。mtime 反映的是"最后被写入的文件"，语义更准确。`SessionDescriptor` 因此额外携带 `mtimeMs`。这也正是未使用的新会话必须保持草稿、不落盘的原因：一个只写了 header 的幽灵文件会带着最新 mtime 赢得排序，在下次启动时顶替掉真正的当前会话。
 
 ---
 
@@ -628,7 +628,8 @@ sequenceDiagram
 ```ts
 import { SessionManager } from '@agent/core';
 
-// 新建会话（立即在磁盘上写出 header）
+// 新建会话：创建即草稿——header 与文件路径在内存中确定，磁盘上没有任何文件；
+// 首个 entry 落盘时才写出 header 行（header 只写这一次，此后每次 append 各加一行）
 const session = SessionManager.create({
   workspaceDir: '/work/proj',
   cwd: '/work/proj'
@@ -686,11 +687,11 @@ const runner = new AgentRunner({
 runner.getSessionId();          // 当前会话 id
 runner.getSessionFile();        // JSONL 路径
 runner.getLeafId();             // 当前叶子
-runner.getStatus();             // { sessionId, sessionFile, leafId, messageCount, state }
+runner.getStatus();             // { sessionId, sessionFile, sessionPersisted, leafId, messageCount, state }
 runner.getWorkstation();        // OS / arch / node / cwd / git / timestamp
 
 // 会话导航
-runner.listSessions();          // 本工作区全部会话（mtime 降序）
+runner.listSessions();          // 本工作区全部已落盘会话（mtime 降序；草稿不在内）
 runner.loadSession('f4f33977'); // 按 id 前缀切换
 runner.createSession('新会话');  // 新建并切换
 
@@ -718,9 +719,9 @@ runner.close();  // 关闭会话与 history 数据库
 | `/status` | State、Session ID、JSONL 路径、Leaf ID、活跃分支消息数、情绪、OS |
 | `/clear` | 追加 `reset_boundary`，活跃上下文立即清空（历史保留） |
 | `/history [query]` | 打印 Prompt 检索历史，可带子串过滤 |
-| `/sessions` | 列出本工作区全部 JSONL 会话，`*` 标记当前会话 |
+| `/sessions` | 列出本工作区全部 JSONL 会话，`*` 标记当前会话；尚未落盘的草稿不在列表中，故此时无 `*` |
 | `/load <ref>` | 按 id / id 前缀 / 文件名 / 路径切换会话 |
-| `/new [title]` | 新建会话并切换 |
+| `/new [title]` | 新建会话并切换；文件在首条消息前不落盘，此前打印的是规划路径 |
 | `/help` `/exit` | 帮助 / 退出 |
 
 ### 6.7 冒烟测试覆盖矩阵

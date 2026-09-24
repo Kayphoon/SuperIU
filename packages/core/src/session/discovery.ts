@@ -8,7 +8,31 @@ export interface SessionDescriptor extends SessionHeader {
   mtimeMs: number;
 }
 
-/** All sessions in one workspace bucket, newest first. */
+/**
+ * Whether a session file body contains at least one message entry.
+ *
+ * A session with no messages is not a session yet, so a header-only file is
+ * hidden from listings rather than deleted — that covers the phantom files
+ * older builds left behind when creating an unused conversation. Entries are
+ * compact `JSON.stringify` output with `type` as the first key, so a scan for
+ * the literal member beats parsing every line of a potentially huge file.
+ *
+ * A false positive only lists a file that does have entries (harmless); a
+ * false negative hides a real conversation, so this stays deliberately loose.
+ */
+const MESSAGE_ENTRY_PATTERN = /"type"\s*:\s*"message"/;
+
+function hasMessageEntry(content: string): boolean {
+  const firstNewline = content.indexOf('\n');
+  if (firstNewline === -1) return false;
+  return MESSAGE_ENTRY_PATTERN.test(content.slice(firstNewline + 1));
+}
+
+/**
+ * All sessions in one workspace bucket, newest first.
+ *
+ * Header-only files are skipped: see `hasMessageEntry`.
+ */
 export function listSessions(
   cwd: string = process.cwd(),
   workspaceDir?: string
@@ -35,6 +59,7 @@ export function listSessions(
       if (!firstLine) continue;
       const header = JSON.parse(firstLine) as SessionHeader;
       if (header?.type !== 'session' || typeof header.id !== 'string') continue;
+      if (!hasMessageEntry(content)) continue;
       descriptors.push({ ...header, filePath, mtimeMs: stat.mtimeMs });
     } catch {
       continue;
@@ -54,7 +79,13 @@ export function findMostRecentSession(
   return listSessions(cwd, workspaceDir)[0]?.filePath ?? null;
 }
 
-/** Resolve a session by full path, file name, session id, or session-id prefix. */
+/**
+ * Resolve a session by full path, file name, session id, or session-id prefix.
+ *
+ * An explicit absolute path wins even for a file with no messages, so a
+ * header-only session can still be opened deliberately. The id/name lookups
+ * only search sessions that `listSessions` accepts (at least one message).
+ */
 export function resolveSessionFile(
   reference: string,
   cwd: string = process.cwd(),

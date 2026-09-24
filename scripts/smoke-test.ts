@@ -548,6 +548,139 @@ async function runSmokeTests() {
   });
 
   // ---------------------------------------------------------------------------
+  // Draft sessions: an unused conversation must not leave a file behind
+  // ---------------------------------------------------------------------------
+  // Local to this block: the suite imports `node:fs/promises` only, which has no
+  // existsSync, and draft assertions are about absence.
+  const fileExists = async (target: string): Promise<boolean> => {
+    try {
+      await fs.stat(target);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  await test('A draft session writes nothing until its first message', async () => {
+    const cwd = path.join(workspace, 'draft-no-write');
+    const session = SessionManager.create({ workspaceDir: workspace, cwd });
+
+    const filePath = session.getFilePath();
+    assert(typeof filePath === 'string' && filePath.length > 0, 'a draft must still plan a file path');
+    assert(path.dirname(filePath) === getSessionDir(cwd, workspace), `unexpected draft dir ${filePath}`);
+    assert(!(await fileExists(filePath)), 'a draft wrote its session file before any message');
+    assert(
+      !(await fileExists(getSessionDir(cwd, workspace))),
+      'a draft created the session bucket directory before any message'
+    );
+
+    session.appendMessage({ role: 'user', content: 'hello' });
+    assert(await fileExists(filePath), 'the first message did not materialize the session file');
+
+    const entries = await readEntries(filePath);
+    assert(entries.length === 1, `expected 1 entry after the first message, got ${entries.length}`);
+    const header = await readHeader(filePath);
+    assert(header.id === session.getSessionId(), `header.id ${header.id} !== ${session.getSessionId()}`);
+
+    session.appendMessage({ role: 'assistant', content: 'world' });
+    assert((await readEntries(filePath)).length === 2, 'second message was not persisted');
+    // Exactly 3 lines proves the header is emitted once at materialization, not
+    // re-appended on every write.
+    assert((await readJsonl(filePath)).length === 3, 'expected header + 2 entries on disk');
+  });
+
+  await test('updateTitle on a draft is deferred to materialization', async () => {
+    const cwd = path.join(workspace, 'draft-title');
+    const session = SessionManager.create({ workspaceDir: workspace, cwd });
+    const filePath = session.getFilePath();
+    assert(filePath, 'expected a planned session file path');
+
+    session.updateTitle('Deferred Title');
+    assert(!(await fileExists(filePath)), 'updateTitle on a draft wrote to disk');
+
+    session.appendMessage({ role: 'user', content: 'hello' });
+    const header = await readHeader(filePath);
+    assert(header.title === 'Deferred Title', `materialized title ${header.title}`);
+    assert(header.titleSource === 'user', `materialized titleSource ${header.titleSource}`);
+  });
+
+  await test('An unused session never enters the session list', async () => {
+    const cwd = path.join(workspace, 'draft-hidden');
+    const sessionA = SessionManager.create({ workspaceDir: workspace, cwd });
+    sessionA.appendMessage({ role: 'user', content: 'real conversation' });
+    const fileA = sessionA.getFilePath();
+    assert(fileA, 'expected a persisted session file for A');
+    // Backdate A so recency is decided by write order rather than by how close
+    // together the two appends land on the filesystem clock.
+    const past = new Date(Date.now() - 60_000);
+    await fs.utimes(fileA, past, past);
+
+    const before = listSessions(cwd, workspace);
+    assert(before.length === 1, `expected 1 listed session, got ${before.length}`);
+    assert(findMostRecentSession(cwd, workspace) === fileA, 'session A must be the newest');
+
+    const sessionB = SessionManager.create({ workspaceDir: workspace, cwd });
+    const fileB = sessionB.getFilePath();
+    assert(fileB, 'expected a planned session file path');
+
+    const after = listSessions(cwd, workspace);
+    assert(after.length === before.length, `unused draft changed the listing: ${before.length} -> ${after.length}`);
+    assert(!after.some((descriptor) => descriptor.id === sessionB.getSessionId()), 'unused draft appeared in the listing');
+    assert(
+      findMostRecentSession(cwd, workspace) === sessionA.getFilePath(),
+      'an unused draft hijacked the most-recent session pointer'
+    );
+
+    sessionB.appendMessage({ role: 'user', content: 'now it is real' });
+    const listed = listSessions(cwd, workspace);
+    assert(listed.length === 2, `expected 2 listed sessions, got ${listed.length}`);
+    assert(listed.some((descriptor) => descriptor.id === sessionB.getSessionId()), 'used session missing from the listing');
+    assert(findMostRecentSession(cwd, workspace) === fileB, 'most-recent must follow the newest write');
+  });
+
+  await test('Legacy header-only session files stay hidden but remain openable', async () => {
+    const cwd = path.join(workspace, 'legacy-header');
+    const legacyId = 'deadbeefdeadbeef';
+    const legacyPath = createSessionFilePath(legacyId, Date.now(), cwd, workspace);
+
+    // Byte-for-byte what a pre-fix build left behind: the header line only,
+    // because that build materialized the file at creation time.
+    const legacyHeader = {
+      type: 'session',
+      version: CURRENT_SESSION_VERSION,
+      id: legacyId,
+      timestamp: new Date().toISOString(),
+      cwd,
+      title: 'Initial Session',
+      titleSource: 'auto'
+    };
+    await fs.mkdir(path.dirname(legacyPath), { recursive: true });
+    await fs.writeFile(legacyPath, `${JSON.stringify(legacyHeader)}\n`, 'utf-8');
+
+    assert(
+      !listSessions(cwd, workspace).some((descriptor) => descriptor.id === legacyId),
+      'header-only legacy file polluted the session list'
+    );
+    assert(findMostRecentSession(cwd, workspace) !== legacyPath, 'header-only legacy file became the newest session');
+    assert(resolveSessionFile(legacyId, cwd, workspace) === null, 'header-only legacy id resolved to a session');
+
+    // An explicit absolute path is still honoured, so the user can open it on purpose.
+    assert(
+      resolveSessionFile(legacyPath, cwd, workspace) === legacyPath,
+      'an explicit absolute path must resolve even without messages'
+    );
+
+    const reopened = SessionManager.open(legacyPath);
+    assert(reopened.getSessionId() === legacyId, `reopened id ${reopened.getSessionId()}`);
+
+    reopened.appendMessage({ role: 'user', content: 'revived' });
+    assert(
+      listSessions(cwd, workspace).some((descriptor) => descriptor.id === legacyId),
+      'legacy session stayed hidden after receiving a message'
+    );
+  });
+
+  // ---------------------------------------------------------------------------
   // Prompt history SQLite storage
   // ---------------------------------------------------------------------------
   await test('PromptHistoryStorage append/search/recent', async () => {

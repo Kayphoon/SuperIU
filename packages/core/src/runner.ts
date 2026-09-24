@@ -81,6 +81,12 @@ export interface AgentRunnerOptions extends RunnerConfig {
 export interface AgentRunnerStatus {
   sessionId: string;
   sessionFile: string | null;
+  /**
+   * Whether `sessionFile` exists on disk. False for a draft, which plans a path
+   * but writes nothing until its first entry — a shell displaying the path
+   * should qualify it rather than claim a log exists.
+   */
+  sessionPersisted: boolean;
   leafId: string | null;
   messageCount: number;
   state: AgentStatus;
@@ -340,6 +346,7 @@ export class AgentRunner {
     return {
       sessionId: this.session.getSessionId(),
       sessionFile: this.session.getFilePath(),
+      sessionPersisted: this.session.materialized,
       leafId: this.session.getLeafId(),
       messageCount: this.session.buildSessionContext().length,
       state: this.status

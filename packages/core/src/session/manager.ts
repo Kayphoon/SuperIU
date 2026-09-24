@@ -62,14 +62,33 @@ export class SessionManager {
   private readonly inMemory: boolean;
   private leafId: string | null = null;
   private closed = false;
+  /**
+   * Whether `filePath` already holds this session's header on disk.
+   *
+   * False for a draft: it owns its planned path but has written nothing, so
+   * anything that reads the file (`updateTitle`) branches on this instead of
+   * assuming the header exists. Public so a shell can tell a human that the
+   * log path it is displaying is planned rather than real.
+   */
+  public materialized: boolean;
 
-  private constructor(header: SessionHeader, filePath: string | null, inMemory: boolean) {
+  private constructor(
+    header: SessionHeader,
+    filePath: string | null,
+    inMemory: boolean,
+    materialized: boolean
+  ) {
     this.header = header;
     this.filePath = filePath;
     this.inMemory = inMemory;
+    this.materialized = materialized;
   }
 
-  /** Create a brand new session, materializing its JSONL header immediately. */
+  /**
+   * Create a brand new session as a draft: it touches disk only once its first
+   * entry is appended, so an unused session never leaves an empty file behind
+   * to shadow a real conversation in the session list.
+   */
   public static create(options: SessionManagerOptions = {}): SessionManager {
     const cwd = path.resolve(options.cwd ?? process.cwd());
     const timestamp = Date.now();
@@ -88,12 +107,7 @@ export class SessionManager {
       ? null
       : createSessionFilePath(header.id, timestamp, cwd, options.workspaceDir);
 
-    const manager = new SessionManager(header, filePath, inMemory);
-    if (filePath) {
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      fs.writeFileSync(filePath, `${JSON.stringify(header)}\n`, 'utf-8');
-    }
-    return manager;
+    return new SessionManager(header, filePath, inMemory, false);
   }
 
   /** Open an existing session file. A missing or header-less file is replaced by a fresh session. */
@@ -105,12 +119,19 @@ export class SessionManager {
       return SessionManager.createAt(absolute);
     }
 
-    const manager = new SessionManager(header, absolute, false);
+    const manager = new SessionManager(header, absolute, false, true);
     manager.loadEntries();
     return manager;
   }
 
-  /** Create a session bound to an explicit path (used by `open` recovery). */
+  /**
+   * Create a session bound to an explicit path (used by `open` recovery).
+   *
+   * Unlike `create` this one writes eagerly: the file already exists with junk
+   * bytes (or is missing), and appending entries after that junk would corrupt
+   * the file past the header. Rewriting the header first gives the appends a
+   * clean line to follow.
+   */
   private static createAt(filePath: string): SessionManager {
     const cwd = path.resolve(process.cwd());
     const header: SessionHeader = {
@@ -122,7 +143,7 @@ export class SessionManager {
       title: 'Initial Session',
       titleSource: 'auto'
     };
-    const manager = new SessionManager(header, filePath, false);
+    const manager = new SessionManager(header, filePath, false, true);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     fs.writeFileSync(filePath, `${JSON.stringify(header)}\n`, 'utf-8');
     return manager;
@@ -373,6 +394,10 @@ export class SessionManager {
     this.header.titleSource = titleSource;
     if (!this.filePath) return;
 
+    // A draft has no header on disk yet; the title is already in `this.header`,
+    // which `persist` serializes when the draft materializes.
+    if (!this.materialized) return;
+
     const content = fs.readFileSync(this.filePath, 'utf-8');
     const newlineIndex = content.indexOf('\n');
     const rest = newlineIndex === -1 ? '' : content.slice(newlineIndex);
@@ -391,6 +416,15 @@ export class SessionManager {
 
   private persist(entry: SessionEntry): void {
     if (!this.filePath || this.inMemory) return;
+
+    // First write materializes the draft: header line, then the entry. Later
+    // writes append only, so the header is emitted exactly once.
+    if (!this.materialized) {
+      fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
+      fs.writeFileSync(this.filePath, `${JSON.stringify(this.header)}\n`, 'utf-8');
+      this.materialized = true;
+    }
+
     fs.appendFileSync(this.filePath, `${JSON.stringify(entry)}\n`, 'utf-8');
   }
 }
