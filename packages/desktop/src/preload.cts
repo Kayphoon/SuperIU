@@ -20,17 +20,24 @@
  * runtime mismatch.
  */
 
-import type { MenuPayload, NotificationPayload, SuperiuDesktopBridge } from './ipc.js';
+import type {
+  MenuPayload,
+  NotificationPayload,
+  SuperiuDesktopBridge,
+  ThemePayload
+} from './ipc.js';
 
 // Compile-time drift guards: each annotation pins the literal to the exact type
 // declared in the shared contract. Change one side without the other → TS error.
 const MENU_CHANNEL: typeof import('./ipc.js').MENU_CHANNEL = 'superiu:menu';
+const THEME_CHANNEL: typeof import('./ipc.js').THEME_CHANNEL = 'superiu:theme';
 const SET_BADGE_COUNT: typeof import('./ipc.js').INVOKE.setBadgeCount = 'superiu:set-badge-count';
 const SHOW_NOTIFICATION: typeof import('./ipc.js').INVOKE.showNotification =
   'superiu:show-notification';
 const FLASH_FRAME: typeof import('./ipc.js').INVOKE.flashFrame = 'superiu:flash-frame';
 const QUIT: typeof import('./ipc.js').INVOKE.quit = 'superiu:quit';
 const SET_LANGUAGE: typeof import('./ipc.js').INVOKE.setLanguage = 'superiu:set-language';
+const SET_THEME: typeof import('./ipc.js').INVOKE.setTheme = 'superiu:set-theme';
 
 const { contextBridge, ipcRenderer } = require('electron');
 
@@ -52,6 +59,18 @@ const bridge: SuperiuDesktopBridge = {
     };
   },
 
+  /**
+   * Subscribe to native appearance changes.
+   * Returns an unsubscribe function.
+   */
+  onTheme(callback: (payload: ThemePayload) => void): () => void {
+    const listener = (_event: unknown, payload: ThemePayload): void => callback(payload);
+    ipcRenderer.on(THEME_CHANNEL, listener);
+    return (): void => {
+      ipcRenderer.off(THEME_CHANNEL, listener);
+    };
+  },
+
   setBadgeCount(count: number): Promise<void> {
     return ipcRenderer.invoke(SET_BADGE_COUNT, count);
   },
@@ -70,6 +89,10 @@ const bridge: SuperiuDesktopBridge = {
 
   setLanguage(language: string): Promise<void> {
     return ipcRenderer.invoke(SET_LANGUAGE, language);
+  },
+
+  setTheme(theme: string): Promise<void> {
+    return ipcRenderer.invoke(SET_THEME, theme);
   }
 };
 

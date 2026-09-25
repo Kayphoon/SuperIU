@@ -31,7 +31,7 @@ pnpm ui         # local web console, http://127.0.0.1:3000
 pnpm desktop    # macOS native shell (needs a graphical session)
 pnpm app:install  # build + install SuperIU.app into ~/Applications (macOS)
 pnpm app:zip    # build + write a distributable .zip instead of installing
-pnpm test       # smoke test suite (self-building, 60 assertions)
+pnpm test       # smoke suite + UI localization guard + provider credential wire guard
 ```
 
 Type-checking without emitting:
@@ -75,7 +75,9 @@ All configuration is environment-driven. Copy `.env.example` to `.env` and set:
 | `HOST` | `127.0.0.1` | Bind address for the web console (`@agent/ui` only). |
 | `SUPERIU_LANGUAGE` | `zh` | Interface language: `zh` or `en`. Seeds the default only — a `language` in the settings file wins over it. An unsupported value is ignored, falling back to the file and then to `zh`. |
 
-The web console additionally persists the same settings to `.myagent/ui-settings.json` so they can be edited from the Settings dialog (⌘,) without touching `.env`. Environment variables seed the defaults; the settings file wins once written. The interface language is one of those settings and can also be switched at runtime from the same dialog — see [Interface language](docs/shells-guide.md#interface-language).
+The web console additionally persists the same settings to `.myagent/ui-settings.json` so they can be edited from the Settings dialog (⌘,) without touching `.env`. Environment variables seed the defaults; the settings file wins once written. The interface language and the **appearance** (System / Dark / Light) are among those settings and can both be switched at runtime from the same dialog — see [Interface language](docs/shells-guide.md#interface-language) and [Appearance](docs/shells-guide.md#appearance).
+
+That dialog's **Model Configuration** pane manages providers rather than bare credential fields: each provider carries its own name, API key, Base URL, and model list, and exactly one is active — its key and Base URL are what the runner uses. Each provider keeps its own credential, so switching to one with no key of its own leaves the app unconfigured instead of sending the previous provider's key to a different endpoint. **Fetch models** probes the endpoint's live `GET /models` listing (`POST /api/models/fetch`), which resolves a stored key by endpoint, so no provider's credential is ever sent to another provider's host. A stored key is never sent back to the browser — leaving the field blank keeps it. Credentials remain in the same 0600 settings file.
 
 ## Architecture at a glance
 

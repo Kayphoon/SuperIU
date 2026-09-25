@@ -49,6 +49,13 @@ export interface ServerHandle {
    * in the right language before the renderer has loaded.
    */
   language: UiLanguage;
+  /**
+   * Appearance resolved at boot. The desktop shell mirrors it onto
+   * `nativeTheme.themeSource` before the window exists, so the native material
+   * behind a translucent window matches the scheme the renderer will paint —
+   * the same reason `language` is reported here.
+   */
+  theme: Theme;
   /** Idempotent: resolves pending approvals, closes the HTTP server and the agent runner. */
   close(): Promise<void>;
 }
@@ -88,6 +95,159 @@ function parseLanguage(value: unknown): UiLanguage | undefined {
   return UI_LANGUAGES.find((id) => id === normalized);
 }
 
+/**
+ * Appearance preferences, shared with the SPA's pre-paint script in
+ * `index.html` and persisted verbatim in `ui-settings.json`. `system` defers to
+ * the OS appearance (and tracks it live); `dark` / `light` pin one scheme.
+ */
+export const THEMES = ['system', 'dark', 'light'] as const;
+export type Theme = (typeof THEMES)[number];
+export const DEFAULT_THEME: Theme = 'system';
+
+/**
+ * Same contract as {@link parseLanguage}: tolerate stray case/whitespace from a
+ * hand-edited settings file, and yield `undefined` for anything unrecognised so
+ * each caller picks its own fallback.
+ */
+function parseTheme(value: unknown): Theme | undefined {
+  if (typeof value !== 'string') return undefined;
+  const normalized = value.trim().toLowerCase();
+  return THEMES.find((id) => id === normalized);
+}
+
+export interface ProviderConfig {
+  id: string;
+  name: string;
+  enabled: boolean;
+  apiKey: string;
+  baseURL: string;
+  models: string[];
+  description: string;
+  helpUrl: string;
+  custom: boolean;
+}
+
+/**
+ * Built-in provider presets, in display order. `name` here is the provider's
+ * DEFAULT label: the renderer localizes it through its dictionary and only shows
+ * a user's own rename verbatim, which is why `settingsView()` also reports
+ * `presetName` — it is the value a stored name must differ from to count as a
+ * rename.
+ *
+ * Only public, stable endpoints belong here. A private relay or a user's own
+ * gateway must NOT be baked in: it would ship someone's personal hostname in the
+ * product source and rot the moment they change it. Unmatched endpoints land in
+ * the `custom` slot instead.
+ */
+const PROVIDER_PRESETS: ReadonlyArray<{
+  id: string;
+  name: string;
+  match: string;
+  baseURL: string;
+  helpUrl: string;
+  models: string[];
+  custom: boolean;
+}> = [
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    match: 'api.openai.com',
+    baseURL: 'https://api.openai.com/v1',
+    helpUrl: 'https://platform.openai.com/api-keys',
+    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'o3-mini', 'o1'],
+    custom: false
+  },
+  {
+    id: 'anthropic',
+    name: 'Anthropic',
+    match: 'api.anthropic.com',
+    baseURL: 'https://api.anthropic.com/v1',
+    helpUrl: 'https://console.anthropic.com/settings/keys',
+    models: ['claude-3-7-sonnet-20250219', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'],
+    custom: false
+  },
+  {
+    id: 'gemini',
+    name: 'Google Gemini',
+    match: 'generativelanguage.googleapis.com',
+    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
+    helpUrl: 'https://aistudio.google.com/app/apikey',
+    models: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+    custom: false
+  },
+  {
+    id: 'deepseek',
+    name: 'DeepSeek',
+    match: 'api.deepseek.com',
+    baseURL: 'https://api.deepseek.com/v1',
+    helpUrl: 'https://platform.deepseek.com/api_keys',
+    models: ['deepseek-chat', 'deepseek-reasoner'],
+    custom: false
+  }
+];
+
+/** The custom slot's id; it has no preset row and is the user's to name. */
+const CUSTOM_PROVIDER_ID = 'custom';
+
+/** Default label of a preset, or '' when the id has no preset (e.g. `custom`). */
+function presetNameFor(id: string): string {
+  return PROVIDER_PRESETS.find((preset) => preset.id === id)?.name ?? '';
+}
+
+function createDefaultProviders(currentApiKey: string, currentBaseURL: string): ProviderConfig[] {
+  const base = currentBaseURL.trim();
+  const hosts: string[] = [];
+  try {
+    if (base) hosts.push(new URL(base).host.toLowerCase());
+  } catch {
+    /* A bare host or a hand-edited value: fall back to a substring match below. */
+  }
+  const matches = (needle: string): boolean => hosts.some((host) => host.includes(needle)) || base.includes(needle);
+
+  const presetsWithState = PROVIDER_PRESETS.map((preset) => {
+    const enabled = Boolean(base) && matches(preset.match);
+    return {
+      id: preset.id,
+      name: preset.name,
+      enabled,
+      apiKey: enabled ? currentApiKey : '',
+      baseURL: preset.baseURL,
+      models: preset.models,
+      // Not shipped from the server: the renderer localizes the blurb from its
+      // dictionary, so only a user-typed description ever occupies this field.
+      description: '',
+      helpUrl: preset.helpUrl,
+      custom: preset.custom
+    };
+  });
+
+  // No preset matched: the configured endpoint is a hand-rolled one, so keep it
+  // in a dedicated custom slot instead of losing it behind a preset's URL.
+  // Deliberately nameless: a display label baked in here would be a Chinese
+  // literal leaking into an English UI, and this slot is the user's to name.
+  const matched = presetsWithState.some((preset) => preset.enabled);
+  presetsWithState.push({
+    id: CUSTOM_PROVIDER_ID,
+    name: '',
+    enabled: Boolean(base) && !matched,
+    apiKey: base && !matched ? currentApiKey : '',
+    baseURL: base && !matched ? base : '',
+    models: [],
+    description: '',
+    helpUrl: '',
+    custom: true
+  });
+
+  return presetsWithState;
+}
+
+/**
+ * Labels an earlier build baked into the custom provider slot. Matched on load
+ * and cleared, so a localized default can take over instead of the literal
+ * surviving in the settings file forever.
+ */
+const LEGACY_CUSTOM_PROVIDER_LABELS = ['自定义服务商', 'Custom provider'];
+
 interface UiSettings {
   apiKey: string;
   baseURL: string;
@@ -103,6 +263,10 @@ interface UiSettings {
   reasoningEffort: ReasoningEffort | '';
   /** Presentation only: switching it must never rebuild the runner. */
   language: UiLanguage;
+  /** Presentation only: switching it must never rebuild the runner. */
+  theme: Theme;
+  activeProviderId?: string;
+  providers?: ProviderConfig[];
 }
 
 export type PostureKey = 'terse' | 'cautious' | 'constructive' | 'driven' | 'pragmatic';
@@ -146,14 +310,52 @@ function loadSettings(): UiSettings {
     reviewModelName: process.env.OPENAI_REVIEW_MODEL_NAME ?? DEFAULT_REVIEW_MODEL,
     autoReview: (process.env.SUPERIU_AUTO_REVIEW ?? '1') !== '0',
     reasoningEffort: parseReasoningEffort(process.env.OPENAI_REASONING_EFFORT) ?? '',
-    language: parseLanguage(process.env.SUPERIU_LANGUAGE) ?? DEFAULT_LANGUAGE
+    language: parseLanguage(process.env.SUPERIU_LANGUAGE) ?? DEFAULT_LANGUAGE,
+    theme: DEFAULT_THEME,
+    activeProviderId: 'openai'
   };
 
   try {
     const raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8')) as Partial<UiSettings>;
+    const effectiveKey = typeof raw.apiKey === 'string' ? raw.apiKey : defaults.apiKey;
+    const effectiveBaseURL = typeof raw.baseURL === 'string' ? raw.baseURL : defaults.baseURL;
+
+    let providers = Array.isArray(raw.providers) && raw.providers.length > 0
+      ? raw.providers.map((p) => ({
+          id: String(p.id || '').trim(),
+          name: String(p.name || '').trim(),
+          enabled: Boolean(p.enabled),
+          apiKey: typeof p.apiKey === 'string' ? p.apiKey : '',
+          baseURL: typeof p.baseURL === 'string' ? p.baseURL : '',
+          models: Array.isArray(p.models) ? p.models.map(String) : [],
+          description: typeof p.description === 'string' ? p.description : '',
+          helpUrl: typeof p.helpUrl === 'string' ? p.helpUrl : '',
+          custom: Boolean(p.custom)
+        })).filter((p) => p.id)
+      : [];
+
+    // A file written by a build that baked the custom slot's Chinese label into
+    // `name` would otherwise pin that literal forever, and it would surface
+    // untranslated in an English UI. Clear it so the renderer can supply the
+    // localized default.
+    for (const provider of providers) {
+      if (provider.id === 'custom' && LEGACY_CUSTOM_PROVIDER_LABELS.includes(provider.name)) {
+        provider.name = '';
+      }
+    }
+    providers = providers.filter((p) => p.id);
+
+    if (providers.length === 0) {
+      providers = createDefaultProviders(effectiveKey, effectiveBaseURL);
+    }
+
+    const activeProviderId = typeof raw.activeProviderId === 'string' && raw.activeProviderId
+      ? raw.activeProviderId
+      : (providers.find((p) => p.enabled)?.id || providers[0]?.id || 'openai');
+
     return {
-      apiKey: typeof raw.apiKey === 'string' ? raw.apiKey : defaults.apiKey,
-      baseURL: typeof raw.baseURL === 'string' ? raw.baseURL : defaults.baseURL,
+      apiKey: effectiveKey,
+      baseURL: effectiveBaseURL,
       modelName: typeof raw.modelName === 'string' && raw.modelName ? raw.modelName : defaults.modelName,
       reviewModelName:
         typeof raw.reviewModelName === 'string' && raw.reviewModelName
@@ -161,13 +363,17 @@ function loadSettings(): UiSettings {
           : defaults.reviewModelName,
       autoReview: typeof raw.autoReview === 'boolean' ? raw.autoReview : defaults.autoReview,
       reasoningEffort: parseReasoningEffort(raw.reasoningEffort) ?? defaults.reasoningEffort,
-      // The file is authoritative, but an unknown id (hand-edited or written by
-      // a newer build) must not pin the UI to a language it cannot render.
-      language: parseLanguage(raw.language) ?? defaults.language
+      language: parseLanguage(raw.language) ?? defaults.language,
+      theme: parseTheme(raw.theme) ?? defaults.theme,
+      activeProviderId,
+      providers
     };
   } catch {
-    // Missing or corrupt file: fall back to environment defaults.
-    return defaults;
+    return {
+      ...defaults,
+      providers: createDefaultProviders(defaults.apiKey, defaults.baseURL),
+      activeProviderId: 'openai'
+    };
   }
 }
 
@@ -373,6 +579,28 @@ function errorMessage(err: unknown): string {
 // ---------------------------------------------------------------------------
 
 function settingsView() {
+  const providersList = (settings.providers && settings.providers.length > 0
+    ? settings.providers
+    : createDefaultProviders(settings.apiKey, settings.baseURL)
+  ).map((p) => ({
+    id: p.id,
+    name: p.name,
+    /**
+     * The preset's default label, '' for the custom slot. The renderer shows a
+     * dictionary string only while `name` still equals this, so a user's rename
+     * wins and no display copy is hardcoded in the SPA.
+     */
+    presetName: presetNameFor(p.id),
+    enabled: p.enabled,
+    baseURL: p.baseURL ?? '',
+    apiKeyMasked: maskApiKey(p.apiKey || ''),
+    apiKeySet: Boolean(p.apiKey && p.apiKey.length > 0),
+    models: p.models ?? [],
+    description: p.description ?? '',
+    helpUrl: p.helpUrl ?? '',
+    custom: Boolean(p.custom)
+  }));
+
   return {
     apiKeyMasked: maskApiKey(settings.apiKey),
     apiKeySet: settings.apiKey.length > 0,
@@ -381,13 +609,14 @@ function settingsView() {
     reviewModelName: settings.reviewModelName,
     autoReview: settings.autoReview,
     language: settings.language,
-    /** '' means "derive": env value, else the core default. */
+    theme: settings.theme,
     reasoningEffort: settings.reasoningEffort,
-    /** Effort the main route actually resolves to right now (undefined when the model rejects it). */
     reasoningEffortEffective: runner.getModelRoutes().main.reasoningEffort,
     reasoningSupported: supportsReasoningEffort(settings.modelName),
     modelChoices: MODEL_CHOICES,
     settingsFile: SETTINGS_FILE,
+    activeProviderId: settings.activeProviderId || (providersList[0]?.id ?? 'openai'),
+    providers: providersList,
     env: {
       OPENAI_API_KEY: process.env.OPENAI_API_KEY ? 'set' : 'unset',
       OPENAI_BASE_URL: process.env.OPENAI_BASE_URL ?? '',
@@ -432,6 +661,90 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
     // so switching it must not swap the runner and drop the live session.
     next.language = parsed;
   }
+  if (patch.theme !== undefined) {
+    const raw = typeof patch.theme === 'string' ? patch.theme.trim() : String(patch.theme);
+    const parsed = parseTheme(raw);
+    if (parsed === undefined) {
+      throw new Error(`Invalid theme '${raw}'. Expected one of: ${THEMES.join(', ')}.`);
+    }
+    // Same as `language`: absent from `runnerChanged`, so an appearance switch
+    // never swaps the runner and never drops the live session.
+    next.theme = parsed;
+  }
+  if (typeof patch.activeProviderId === 'string' && patch.activeProviderId.trim()) {
+    next.activeProviderId = patch.activeProviderId.trim();
+  }
+
+  if (Array.isArray(patch.providers)) {
+    const existing = next.providers || createDefaultProviders(next.apiKey, next.baseURL);
+    const previousById: Record<string, ProviderConfig> = {};
+    for (const provider of existing) previousById[provider.id] = provider;
+
+    const updated: ProviderConfig[] = [];
+    for (const rawItem of patch.providers) {
+      if (!rawItem || typeof rawItem !== 'object') continue;
+      const item = rawItem as Record<string, unknown>;
+      const id = typeof item.id === 'string' ? item.id.trim() : '';
+      if (!id) continue;
+      const prev = previousById[id];
+      let itemKey = typeof item.apiKey === 'string' ? item.apiKey.trim() : '';
+      // The view only ever sends a masked stub, so an empty or masked value
+      // means "unchanged" and must not clobber the stored credential.
+      if (!itemKey || itemKey.includes('••••')) itemKey = prev?.apiKey ?? '';
+      updated.push({
+        id,
+        // No `?? id` fallback: an unnamed provider is legitimate (a fresh custom
+        // slot), and substituting the id would pin a machine identifier into the
+        // UI instead of letting the renderer show the localized default.
+        name: typeof item.name === 'string' && item.name.trim() ? item.name.trim() : (prev?.name ?? ''),
+        enabled: typeof item.enabled === 'boolean' ? item.enabled : (prev?.enabled ?? false),
+        apiKey: itemKey,
+        baseURL: typeof item.baseURL === 'string' ? item.baseURL.trim() : (prev?.baseURL ?? ''),
+        models: Array.isArray(item.models)
+          ? item.models.map((model) => String(model).trim()).filter(Boolean)
+          : (prev?.models ?? []),
+        description: typeof item.description === 'string' ? item.description : (prev?.description ?? ''),
+        helpUrl: typeof item.helpUrl === 'string' ? item.helpUrl : (prev?.helpUrl ?? ''),
+        custom: typeof item.custom === 'boolean' ? item.custom : (prev?.custom ?? false)
+      });
+    }
+    next.providers = updated;
+  }
+
+  // Exactly one provider is active, and the top-level credential fields are a
+  // pure PROJECTION of it — always assigned, never merged with whatever the
+  // patch carried. That is what keeps the pair coherent: switching to a provider
+  // with no key of its own legitimately leaves the app unconfigured (an explicit
+  // auth failure) rather than silently sending the previous provider's key to the
+  // new provider's endpoint.
+  //
+  // Each provider entry keeps its OWN credential, so nothing is lost: switching
+  // back restores the key. Do not "helpfully" write the active key back into the
+  // active entry — that would copy one secret into several entries and leave a
+  // stale copy silently in force after the user rotates it on another one.
+  //
+  // Gated on the patch touching the provider surface, so a legacy caller posting
+  // just `{ baseURL }` behaves exactly as before. Inside the gate there is no
+  // escape hatch: a top-level apiKey/baseURL in the same patch is overwritten by
+  // the active provider, because two sources for one credential is precisely the
+  // ambiguity this surface exists to remove.
+  if (patch.providers !== undefined || patch.activeProviderId !== undefined) {
+    const providers = next.providers ?? createDefaultProviders(next.apiKey, next.baseURL);
+    next.providers = providers;
+    // A patch may name an id no entry carries — the user deleted the active
+    // provider, or the renderer sent a stale one. Re-point at the first survivor,
+    // or the id dangles: the UI highlights nothing and the runner keeps the
+    // previous provider's credentials in force.
+    if (!providers.some((provider) => provider.id === next.activeProviderId)) {
+      next.activeProviderId = providers[0]?.id ?? '';
+    }
+    for (const provider of providers) {
+      provider.enabled = provider.id === next.activeProviderId;
+    }
+    const activeProvider = providers.find((provider) => provider.id === next.activeProviderId);
+    next.apiKey = activeProvider?.apiKey ?? '';
+    next.baseURL = activeProvider?.baseURL ?? '';
+  }
 
   const runnerChanged =
     next.apiKey !== settings.apiKey ||
@@ -471,6 +784,7 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
 const API_METHODS: Record<string, string[]> = {
   '/api/status': ['GET'],
   '/api/models': ['GET'],
+  '/api/models/fetch': ['POST'],
   '/api/model': ['POST'],
   '/api/settings': ['GET', 'POST'],
   '/api/sessions': ['GET'],
@@ -507,6 +821,74 @@ async function handleApi(
   if (pathname === '/api/models' && method === 'GET') {
     sendJson(res, 200, publicRoutes());
     return true;
+  }
+  if (pathname === '/api/models/fetch' && method === 'POST') {
+    let body: Record<string, unknown>;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      sendError(res, 400, errorMessage(err));
+      return true;
+    }
+
+    const endpoint = typeof body.baseURL === 'string' && body.baseURL.trim()
+      ? body.baseURL.trim()
+      : settings.baseURL || 'https://api.openai.com/v1';
+
+    let targetKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : '';
+    if (targetKey.includes('••••')) targetKey = '';
+
+    // A stored credential is resolved BY ENDPOINT, never by a separate id hint:
+    // the key used is the one belonging to whichever entry owns this exact URL.
+    // Asking "is this URL known?" and then picking a key from a *different*
+    // provider would send one provider's secret to another provider's host —
+    // exactly the exfiltration this guard exists to prevent. The console is
+    // unauthenticated, so a caller-supplied baseURL must never be able to draw
+    // out a credential it does not own.
+    //
+    // An unknown endpoint simply gets an anonymous probe: there is no stored key
+    // for it, so nothing can leak. That is also what makes a keyless local
+    // endpoint (Ollama, a bare relay) work before it has ever been saved.
+    if (!targetKey) {
+      const normalize = (value: string): string => value.replace(/\/+$/, '').toLowerCase();
+      const wanted = normalize(endpoint);
+      const owner = (settings.providers ?? []).find((p) => p.baseURL && normalize(p.baseURL) === wanted);
+      if (owner) {
+        targetKey = owner.apiKey;
+      } else if (settings.baseURL && normalize(settings.baseURL) === wanted) {
+        targetKey = settings.apiKey;
+      }
+    }
+
+    const modelsUrl = endpoint.replace(/\/+$/, '') + '/models';
+    try {
+      const headers: Record<string, string> = {
+        'Accept': 'application/json'
+      };
+      if (targetKey) {
+        headers['Authorization'] = `Bearer ${targetKey}`;
+      }
+      const resp = await fetch(modelsUrl, {
+        method: 'GET',
+        headers,
+        signal: AbortSignal.timeout(10000)
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        sendJson(res, 200, { ok: false, error: `HTTP ${resp.status}: ${text.slice(0, 150)}`, models: [] });
+        return true;
+      }
+      const data = (await resp.json()) as { data?: Array<{ id?: string }> };
+      const rawList = Array.isArray(data?.data) ? data.data : [];
+      const models = rawList
+        .map((item) => (typeof item?.id === 'string' ? item.id.trim() : ''))
+        .filter(Boolean);
+      sendJson(res, 200, { ok: true, models });
+      return true;
+    } catch (err) {
+      sendJson(res, 200, { ok: false, error: errorMessage(err), models: [] });
+      return true;
+    }
   }
 
   if (pathname === '/api/model' && method === 'POST') {
@@ -560,11 +942,12 @@ async function handleApi(
       return true;
     }
 
-    // `language` is presentation-only and never touches the runner, so a patch
-    // that carries nothing else must not be gated on an idle agent — otherwise
-    // switching the interface language mid-turn fails with a 409 and the UI
-    // visibly snaps back. Any other key still requires an idle runner.
-    const presentationOnly = Object.keys(body).every((key) => key === 'language');
+    // `language` and `theme` are presentation-only and never touch the runner,
+    // so a patch that carries nothing else must not be gated on an idle agent —
+    // otherwise switching the interface language or the appearance mid-turn
+    // fails with a 409 and the UI visibly snaps back. Any other key still
+    // requires an idle runner.
+    const presentationOnly = Object.keys(body).every((key) => key === 'language' || key === 'theme');
 
     if (!presentationOnly && runner.status !== 'idle') {
       sendError(res, 409, `Cannot apply settings while the agent is ${runner.status}. Abort the turn first.`);
@@ -967,6 +1350,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
     console.log(`  Listening:   http://${host}:${listening}`);
     console.log(`  Main model:  ${settings.modelName}`);
     console.log(`  Language:    ${settings.language}`);
+    console.log(`  Theme:       ${settings.theme}`);
     console.log(`  Tool model:  ${settings.reviewModelName} (autoReview ${settings.autoReview ? 'on' : 'off'})`);
     console.log(`  Session:     ${runner.getSessionId()}`);
     // A boot with no resumable session starts a draft, so the path printed here
@@ -998,7 +1382,14 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
   };
 
   shutdownHook = () => void close();
-  return { port: listening, host, url: `http://${host}:${listening}`, language: settings.language, close };
+  return {
+    port: listening,
+    host,
+    url: `http://${host}:${listening}`,
+    language: settings.language,
+    theme: settings.theme,
+    close
+  };
 }
 
 // Standalone entry point: `node dist/server.js` (used by `pnpm ui`).

@@ -13,13 +13,22 @@
       document.documentElement.dataset.vibrancy = window.superiuDesktop ? 'under-window' : 'none';
 
       // The `[data-color-scheme]` attribute is the single switch the token
-      // blocks key off; default it to the OS appearance so a macOS app follows
-      // the system setting. An explicit value already on the element wins.
+      // blocks key off. Resolve it here, before the first paint, so the app
+      // never flashes the wrong scheme: the stored preference wins when it pins
+      // a scheme, and `system` (or an absent/unknown value) follows the OS.
+      // An explicit value already on the element wins over all of it.
       if (!document.documentElement.dataset.colorScheme) {
-        document.documentElement.dataset.colorScheme = window.matchMedia('(prefers-color-scheme: light)')
-          .matches
-          ? 'light'
-          : 'dark';
+        const stored = (() => {
+          try {
+            return window.localStorage.getItem('superiu.theme');
+          } catch {
+            // Storage disabled (private mode): fall through to the OS scheme.
+            return null;
+          }
+        })();
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const scheme = stored === 'dark' || stored === 'light' ? stored : prefersDark ? 'dark' : 'light';
+        document.documentElement.dataset.colorScheme = scheme;
       }
 
       // i18n.js owns `<html lang>` once it evaluates, but it is a module and so
@@ -1768,6 +1777,8 @@
         width: 100%;
         min-height: 44px;
         max-height: 200px;
+        border: none;
+        background: transparent;
         resize: none;
         outline: none;
         color: var(--siu-text-primary);
@@ -2346,6 +2357,392 @@
       .traffic:active {
         filter: brightness(0.82);
       }
+
+      /* =====================================================================
+         Preferences window — macOS-style settings
+         A left submenu switches between panes; the providers pane splits into
+         a scrolling list and a detail form. Every colour here is a design
+         token, so both colour schemes and the vibrancy variants follow along.
+         ===================================================================== */
+      .siu-modal--prefs {
+        max-width: 56rem;
+        max-height: min(84vh, 720px);
+      }
+      .siu-prefs-body {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+      }
+      .siu-prefs-nav {
+        display: flex;
+        flex-direction: column;
+        flex: none;
+        gap: 2px;
+        width: 190px;
+        padding: var(--siu-space-3) var(--siu-space-2);
+        border-right: 1px solid var(--siu-border);
+        background: var(--siu-bg-inset);
+        overflow-y: auto;
+      }
+      .siu-nav-item {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        min-height: 30px;
+        padding: 0 var(--siu-space-3);
+        border: 1px solid transparent;
+        border-radius: var(--siu-radius-md);
+        background: transparent;
+        color: var(--siu-text-secondary);
+        font-family: var(--siu-font-sans);
+        font-size: var(--siu-text-sm);
+        font-weight: 500;
+        text-align: left;
+        cursor: pointer;
+        transition: background var(--siu-dur-base) var(--siu-ease-out),
+          color var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-nav-item:hover {
+        background: var(--siu-bg-hover);
+        color: var(--siu-text-primary);
+      }
+      .siu-nav-item:focus-visible {
+        border-color: var(--siu-border-focus);
+        outline: none;
+      }
+      .siu-nav-item[aria-selected='true'] {
+        background: var(--siu-accent-weak);
+        color: var(--siu-accent);
+      }
+
+      .siu-prefs-pane {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 0;
+        min-height: 0;
+        overflow-y: auto;
+      }
+      .siu-prefs-pane[data-active='false'] {
+        display: none;
+      }
+      /* The providers pane must NOT be the scroller: its list and detail
+         columns scroll independently, so the split owns the overflow. */
+      .siu-prefs-pane[data-pane='providers'] {
+        overflow: hidden;
+      }
+      .siu-prefs-head {
+        flex: none;
+        padding: var(--siu-space-4) var(--siu-space-5) var(--siu-space-3);
+        border-bottom: 1px solid var(--siu-border);
+      }
+      .siu-prefs-title {
+        font-size: var(--siu-text-body);
+        font-weight: 600;
+        color: var(--siu-text-primary);
+      }
+      .siu-prefs-subtitle {
+        margin-top: 2px;
+        font-size: var(--siu-text-sm);
+        color: var(--siu-text-muted);
+      }
+      .siu-prefs-pane-body {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        gap: var(--siu-space-5);
+        padding: var(--siu-space-5);
+        overflow-y: auto;
+      }
+
+      .siu-prefs-split {
+        display: flex;
+        flex: 1;
+        min-height: 0;
+      }
+      .siu-provider-column {
+        display: flex;
+        flex-direction: column;
+        flex: none;
+        gap: var(--siu-space-2);
+        width: 250px;
+        padding: var(--siu-space-4);
+        border-right: 1px solid var(--siu-border);
+      }
+      .siu-provider-add {
+        width: 100%;
+        justify-content: flex-start;
+      }
+      /* The list scrolls on its own, so the detail column never moves with it. */
+      .siu-provider-list {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-height: 0;
+        gap: 2px;
+        overflow-y: auto;
+      }
+      .siu-provider-item {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-2);
+        width: 100%;
+        padding: var(--siu-space-2) var(--siu-space-3);
+        border: 1px solid transparent;
+        border-radius: var(--siu-radius-md);
+        background: transparent;
+        color: var(--siu-text-secondary);
+        font-size: var(--siu-text-sm);
+        text-align: left;
+        cursor: pointer;
+        transition: background var(--siu-dur-base) var(--siu-ease-out),
+          color var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-provider-item:hover {
+        background: var(--siu-bg-hover);
+        color: var(--siu-text-primary);
+      }
+      .siu-provider-item:focus-visible {
+        border-color: var(--siu-border-focus);
+        outline: none;
+      }
+      .siu-provider-item[data-selected='true'] {
+        background: var(--siu-bg-selected);
+        color: var(--siu-text-primary);
+      }
+      .siu-provider-item-name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      /* A dot marks the single active provider — the one the runner uses. */
+      .siu-provider-dot {
+        flex: none;
+        width: 6px;
+        height: 6px;
+        border-radius: var(--siu-radius-full);
+        background: transparent;
+        box-shadow: inset 0 0 0 1px var(--siu-border-strong);
+      }
+      .siu-provider-dot[data-on='true'] {
+        background: var(--siu-accent);
+        box-shadow: none;
+      }
+      .siu-provider-empty {
+        padding: var(--siu-space-4);
+        color: var(--siu-text-muted);
+        font-size: var(--siu-text-sm);
+        text-align: center;
+      }
+
+      .siu-provider-detail {
+        display: flex;
+        flex-direction: column;
+        flex: 1;
+        min-width: 0;
+        min-height: 0;
+        overflow-y: auto;
+      }
+      .siu-provider-form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--siu-space-4);
+        padding: var(--siu-space-5);
+      }
+      .siu-provider-name-row {
+        display: flex;
+        align-items: flex-end;
+        gap: var(--siu-space-3);
+      }
+      .siu-provider-name-field {
+        flex: 1;
+        min-width: 0;
+      }
+      .siu-provider-badge {
+        flex: none;
+        padding: 2px var(--siu-space-2);
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-sm);
+        background: var(--siu-bg-inset);
+        color: var(--siu-text-muted);
+        font-size: var(--siu-text-micro);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .siu-provider-enable-row {
+        padding: var(--siu-space-3);
+      }
+      .siu-provider-key-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: var(--siu-space-3);
+      }
+      .siu-provider-key-row {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-2);
+      }
+      .siu-provider-help {
+        color: var(--siu-accent-text);
+        font-size: var(--siu-text-sm);
+        text-decoration: none;
+      }
+      .siu-provider-help:hover {
+        text-decoration: underline;
+      }
+      .siu-provider-fetch {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--siu-space-2);
+      }
+      .siu-provider-fetch .siu-field-hint {
+        flex-basis: 100%;
+        margin-top: 0;
+      }
+      .siu-provider-fetch-msg {
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
+        color: var(--siu-text-muted);
+      }
+      .siu-provider-fetch-msg[data-tone='ok'] {
+        color: var(--siu-success-fg);
+      }
+      .siu-provider-fetch-msg[data-tone='error'] {
+        color: var(--siu-danger-fg);
+      }
+
+      .siu-provider-models {
+        display: flex;
+        flex-direction: column;
+        gap: var(--siu-space-2);
+      }
+      .siu-provider-models-head {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: var(--siu-space-2);
+      }
+      .siu-provider-models-title {
+        margin-bottom: 0;
+      }
+      .siu-provider-model-add {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-2);
+      }
+      .siu-model-chip {
+        display: inline-flex;
+        align-items: center;
+        max-width: 100%;
+        padding: 2px var(--siu-space-2);
+        border: 1px solid var(--siu-accent-border);
+        border-radius: var(--siu-radius-sm);
+        background: var(--siu-accent-weak);
+        color: var(--siu-accent-text);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-micro);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .siu-model-chip[data-role='review'] {
+        border-color: var(--siu-border-strong);
+        background: var(--siu-bg-inset);
+        color: var(--siu-text-secondary);
+      }
+      .siu-model-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        max-height: 240px;
+        overflow-y: auto;
+      }
+      /* Row, not a button: it nests the two role buttons, so it cannot be one. */
+      .siu-model-item {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-2);
+        padding: var(--siu-space-1) var(--siu-space-2);
+        border: 1px solid transparent;
+        border-radius: var(--siu-radius-sm);
+        transition: background var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-model-item:hover {
+        background: var(--siu-bg-hover);
+      }
+      .siu-model-item[data-main='true'] {
+        border-color: var(--siu-accent-border);
+        background: var(--siu-accent-weak);
+      }
+      .siu-model-item[data-review='true'] {
+        border-color: var(--siu-border-strong);
+      }
+      .siu-model-item-name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: var(--siu-text-secondary);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
+      }
+      .siu-model-item[data-main='true'] .siu-model-item-name {
+        color: var(--siu-text-primary);
+      }
+      .siu-model-item-actions {
+        display: flex;
+        flex: none;
+        gap: var(--siu-space-1);
+      }
+      .siu-model-action {
+        min-height: 22px;
+        padding: 0 var(--siu-space-2);
+        font-size: var(--siu-text-micro);
+      }
+      .siu-provider-danger {
+        display: flex;
+        justify-content: flex-end;
+        padding-top: var(--siu-space-3);
+        border-top: 1px solid var(--siu-border);
+      }
+
+      .siu-dirty {
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
+        color: var(--siu-text-muted);
+      }
+      .siu-dirty[data-dirty='true'] {
+        color: var(--siu-warn-fg);
+      }
+
+      /* Narrow windows stack the two provider columns instead of squeezing both. */
+      @media (max-width: 760px) {
+        .siu-prefs-nav {
+          width: 140px;
+        }
+        .siu-prefs-split {
+          flex-direction: column;
+          overflow-y: auto;
+        }
+        .siu-provider-column {
+          width: auto;
+          border-right: none;
+          border-bottom: 1px solid var(--siu-border);
+        }
+        .siu-provider-list {
+          max-height: 180px;
+          flex: none;
+        }
+        .siu-provider-detail {
+          overflow: visible;
+        }
+      }
     </style>
   </head>
   <body>
@@ -2663,7 +3060,7 @@
 
     <!-- ===================== SETTINGS MODAL (⌘,) ===================== -->
     <div id="settings-modal" class="siu-overlay" data-open="false">
-      <div class="siu-modal siu-pop" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+      <div class="siu-modal siu-modal--prefs siu-pop" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div class="siu-modal-header">
           <h2 id="settings-title" class="siu-modal-title" data-i18n="settings.title">设置</h2>
           <span class="min-w-0 flex-1 truncate font-mono text-[10.5px] text-muted" id="settings-file-label"></span>
@@ -2672,85 +3069,188 @@
           </button>
         </div>
 
-        <div class="siu-modal-body">
-          <div>
-            <label class="siu-field-label" for="set-api-key" data-i18n="settings.apiKey">OPENAI_API_KEY</label>
-            <input id="set-api-key" type="password" class="siu-field" placeholder="sk-…" autocomplete="off" spellcheck="false" />
-            <p class="siu-field-hint" data-i18n-html="settings.apiKey.hint">本地保存在 <code>.myagent/ui-settings.json</code>（权限 0600）。留空则保留当前密钥。</p>
-          </div>
+        <div class="siu-prefs-body">
+          <!-- ================= Left submenu (role=tablist) ================= -->
+          <nav id="settings-nav" class="siu-prefs-nav" role="tablist" aria-orientation="vertical">
+            <button type="button" class="siu-nav-item" role="tab" data-pane="general" aria-controls="settings-pane-general" aria-selected="true" data-i18n="settings.nav.general"></button>
+            <button type="button" class="siu-nav-item" role="tab" data-pane="providers" aria-controls="settings-pane-providers" aria-selected="false" data-i18n="settings.nav.providers"></button>
+            <button type="button" class="siu-nav-item" role="tab" data-pane="about" aria-controls="settings-pane-about" aria-selected="false" data-i18n="settings.nav.about"></button>
+          </nav>
 
-          <div>
-            <label class="siu-field-label" for="set-base-url" data-i18n="settings.baseURL">OPENAI_BASE_URL</label>
-            <input id="set-base-url" type="text" class="siu-field" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false" />
-            <p class="siu-field-hint" data-i18n="settings.baseURL.hint">任意 OpenAI 兼容端点（DeepSeek、SiliconFlow、Ollama、Moonshot…）。</p>
-          </div>
+          <!-- ================= Pane: General ================= -->
+          <section id="settings-pane-general" class="siu-prefs-pane" role="tabpanel" data-pane="general" data-active="true">
+            <header class="siu-prefs-head">
+              <h3 class="siu-prefs-title" data-i18n="settings.general.title"></h3>
+              <p class="siu-prefs-subtitle" data-i18n="settings.general.subtitle"></p>
+            </header>
+            <div class="siu-prefs-pane-body">
+              <div>
+                <label class="siu-field-label" for="set-language" data-i18n="settings.language">界面语言</label>
+                <select id="set-language" class="siu-field"></select>
+                <p class="siu-field-hint" data-i18n="settings.language.hint">立即生效并保存，重启后保持。</p>
+              </div>
 
-          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-            <div>
-              <label class="siu-field-label" for="set-model" data-i18n="settings.model">主模型名称</label>
-              <input id="set-model" type="text" class="siu-field" list="model-choices" placeholder="gpt-4o" autocomplete="off" spellcheck="false" />
-              <p class="siu-field-hint" data-i18n="settings.model.hint">也可在「更多」面板中切换。</p>
+              <div>
+                <label class="siu-field-label" for="set-theme" data-i18n="settings.theme">界面主题</label>
+                <select id="set-theme" class="siu-field"></select>
+                <p class="siu-field-hint" data-i18n="settings.theme.hint">选择界面的外观风格或跟随系统设置。</p>
+              </div>
+
+              <div>
+                <label class="siu-field-label" for="set-reasoning-effort" data-i18n="settings.effort">推理强度</label>
+                <select id="set-reasoning-effort" class="siu-field">
+                  <option value="" data-i18n="settings.effort.unset">未设置 —— 从 OPENAI_REASONING_EFFORT 推导</option>
+                  <option value="low">low</option>
+                  <option value="medium">medium</option>
+                  <option value="high">high</option>
+                </select>
+                <!-- Rewritten by renderReasoningHint(); the initial text is the
+                     translated "none" variant so the first paint is not English. -->
+                <p class="siu-field-hint" id="set-reasoning-hint">主路由不发送 reasoningEffort。</p>
+              </div>
+
+              <div class="siu-toggle-row">
+                <div class="flex-1">
+                  <div class="siu-toggle-row-title" data-i18n="settings.autoReview">AutoReview</div>
+                  <p class="siu-toggle-row-hint" data-i18n="settings.autoReview.hint">
+                    让每一次工具调用都经过工具模型审核；升级为人工确认的调用会弹出审批卡片。
+                  </p>
+                </div>
+                <button id="set-auto-review" class="siu-switch" data-on="false" role="switch" aria-checked="false" aria-label="AutoReview" data-i18n-aria-label="settings.autoReview"></button>
+              </div>
+
+              <div class="siu-toggle-row">
+                <div class="flex-1">
+                  <div class="siu-toggle-row-title" data-i18n="settings.notifications">桌面通知与提示音</div>
+                  <p class="siu-toggle-row-hint" data-i18n="settings.notifications.hint">在审批请求与任务完成时提醒。</p>
+                </div>
+                <button id="set-notifications" class="siu-switch" data-on="false" role="switch" aria-checked="false" aria-label="桌面通知与提示音" data-i18n-aria-label="settings.notifications"></button>
+              </div>
             </div>
-            <div>
-              <label class="siu-field-label" for="set-review-model" data-i18n="settings.reviewModel">工具 / 审查模型名称</label>
-              <input id="set-review-model" type="text" class="siu-field" list="model-choices" placeholder="gpt-4o-mini" autocomplete="off" spellcheck="false" />
-              <p class="siu-field-hint" data-i18n="settings.reviewModel.hint">用于 AutoReview 的判定。</p>
+          </section>
+
+          <!-- ================= Pane: Providers ================= -->
+          <section id="settings-pane-providers" class="siu-prefs-pane" role="tabpanel" data-pane="providers" data-active="false">
+            <header class="siu-prefs-head">
+              <h3 class="siu-prefs-title" data-i18n="settings.providers.title"></h3>
+              <p class="siu-prefs-subtitle" data-i18n="settings.providers.subtitle"></p>
+            </header>
+
+            <div class="siu-prefs-split">
+              <!-- Left column: filter + list. Scrolls on its own. -->
+              <div class="siu-provider-column">
+                <input id="provider-search" type="search" class="siu-field" autocomplete="off" spellcheck="false" data-i18n-placeholder="settings.providers.search" />
+                <button id="provider-add" type="button" class="siu-btn siu-provider-add">
+                  <span aria-hidden="true">+</span><span data-i18n="settings.providers.add"></span>
+                </button>
+                <div id="provider-list" class="siu-provider-list" role="listbox"></div>
+                <p id="provider-empty" class="siu-provider-empty" data-i18n="settings.providers.empty" hidden></p>
+              </div>
+
+              <!-- Right column: the selected provider's form. -->
+              <div id="provider-detail" class="siu-provider-detail">
+                <p id="provider-detail-empty" class="siu-provider-empty" data-i18n="settings.providers.select"></p>
+
+                <div id="provider-form" class="siu-provider-form" hidden>
+                  <div class="siu-provider-name-row">
+                    <div class="siu-provider-name-field">
+                      <label class="siu-field-label" for="provider-name" data-i18n="settings.providers.name"></label>
+                      <input id="provider-name" type="text" class="siu-field" autocomplete="off" spellcheck="false" />
+                    </div>
+                    <span id="provider-custom-badge" class="siu-provider-badge" data-i18n="settings.providers.custom" hidden></span>
+                  </div>
+
+                  <div class="siu-toggle-row siu-provider-enable-row">
+                    <div class="flex-1">
+                      <div class="siu-toggle-row-title" data-i18n="settings.providers.enabled"></div>
+                      <p class="siu-toggle-row-hint" id="provider-desc"></p>
+                    </div>
+                    <button id="provider-enabled" class="siu-switch" data-on="false" role="switch" aria-checked="false" data-i18n-aria-label="settings.providers.enabled"></button>
+                  </div>
+
+                  <div>
+                    <div class="siu-provider-key-head">
+                      <label class="siu-field-label" for="set-api-key" data-i18n="settings.apiKey">OPENAI_API_KEY</label>
+                      <a id="provider-help" class="siu-provider-help" target="_blank" rel="noreferrer" data-i18n="settings.providers.apiKey.get" hidden></a>
+                    </div>
+                    <div class="siu-provider-key-row">
+                      <input id="set-api-key" type="password" class="siu-field" placeholder="sk-…" autocomplete="off" spellcheck="false" />
+                      <button id="provider-key-toggle" type="button" class="siu-btn-icon" data-i18n-aria-label="settings.providers.apiKey.show">
+                        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M1.5 8s2.4-4 6.5-4 6.5 4 6.5 4-2.4 4-6.5 4S1.5 8 1.5 8Z" stroke-linejoin="round" /><circle cx="8" cy="8" r="1.9" /></svg>
+                      </button>
+                    </div>
+                    <!-- Shown only while the ACTIVE provider has no credential of
+                         its own: the request would then carry a placeholder token
+                         and fail with an opaque auth error, so the state has to be
+                         stated rather than left to a bare placeholder. -->
+                    <p class="siu-field-hint" id="provider-key-warning" data-tone="warn" hidden></p>
+                    <p class="siu-field-hint" data-i18n-html="settings.apiKey.hint">本地保存在 <code>.myagent/ui-settings.json</code>（权限 0600）。留空则保留当前密钥。</p>
+                  </div>
+
+                  <div>
+                    <label class="siu-field-label" for="set-base-url" data-i18n="settings.baseURL">OPENAI_BASE_URL</label>
+                    <input id="set-base-url" type="text" class="siu-field" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false" />
+                    <p class="siu-field-hint" data-i18n="settings.baseURL.hint">任意 OpenAI 兼容端点（DeepSeek、SiliconFlow、Ollama、Moonshot…）。</p>
+                  </div>
+
+                  <div class="siu-provider-fetch">
+                    <button id="provider-fetch" type="button" class="siu-btn siu-btn--mono" data-i18n="settings.providers.fetch"></button>
+                    <span id="provider-fetch-msg" class="siu-provider-fetch-msg"></span>
+                    <p class="siu-field-hint" data-i18n-html="settings.providers.fetchHint"></p>
+                  </div>
+
+                  <div class="siu-provider-models">
+                    <div class="siu-provider-models-head">
+                      <span class="siu-field-label siu-provider-models-title" data-i18n="settings.providers.models"></span>
+                      <span id="provider-main-chip" class="siu-model-chip" data-role="main" data-i18n-title="settings.providers.setMain" hidden></span>
+                      <span id="provider-review-chip" class="siu-model-chip" data-role="review" data-i18n-title="settings.providers.setReview" hidden></span>
+                    </div>
+                    <input id="provider-model-search" type="search" class="siu-field" autocomplete="off" spellcheck="false" data-i18n-placeholder="settings.providers.searchModels" />
+                    <div class="siu-provider-model-add">
+                      <input id="provider-model-input" type="text" class="siu-field" list="model-choices" autocomplete="off" spellcheck="false" data-i18n-placeholder="settings.providers.modelPlaceholder" />
+                      <button id="provider-model-add" type="button" class="siu-btn-icon" data-i18n-aria-label="settings.providers.addModel">
+                        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M8 3v10M3 8h10" stroke-linecap="round" /></svg>
+                      </button>
+                    </div>
+                    <datalist id="model-choices"></datalist>
+                    <div id="provider-models" class="siu-model-grid"></div>
+                    <p id="provider-models-empty" class="siu-provider-empty" data-i18n="settings.providers.modelsEmpty" hidden></p>
+                  </div>
+
+                  <div class="siu-provider-danger">
+                    <button id="provider-delete" type="button" class="siu-btn siu-btn--danger" data-i18n="settings.providers.delete"></button>
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
-          <datalist id="model-choices"></datalist>
+          </section>
 
-          <div>
-            <label class="siu-field-label" for="set-reasoning-effort" data-i18n="settings.effort">推理强度</label>
-            <select id="set-reasoning-effort" class="siu-field">
-              <option value="" data-i18n="settings.effort.unset">未设置 —— 从 OPENAI_REASONING_EFFORT 推导</option>
-              <option value="low">low</option>
-              <option value="medium">medium</option>
-              <option value="high">high</option>
-            </select>
-            <!-- Rewritten by renderReasoningHint(); the initial text is the
-                 translated "none" variant so the first paint is not English. -->
-            <p class="siu-field-hint" id="set-reasoning-hint">主路由不发送 reasoningEffort。</p>
-          </div>
-
-          <div>
-            <label class="siu-field-label" for="set-language" data-i18n="settings.language">界面语言</label>
-            <select id="set-language" class="siu-field"></select>
-            <p class="siu-field-hint" data-i18n="settings.language.hint">立即生效并保存，重启后保持。</p>
-          </div>
-
-          <div class="siu-toggle-row">
-            <div class="flex-1">
-              <div class="siu-toggle-row-title" data-i18n="settings.autoReview">AutoReview</div>
-              <p class="siu-toggle-row-hint" data-i18n="settings.autoReview.hint">
-                让每一次工具调用都经过工具模型审核；升级为人工确认的调用会弹出审批卡片。
-              </p>
+          <!-- ================= Pane: About ================= -->
+          <section id="settings-pane-about" class="siu-prefs-pane" role="tabpanel" data-pane="about" data-active="false">
+            <header class="siu-prefs-head">
+              <h3 class="siu-prefs-title" data-i18n="settings.about.title"></h3>
+              <p class="siu-prefs-subtitle" data-i18n="settings.about.subtitle"></p>
+            </header>
+            <div class="siu-prefs-pane-body">
+              <div class="rounded-lg border border-line bg-fill-subtle px-4 py-3 font-mono text-[10.5px] leading-relaxed text-muted">
+                <div class="mb-1 uppercase tracking-wider text-muted" data-i18n="settings.env">环境变量</div>
+                <div id="set-env-info">—</div>
+                <!-- Sibling, not a child of #set-env-info: fillSettingsForm() replaces
+                     that node's innerHTML wholesale, which would drop this note. -->
+                <div class="text-muted" data-i18n="settings.env.note">已保存的设置优先于环境变量默认值。</div>
+              </div>
             </div>
-            <button id="set-auto-review" class="siu-switch" data-on="false" role="switch" aria-checked="false" aria-label="AutoReview" data-i18n-aria-label="settings.autoReview"></button>
-          </div>
-
-          <div class="siu-toggle-row">
-            <div class="flex-1">
-              <div class="siu-toggle-row-title" data-i18n="settings.notifications">桌面通知与提示音</div>
-              <p class="siu-toggle-row-hint" data-i18n="settings.notifications.hint">在审批请求与任务完成时提醒。</p>
-            </div>
-            <button id="set-notifications" class="siu-switch" data-on="false" role="switch" aria-checked="false" aria-label="桌面通知与提示音" data-i18n-aria-label="settings.notifications"></button>
-          </div>
-
-          <div class="rounded-lg border border-line bg-fill-subtle px-4 py-3 font-mono text-[10.5px] leading-relaxed text-muted">
-            <div class="mb-1 uppercase tracking-wider text-muted" data-i18n="settings.env">环境变量</div>
-            <div id="set-env-info">—</div>
-            <!-- Sibling, not a child of #set-env-info: fillSettingsForm() replaces
-                 that node's innerHTML wholesale, which would drop this note. -->
-            <div class="text-muted" data-i18n="settings.env.note">已保存的设置优先于环境变量默认值。</div>
-          </div>
+          </section>
         </div>
 
         <div class="siu-modal-footer">
           <span id="settings-msg" class="mr-auto font-mono text-[11px]"></span>
-          <button data-close="settings" class="siu-btn" data-i18n="settings.cancel">取消</button>
+          <span id="settings-dirty" class="siu-dirty"></span>
+          <button data-close="settings" class="siu-btn" data-i18n="settings.closeBtn"></button>
           <button id="settings-save" class="siu-btn siu-btn--primary" data-i18n="settings.save">保存</button>
         </div>
       </div>
+
     </div>
 
     <!-- ===================== QUIT CONFIRM MODAL (⌘Q) ===================== -->
@@ -2848,7 +3348,26 @@
         // state a rebuild would destroy, so the rebuild is deferred to the turn's
         // `finally` rather than dropped. Without it a mid-turn switch left the
         // transcript in the old language until the *next* switch.
-        rerenderPending: false
+        rerenderPending: false,
+        // ---- Settings modal: providers pane ----
+        // The editable copy of the provider list. Save posts this; the server
+        // owns exactly-one-enabled and promotes the active provider's
+        // credentials, so the SPA never sends a top-level apiKey/baseURL.
+        providersDraft: [],
+        // The last payload the server confirmed — the dirty check compares
+        // against it, not against the draft we started from.
+        savedProviders: [],
+        activeProviderId: '',
+        selectedProviderId: '',
+        // Model routing is chosen per model row rather than by typing a name.
+        draftMainModel: '',
+        draftReviewModel: '',
+        // Last pane the user looked at, so reopening lands where they left.
+        settingsPane: 'general',
+        // Appearance preference: 'system' | 'dark' | 'light'. Seeded from
+        // localStorage below (before the settings file answers) so the select
+        // and the painted scheme agree from the first frame.
+        theme: 'system'
       };
 
       const $ = (id) => document.getElementById(id);
@@ -3091,7 +3610,14 @@
           renderPalette('');
           $('palette-input').focus();
         }
-        if (name === 'settings') $('set-api-key').focus();
+        if (name === 'settings') {
+          // `#set-api-key` lives in the providers pane, which is display:none
+          // while another pane is active — focus() on a hidden element is a
+          // silent no-op, so the dialog used to open with focus on <body>.
+          // Focus the active pane's own tab instead, which is always visible.
+          const active = $('settings-nav')?.querySelector('.siu-nav-item[aria-selected="true"]');
+          (active ?? $('settings-nav'))?.focus?.();
+        }
       }
 
       function closeModal(name) {
@@ -4515,13 +5041,305 @@
       // =======================================================================
       // Settings modal
       // =======================================================================
+      /** The panes the nav can switch between, in the order the markup lists them. */
+      const SETTINGS_PANES = ['general', 'providers', 'about'];
+
+      /**
+       * One provider, shaped for editing. The stored credential is deliberately
+       * NOT copied in: the view only ever carries a mask, and seeding the input
+       * with it would make an untouched save look like a key change. An empty
+       * `apiKey` means "unchanged" to the server, which is exactly right here.
+       */
+      function providerDraftFrom(viewProvider) {
+        return {
+          id: String(viewProvider?.id ?? ''),
+          name: String(viewProvider?.name ?? ''),
+          // Carried, never edited: `providerDisplayName` compares against it to
+          // tell "never renamed" from "renamed", so it must survive the draft.
+          presetName: String(viewProvider?.presetName ?? ''),
+          enabled: Boolean(viewProvider?.enabled),
+          baseURL: String(viewProvider?.baseURL ?? ''),
+          apiKey: '',
+          apiKeyMasked: String(viewProvider?.apiKeyMasked ?? ''),
+          apiKeySet: Boolean(viewProvider?.apiKeySet),
+          models: Array.isArray(viewProvider?.models) ? viewProvider.models.map(String) : [],
+          description: String(viewProvider?.description ?? ''),
+          helpUrl: String(viewProvider?.helpUrl ?? ''),
+          custom: Boolean(viewProvider?.custom)
+        };
+      }
+
+      /**
+       * The detail pane's blurb. Server-side preset descriptions would be
+       * hardcoded Chinese rendered verbatim in an English UI, so the dictionary
+       * owns the copy and the server only supplies the stable `id`. A description
+       * the user typed is theirs and wins.
+       */
+      function providerDescription(provider) {
+        if (provider.description) return provider.description;
+        if (provider.id === 'custom') return tr('settings.providers.desc.custom');
+        const key = 'settings.providers.desc.' + provider.id;
+        const localized = tr(key);
+        return localized === key ? '' : localized;
+      }
+
+      /**
+       * What the provider list and detail header show. A provider's stored `name`
+       * wins whenever the user has actually set one — `presetName` is the
+       * server's default label, so a name still equal to it means "never
+       * renamed" and the dictionary supplies the localized copy. That keeps both
+       * halves true: an untouched preset is translated, and a rename is honoured.
+       */
+      function providerDisplayName(provider) {
+        const renamed = Boolean(provider.name) && provider.name !== provider.presetName;
+        if (renamed) return provider.name;
+        if (provider.id === 'custom') return tr('settings.providers.name.custom');
+        return provider.presetName || provider.name || tr('settings.providers.unnamed');
+      }
+
+      /** Stable one-line identity for the dirty check — key order cannot drift. */
+      function providerFingerprint(provider) {
+        return JSON.stringify([
+          provider.id,
+          provider.name,
+          Boolean(provider.enabled),
+          provider.baseURL,
+          provider.apiKey || '',
+          provider.models.join('\u0000'),
+          provider.description,
+          provider.helpUrl,
+          Boolean(provider.custom)
+        ]);
+      }
+
+      function findDraftProvider(id) {
+        return state.providersDraft.find((provider) => provider.id === id);
+      }
+
+      /** The single active provider is the only one the runner can use. */
+      function setActiveProvider(id) {
+        if (!findDraftProvider(id)) return;
+        state.activeProviderId = id;
+        for (const provider of state.providersDraft) {
+          provider.enabled = provider.id === id;
+        }
+      }
+
+      function setSettingsPane(name) {
+        const pane = SETTINGS_PANES.includes(name) ? name : 'general';
+        state.settingsPane = pane;
+        for (const button of $('settings-nav').querySelectorAll('.siu-nav-item')) {
+          button.setAttribute('aria-selected', String(button.dataset.pane === pane));
+        }
+        for (const section of document.querySelectorAll('.siu-prefs-pane')) {
+          section.dataset.active = String(section.dataset.pane === pane);
+        }
+        if (pane === 'providers') {
+          renderProviderList();
+          renderProviderDetail();
+        }
+      }
+
+      function renderProviderList() {
+        const list = $('provider-list');
+        const needle = $('provider-search').value.trim().toLowerCase();
+        const matches = state.providersDraft.filter((provider) => {
+          if (!needle) return true;
+          // The description is matched through `providerDescription`, not the raw
+          // field: presets no longer carry server-side copy, so filtering on
+          // `provider.description` would only ever match a blank string and
+          // searching "Ollama" or "Claude" would find nothing.
+          return (
+            providerDisplayName(provider).toLowerCase().includes(needle) ||
+            provider.name.toLowerCase().includes(needle) ||
+            provider.id.toLowerCase().includes(needle) ||
+            providerDescription(provider).toLowerCase().includes(needle)
+          );
+        });
+
+        list.innerHTML = '';
+        for (const provider of matches) {
+          const item = el('button', 'siu-provider-item');
+          item.type = 'button';
+          item.dataset.id = provider.id;
+          item.dataset.selected = String(provider.id === state.selectedProviderId);
+          item.setAttribute('role', 'option');
+          item.setAttribute('aria-selected', String(provider.id === state.selectedProviderId));
+          // A provider without a name is real (a fresh custom one), so the
+          // fallback is a dictionary entry rather than an empty row.
+          item.appendChild(el('span', 'siu-provider-item-name', providerDisplayName(provider)));
+          const dot = el('span', 'siu-provider-dot');
+          dot.dataset.on = String(provider.enabled);
+          item.appendChild(dot);
+          list.appendChild(item);
+        }
+        $('provider-empty').hidden = matches.length > 0;
+      }
+
+      function renderProviderDetail() {
+        const provider = findDraftProvider(state.selectedProviderId);
+        const form = $('provider-form');
+        $('provider-detail-empty').hidden = Boolean(provider);
+        form.hidden = !provider;
+        if (!provider) return;
+
+        $('provider-name').value = provider.name;
+        $('provider-custom-badge').hidden = !provider.custom;
+        $('provider-desc').textContent = providerDescription(provider);
+        const help = $('provider-help');
+        // Only ever a real http(s) destination: the URL comes from the server's
+        // provider presets, and a `javascript:` value must not become clickable.
+        const helpUrl = /^https?:\/\//i.test(provider.helpUrl) ? provider.helpUrl : '';
+        help.hidden = !helpUrl;
+        if (helpUrl) help.href = helpUrl;
+        else help.removeAttribute('href');
+
+        // Never re-display the stored key: the input starts empty and a
+        // non-empty value on save is the only way to replace it.
+        const key = $('set-api-key');
+        key.value = provider.apiKey;
+        key.placeholder = provider.apiKeySet
+          ? tr('settings.providers.apiKey.unchanged', { masked: provider.apiKeyMasked })
+          : tr('settings.providers.apiKey.unset');
+        // Only the ACTIVE provider's missing key matters: a saved provider that
+        // is not routing anything being unconfigured is harmless.
+        const warning = $('provider-key-warning');
+        const activeUnconfigured = provider.enabled && !provider.apiKeySet;
+        warning.hidden = !activeUnconfigured;
+        warning.textContent = activeUnconfigured ? tr('settings.providers.apiKey.warning') : '';
+        const keyToggle = $('provider-key-toggle');
+        // Re-binding a DIFFERENT provider re-hides the field, or a reveal on one
+        // provider would leave the next provider's credential in plaintext. A
+        // rebind of the same provider (a language switch, say) keeps the reveal,
+        // so the user's deliberate choice is not silently undone.
+        if (form.dataset.boundId !== provider.id) {
+          key.type = 'password';
+          keyToggle.dataset.revealed = 'false';
+          form.dataset.boundId = provider.id;
+        }
+        delete keyToggle.dataset.i18nAriaLabel;
+        renderProviderKeyToggle();
+        $('set-base-url').value = provider.baseURL;
+
+        const toggle = $('provider-enabled');
+        toggle.dataset.on = String(provider.enabled);
+        toggle.setAttribute('aria-checked', String(provider.enabled));
+        // Deleting the last provider would leave nothing to route through.
+        $('provider-delete').disabled = state.providersDraft.length <= 1;
+
+        renderProviderModels();
+      }
+
+      /**
+       * The reveal button's label is stateful (show/hide), so it cannot stay a
+       * plain `data-i18n-aria-label` node: the annotation would overwrite the
+       * flip on the next language switch. Once the user has toggled it, the
+       * label is rendered from `data-revealed` instead.
+       */
+      function renderProviderKeyToggle() {
+        const button = $('provider-key-toggle');
+        if (button.dataset.revealed === undefined) return;
+        button.setAttribute(
+          'aria-label',
+          tr(button.dataset.revealed === 'true' ? 'settings.providers.apiKey.hide' : 'settings.providers.apiKey.show')
+        );
+      }
+
+      function renderProviderModels() {
+        const provider = findDraftProvider(state.selectedProviderId);
+        const grid = $('provider-models');
+        grid.innerHTML = '';
+        const mainChip = $('provider-main-chip');
+        const reviewChip = $('provider-review-chip');
+        if (!provider) {
+          mainChip.hidden = true;
+          reviewChip.hidden = true;
+          $('provider-models-empty').hidden = true;
+          return;
+        }
+
+        const needle = $('provider-model-search').value.trim().toLowerCase();
+        const models = provider.models.filter((model) => model.toLowerCase().includes(needle));
+        for (const model of models) {
+          const item = el('div', 'siu-model-item');
+          item.dataset.model = model;
+          item.dataset.main = String(model === state.draftMainModel);
+          item.dataset.review = String(model === state.draftReviewModel);
+          item.appendChild(el('span', 'siu-model-item-name', model));
+          const actions = el('div', 'siu-model-item-actions');
+          for (const [role, key] of [['main', 'settings.providers.setMain'], ['review', 'settings.providers.setReview']]) {
+            const button = el('button', 'siu-btn siu-model-action', tr(key));
+            button.type = 'button';
+            button.dataset.setRole = role;
+            actions.appendChild(button);
+          }
+          item.appendChild(actions);
+          grid.appendChild(item);
+        }
+        $('provider-models-empty').hidden = models.length > 0;
+
+        // The chips name the two routed models even when the active provider
+        // does not list them (the manual-add input is not the only way in).
+        mainChip.hidden = !state.draftMainModel;
+        mainChip.textContent = state.draftMainModel;
+        reviewChip.hidden = !state.draftReviewModel;
+        reviewChip.textContent = state.draftReviewModel;
+      }
+
+      /**
+       * Language and theme are absent on purpose: both selects persist the
+       * moment they change, so a pending difference cannot exist and flagging
+       * one would leave the footer permanently dirty.
+       */
+      function settingsFingerprint() {
+        return JSON.stringify([
+          state.providersDraft.map(providerFingerprint),
+          state.activeProviderId,
+          state.draftMainModel,
+          state.draftReviewModel,
+          $('set-auto-review').dataset.on === 'true',
+          $('set-reasoning-effort').value
+        ]);
+      }
+
+      function savedFingerprint() {
+        const view = state.settings || {};
+        return JSON.stringify([
+          state.savedProviders.map(providerFingerprint),
+          state.activeProviderId,
+          view.modelName || '',
+          view.reviewModelName || '',
+          Boolean(view.autoReview),
+          view.reasoningEffort || ''
+        ]);
+      }
+
+      function renderSettingsDirty() {
+        const node = $('settings-dirty');
+        const dirty = settingsFingerprint() !== savedFingerprint();
+        node.textContent = tr(dirty ? 'settings.dirty' : 'settings.clean');
+        node.dataset.dirty = String(dirty);
+      }
+
       function fillSettingsForm(view) {
         state.settings = view;
-        $('set-api-key').value = '';
-        $('set-api-key').placeholder = view.apiKeySet ? view.apiKeyMasked + ' (unchanged)' : 'sk-…';
-        $('set-base-url').value = view.baseURL || '';
-        $('set-model').value = view.modelName || '';
-        $('set-review-model').value = view.reviewModelName || '';
+        state.providersDraft = (view.providers || []).map(providerDraftFrom);
+        state.savedProviders = (view.providers || []).map(providerDraftFrom);
+        state.activeProviderId = view.activeProviderId || state.providersDraft[0]?.id || '';
+        for (const provider of state.providersDraft) {
+          provider.enabled = provider.id === state.activeProviderId;
+        }
+        // Keep looking at the same provider across a refresh, unless it is gone.
+        if (!findDraftProvider(state.selectedProviderId)) {
+          state.selectedProviderId = state.activeProviderId || state.providersDraft[0]?.id || '';
+        }
+        state.draftMainModel = view.modelName || '';
+        state.draftReviewModel = view.reviewModelName || '';
+
+        // `#set-api-key` / `#set-base-url` are bound by renderProviderDetail()
+        // (via renderSettingsDynamic() below), which owns the per-provider
+        // placeholder — including its localized "(unchanged)" suffix. Setting
+        // them here too would duplicate that logic and hardcode the English.
         $('set-auto-review').dataset.on = String(view.autoReview);
         $('set-auto-review').setAttribute('aria-checked', String(view.autoReview));
         $('set-reasoning-effort').value = view.reasoningEffort || '';
@@ -4530,6 +5348,12 @@
         // (Assigning `.value` fires no `change`, so this cannot loop back into
         // setLanguage().)
         $('set-language').value = getLanguage?.() ?? view.language ?? '';
+        // The appearance select mirrors the file and `state` follows it, so the
+        // change handler's rollback target is never stale. The PAINT is owned by
+        // applyTheme() (boot, and the change handler), so filling the form here
+        // never repaints behind the user's back.
+        state.theme = view.theme || 'system';
+        $('set-theme').value = state.theme;
         renderReasoningHint(view);
         $('settings-file-label').textContent = view.settingsFile;
         $('set-env-info').innerHTML =
@@ -4548,6 +5372,23 @@
           option.value = model;
           list.appendChild(option);
         }
+        renderSettingsDynamic();
+      }
+
+      /**
+       * Everything in the modal that is built in JS rather than annotated.
+       * Split out of `fillSettingsForm()` so a language switch can repaint the
+       * labels WITHOUT re-seeding the drafts — re-seeding there would silently
+       * discard provider edits the user had not saved yet.
+       */
+      function renderSettingsDynamic() {
+        renderProviderList();
+        renderProviderDetail();
+        renderSettingsDirty();
+        renderProviderKeyToggle();
+        // JS-built text, so a language switch must re-resolve it — this is the
+        // one general-pane string that is not a `data-i18n` annotation.
+        if (state.settings) renderReasoningHint(state.settings);
         renderNotifyButton();
       }
 
@@ -4581,6 +5422,8 @@
         } catch (err) {
           toast(err.message, 'error');
         }
+        // Reopen on the pane the user left, defaulting to General.
+        setSettingsPane(state.settingsPane || 'general');
         openModal('settings');
       }
 
@@ -4589,10 +5432,179 @@
         const next = toggle.dataset.on !== 'true';
         toggle.dataset.on = String(next);
         toggle.setAttribute('aria-checked', String(next));
+        renderSettingsDirty();
       });
 
       $('set-reasoning-effort').addEventListener('change', () => {
         if (state.settings) renderReasoningHint(state.settings);
+        renderSettingsDirty();
+      });
+
+      // -----------------------------------------------------------------------
+      // Providers pane
+      // -----------------------------------------------------------------------
+      $('settings-nav').addEventListener('click', (event) => {
+        const button = event.target.closest('.siu-nav-item');
+        if (button) setSettingsPane(button.dataset.pane);
+      });
+
+      $('provider-search').addEventListener('input', () => renderProviderList());
+
+      $('provider-add').addEventListener('click', () => {
+        const provider = providerDraftFrom({
+          id: 'custom-' + Date.now(),
+          name: '',
+          enabled: false,
+          baseURL: '',
+          apiKeyMasked: '',
+          apiKeySet: false,
+          models: [],
+          description: '',
+          helpUrl: '',
+          custom: true
+        });
+        state.providersDraft.push(provider);
+        state.selectedProviderId = provider.id;
+        renderProviderList();
+        renderProviderDetail();
+        renderSettingsDirty();
+        $('provider-name').focus();
+      });
+
+      $('provider-list').addEventListener('click', (event) => {
+        const item = event.target.closest('.siu-provider-item');
+        if (!item) return;
+        state.selectedProviderId = item.dataset.id;
+        renderProviderList();
+        renderProviderDetail();
+      });
+
+      // Editing writes straight into the draft, so Save is the only thing that
+      // persists and the dirty flag stays honest. The detail form is NOT
+      // re-rendered per keystroke — that would steal the caret.
+      $('provider-name').addEventListener('input', (event) => {
+        const provider = findDraftProvider(state.selectedProviderId);
+        if (!provider) return;
+        provider.name = event.target.value;
+        renderProviderList();
+        renderSettingsDirty();
+      });
+
+      $('set-api-key').addEventListener('input', (event) => {
+        const provider = findDraftProvider(state.selectedProviderId);
+        if (!provider) return;
+        provider.apiKey = event.target.value;
+        renderSettingsDirty();
+      });
+
+      $('set-base-url').addEventListener('input', (event) => {
+        const provider = findDraftProvider(state.selectedProviderId);
+        if (!provider) return;
+        provider.baseURL = event.target.value;
+        renderSettingsDirty();
+      });
+
+      $('provider-enabled').addEventListener('click', () => {
+        const provider = findDraftProvider(state.selectedProviderId);
+        if (!provider) return;
+        if (provider.enabled) {
+          // Exactly one provider is active; switching the active one off hands
+          // the role to another rather than leaving the runner with none.
+          const fallback = state.providersDraft.find((candidate) => candidate.id !== provider.id);
+          if (fallback) setActiveProvider(fallback.id);
+        } else {
+          setActiveProvider(provider.id);
+        }
+        renderProviderList();
+        renderProviderDetail();
+        renderSettingsDirty();
+      });
+
+      $('provider-key-toggle').addEventListener('click', () => {
+        const key = $('set-api-key');
+        // Track the revealed state on the node: after the first click the label
+        // is ours to own, so the i18n annotation is dropped and the renderers
+        // re-derive it on a language switch instead of it sticking to one.
+        const reveal = key.type === 'password';
+        key.type = reveal ? 'text' : 'password';
+        const button = $('provider-key-toggle');
+        button.dataset.revealed = String(reveal);
+        delete button.dataset.i18nAriaLabel;
+        renderProviderKeyToggle();
+      });
+
+      $('provider-fetch').addEventListener('click', async () => {
+        const provider = findDraftProvider(state.selectedProviderId);
+        if (!provider) return;
+        const button = $('provider-fetch');
+        const message = $('provider-fetch-msg');
+        button.disabled = true;
+        delete message.dataset.tone;
+        message.textContent = tr('settings.providers.fetching');
+        try {
+          // No `providerId`: the server resolves a stored credential BY ENDPOINT,
+          // never by an id hint — an id-keyed lookup would let one provider's key
+          // be sent to another provider's host. The draft's own key is sent
+          // explicitly when the user has typed one; otherwise the server matches
+          // the URL against the saved providers.
+          const result = await postJson('/api/models/fetch', {
+            baseURL: provider.baseURL,
+            apiKey: provider.apiKey
+          });
+          if (result.ok) {
+            // Preserve the order the user already has; append what is new.
+            for (const model of result.models || []) {
+              if (!provider.models.includes(model)) provider.models.push(model);
+            }
+            message.dataset.tone = 'ok';
+            message.textContent = tr('settings.providers.fetchOk', { count: (result.models || []).length });
+            renderProviderModels();
+            renderSettingsDirty();
+          } else {
+            message.dataset.tone = 'error';
+            message.textContent = tr('settings.providers.fetchFail', { message: result.error || '' });
+          }
+        } catch (err) {
+          message.dataset.tone = 'error';
+          message.textContent = tr('settings.providers.fetchFail', { message: err.message });
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      $('provider-model-search').addEventListener('input', () => renderProviderModels());
+
+      $('provider-model-add').addEventListener('click', () => {
+        const provider = findDraftProvider(state.selectedProviderId);
+        if (!provider) return;
+        const input = $('provider-model-input');
+        const model = input.value.trim();
+        if (!model) return;
+        if (!provider.models.includes(model)) provider.models.push(model);
+        input.value = '';
+        renderProviderModels();
+        renderSettingsDirty();
+      });
+
+      $('provider-models').addEventListener('click', (event) => {
+        const button = event.target.closest('[data-set-role]');
+        const item = event.target.closest('.siu-model-item');
+        if (!button || !item) return;
+        if (button.dataset.setRole === 'main') state.draftMainModel = item.dataset.model;
+        else state.draftReviewModel = item.dataset.model;
+        renderProviderModels();
+        renderSettingsDirty();
+      });
+
+      $('provider-delete').addEventListener('click', () => {
+        if (state.providersDraft.length <= 1) return;
+        const removed = state.selectedProviderId;
+        state.providersDraft = state.providersDraft.filter((provider) => provider.id !== removed);
+        if (state.activeProviderId === removed) setActiveProvider(state.providersDraft[0].id);
+        state.selectedProviderId = state.providersDraft[0].id;
+        renderProviderList();
+        renderProviderDetail();
+        renderSettingsDirty();
       });
 
       $('settings-save').addEventListener('click', async () => {
@@ -4601,16 +5613,17 @@
         message.className = 'siu-approval-status mr-auto';
         delete message.dataset.tone;
 
+        // No top-level apiKey/baseURL: the server promotes the active provider's
+        // credentials itself, and sending both would be two sources of truth.
         const patch = {
-          baseURL: $('set-base-url').value,
-          modelName: $('set-model').value,
-          reviewModelName: $('set-review-model').value,
+          providers: state.providersDraft,
+          activeProviderId: state.activeProviderId,
+          modelName: state.draftMainModel,
+          reviewModelName: state.draftReviewModel,
           autoReview: $('set-auto-review').dataset.on === 'true',
           reasoningEffort: $('set-reasoning-effort').value,
           language: $('set-language').value
         };
-        const apiKey = $('set-api-key').value.trim();
-        if (apiKey) patch.apiKey = apiKey;
 
         try {
           const view = await postJson('/api/settings', patch);
@@ -4934,9 +5947,112 @@
         $('set-language').appendChild(option);
       }
 
+      // =======================================================================
+      // Appearance (theme)
+      // =======================================================================
+      // The preference lives in localStorage under the same key the pre-paint
+      // script reads, so the value the settings file reports and the value that
+      // decides the first paint can never drift apart.
+      const THEME_STORAGE_KEY = 'superiu.theme';
+      const THEME_PREFERENCES = ['system', 'dark', 'light'];
+      const prefersDarkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+
+      /** The scheme actually in force for `preference`. */
+      function effectiveScheme(preference) {
+        if (preference === 'dark' || preference === 'light') return preference;
+        return prefersDarkQuery.matches ? 'dark' : 'light';
+      }
+
+      /**
+       * Repaint the single token switch every colour block keys off.
+       *
+       * Skips a no-op write: the pre-paint script has already set the correct
+       * value for the common case, and re-assigning the attribute would still
+       * emit a mutation record (a needless style recalculation on every boot).
+       */
+      function applyColorScheme(scheme) {
+        if (document.documentElement.dataset.colorScheme === scheme) return;
+        document.documentElement.dataset.colorScheme = scheme;
+      }
+
+      /** Re-label and re-select the appearance select from the current state. */
+      function renderThemeSelect() {
+        const select = $('set-theme');
+        if (!select) return;
+        for (const option of select.options) {
+          option.textContent = tr(`settings.theme.${option.value}`);
+        }
+        select.value = state.theme;
+      }
+
+      /**
+       * Adopt `preference`: persist it, resolve it against the OS, repaint, and
+       * mirror it onto the desktop shell (which switches the native window
+       * frame, menus and vibrancy material to match).
+       */
+      function applyTheme(preference) {
+        const resolved = THEME_PREFERENCES.includes(preference) ? preference : 'system';
+        state.theme = resolved;
+        try {
+          localStorage.setItem(THEME_STORAGE_KEY, resolved);
+        } catch {
+          /* storage disabled — the in-memory preference still applies */
+        }
+        applyColorScheme(effectiveScheme(resolved));
+        renderThemeSelect();
+        void window.superiuDesktop?.setTheme?.(resolved)?.catch?.(() => {});
+      }
+
+      // Populated before the first `applyTheme`, for the same reason as the
+      // language select: assigning `.value` on an empty option list is a no-op.
+      for (const preference of THEME_PREFERENCES) {
+        const option = el('option', '');
+        option.value = preference;
+        option.textContent = tr(`settings.theme.${preference}`);
+        $('set-theme').appendChild(option);
+      }
+
+      // Seed from storage: the pre-paint script already resolved the scheme, so
+      // this only brings the select and `state` in line with what was painted.
+      // The write is deliberately NOT repeated here — the stored value is
+      // already exactly this one, and `boot()` rewrites it once the settings
+      // file answers and can correct a stale entry.
+      //
+      // The repaint below is not redundant: this module is deferred, so another
+      // tab can change the stored preference during the parse window, leaving
+      // the painted attribute stale relative to the value read here.
+      try {
+        const stored = localStorage.getItem(THEME_STORAGE_KEY);
+        state.theme = THEME_PREFERENCES.includes(stored) ? stored : 'system';
+      } catch {
+        state.theme = 'system';
+      }
+      applyColorScheme(effectiveScheme(state.theme));
+      renderThemeSelect();
+
+      // The OS is the source of truth while the preference is `system`, so a
+      // live system switch repaints immediately instead of waiting for the next
+      // launch. A pinned Dark/Light deliberately ignores it.
+      prefersDarkQuery.addEventListener('change', () => {
+        if (state.theme === 'system') applyColorScheme(effectiveScheme('system'));
+      });
+
+      // In the desktop shell the main process owns `nativeTheme.themeSource` and
+      // reports the scheme it resolved for the native chrome. Adopting it keeps
+      // the page and the window material on the same scheme even if the renderer
+      // never saw a `prefers-color-scheme` change of its own.
+      window.superiuDesktop?.onTheme?.((payload) => {
+        if (payload?.scheme === 'dark' || payload?.scheme === 'light') {
+          applyColorScheme(payload.scheme);
+        }
+      });
+
       /** Re-render every region that is built in JS rather than annotated. */
       function rerenderLocalizedRegions() {
         renderNotifyButton();
+        // The appearance labels come from the dictionary, so the select has to
+        // be re-labelled or it keeps the language it was built in.
+        renderThemeSelect();
         if (state.lastStatus) renderStatus(state.lastStatus);
         renderSessions(state.sessions);
         renderHistoryList();
@@ -4944,7 +6060,10 @@
         // The descriptions are dictionary lookups, so an open menu has to be
         // redrawn or it keeps the language it was opened in.
         if (completionOpen()) renderCompletions();
-        if (state.settings) fillSettingsForm(state.settings);
+        // Re-render the JS-built settings surfaces from the DRAFT, not from a
+        // re-fetch: `fillSettingsForm()` would re-seed the provider drafts and
+        // throw away edits the user has not saved yet.
+        if (state.settings) renderSettingsDynamic();
         // The transcript is JS-built too (tool cards, badges, step labels,
         // approval buttons), so it has to be rebuilt or it keeps the language it
         // was drawn in. Skipped while a turn is streaming (the DOM holds state a
@@ -4989,6 +6108,24 @@
         }
       });
 
+      // Appearance applies the moment it is chosen, exactly like the language
+      // select: the hint says so, and deferring to Save would leave the painted
+      // scheme disagreeing with the settings file until the user pressed it.
+      $('set-theme').addEventListener('change', async (event) => {
+        const previous = state.theme;
+        const next = event.target.value;
+        applyTheme(next);
+        try {
+          const view = await postJson('/api/settings', { theme: next });
+          // The server is now authoritative; mirror what it actually stored.
+          applyTheme(view.theme || 'system');
+        } catch (err) {
+          // Nothing was persisted, so put the appearance back where it was.
+          applyTheme(previous);
+          toast(err.message, 'error');
+        }
+      });
+
       // =======================================================================
       // Boot
       // =======================================================================
@@ -5015,6 +6152,11 @@
           // language and then flip, which is exactly the flash this key exists
           // to prevent.
           setLanguage?.(view.language, { force: true });
+          // Same convergence for the appearance: the file is authoritative, so
+          // adopt it AND let it correct localStorage. The pre-paint script reads
+          // that key, so skipping the write would flash the stale scheme on
+          // every launch after a settings-file change made outside the UI.
+          applyTheme(view.theme || 'system');
           fillSettingsForm(view);
           rerenderLocalizedRegions();
         } catch {

@@ -10,14 +10,19 @@
  * lifecycle, while reusing the existing UI server in-process.
  */
 
-import { app, BrowserWindow, Menu, Notification, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, Menu, Notification, ipcMain, nativeTheme, shell } from 'electron';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { startServer, type ServerHandle } from '@agent/ui';
 
-import { INVOKE, type NotificationPayload } from './ipc.js';
+import {
+  INVOKE,
+  THEME_CHANNEL,
+  type NotificationPayload,
+  type ThemePayload
+} from './ipc.js';
 import { buildMenuTemplate, createMenuDispatcher } from './menu.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -60,6 +65,36 @@ let shuttingDown = false;
 // read the persisted settings file. It is therefore seeded again in `bootstrap`
 // from the resolved handle, which is the first point the file is authoritative.
 let uiLanguage: 'zh' | 'en' = 'zh';
+
+// ---------------------------------------------------------------------------
+// Native appearance
+// ---------------------------------------------------------------------------
+
+/**
+ * Tell the focused renderer the appearance changed.
+ *
+ * `nativeTheme.themeSource` is what makes `prefers-color-scheme` agree with the
+ * pinned preference inside the renderer, so this event is the desktop shell's
+ * authoritative "re-resolve now" signal — both for an OS-level change while the
+ * preference is `system`, and for a `themeSource` override applied here.
+ */
+function broadcastTheme(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const payload: ThemePayload = { scheme: nativeTheme.shouldUseDarkColors ? 'dark' : 'light' };
+  mainWindow.webContents.send(THEME_CHANNEL, payload);
+}
+
+/**
+ * Bridge OS appearance changes into the renderer.
+ *
+ * Registered synchronously, before `ready`: a system switch during startup must
+ * not be missed, and `nativeTheme` is usable from the moment the main process
+ * starts. `themeSource` is never written from here — the renderer owns the
+ * preference, and a write would race it.
+ */
+function installThemeSync(): void {
+  nativeTheme.on('updated', broadcastTheme);
+}
 
 // ---------------------------------------------------------------------------
 // Menu → renderer bridge
@@ -185,6 +220,19 @@ function installIpcHandlers(): void {
     uiLanguage = language;
     installApplicationMenu();
   });
+
+  // Same allow-list discipline as the language handler: an unknown value is
+  // ignored rather than handed to `nativeTheme`, which would throw on it.
+  //
+  // No explicit broadcast here: writing a CHANGED `themeSource` emits
+  // `updated` (verified against Electron 44), and `installThemeSync` already
+  // forwards that to the renderer. Assigning the value that is already in force
+  // emits nothing — and needs nothing, because the renderer painted the scheme
+  // locally before it called us.
+  ipcMain.handle(INVOKE.setTheme, (_event, theme: string) => {
+    if (theme !== 'system' && theme !== 'dark' && theme !== 'light') return;
+    nativeTheme.themeSource = theme;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -263,12 +311,20 @@ async function bootstrap(): Promise<void> {
   uiLanguage = serverHandle.language;
   installApplicationMenu();
 
+  // Mirror the persisted appearance onto the native side BEFORE the window
+  // exists: `nativeTheme.themeSource` is what makes `prefers-color-scheme`
+  // inside the renderer agree with a pinned Dark/Light choice, and the page
+  // reads that query in its pre-paint script. Applying it after `loadURL` would
+  // leave the very first paint resolving against the OS default.
+  nativeTheme.themeSource = serverHandle.theme;
+
   mainWindow = createWindow(serverHandle.url);
 }
 
 if (gotTheLock) {
   installApplicationMenu();
   installIpcHandlers();
+  installThemeSync();
 
   void bootstrap().catch((err) => {
     console.error('[superiu] failed to start:', err);

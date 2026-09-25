@@ -12,7 +12,7 @@
     "desktop": "pnpm --filter \"@agent/desktop\" run start",
     "app:install": "pnpm --filter \"@agent/desktop\" run package:mac",
     "app:zip": "pnpm --filter \"@agent/desktop\" run package:zip",
-    "test": "pnpm build && node scripts/smoke-test.ts"
+    "test": "pnpm build && node scripts/smoke-test.ts && node scripts/check-ui-i18n.mjs && node scripts/provider-settings-wire.ts"
   },
   "devDependencies": {
     "@types/node": "^22.13.9",
