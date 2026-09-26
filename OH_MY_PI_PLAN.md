@@ -4,11 +4,11 @@
 根据指令，SuperIU 将全面深度对齐 **Oh My Pi (omp)** 的工业级核心架构规范：
 1. **会话存储采用 omp 原生规范（JSONL 树形追加日志）**：
    - 彻底告别脆弱的单表 SQLite 存储会话；
-   - 会话文件采用 `.jsonl` 追加写格式，存储路径为 `.myagent/sessions/<encoded-cwd>/<timestamp>_<sessionId>.jsonl`；
+   - 会话文件采用 `.jsonl` 追加写格式，存储路径为 `.superiu/sessions/<encoded-cwd>/<timestamp>_<sessionId>.jsonl`；
    - 严格遵循 omp Version 3 协议：首行为 `type: "session"` Header，后续每行为带 `id` 与 `parentId` 的 `SessionEntry`；
    - 支持完整的 Tree & Leaf 状态机语义：通过 `leafId` 追踪当前会话分叉，`/clear` 写入 `reset_boundary` 标记，支持 `buildSessionContext` 动态回溯与上下文重组。
 2. **提示词检索库独立持久化（SQLite Prompt History）**：
-   - 按照 omp 规范（`omp://session.md`），`HistoryStorage` 采用内置 `node:sqlite`（`.myagent/history.db`）独立承载用户输入命令与 Prompt 历史检索（`history` 表），与会话分叉树解耦。
+   - 按照 omp 规范（`omp://session.md`），`HistoryStorage` 采用内置 `node:sqlite`（`.superiu/history.db`）独立承载用户输入命令与 Prompt 历史检索（`history` 表），与会话分叉树解耦。
 3. **无界自主循环（Unbounded Autonomous Loop）与沙箱强杀**：
    - `while (true)` 自然收敛，剥离 AI SDK 的 `execute` 劫持，Loop 引擎独占工具调度执行权；
    - Spillover 2000 字符磁盘熔断与工具报错自愈回填；
@@ -23,7 +23,7 @@
 ```mermaid
 flowchart TD
     subgraph SessionStorage [会话存储层 (omp JSONL Tree)]
-        JSONLFile[.myagent/sessions/<encoded-cwd>/<timestamp>_<id>.jsonl]
+        JSONLFile[.superiu/sessions/<encoded-cwd>/<timestamp>_<id>.jsonl]
         HeaderLine[Line 1: type=session Header]
         EntryLines[Line 2+: SessionEntry id, parentId, type, message...]
         JSONLFile --- HeaderLine
@@ -34,7 +34,7 @@ flowchart TD
     end
 
     subgraph PromptHistory [Prompt 检索层 (SQLite)]
-        HDB[(.myagent/history.db)]
+        HDB[(.superiu/history.db)]
         HTable[history 表: prompt, created_at, cwd, session_id]
         HDB --- HTable
     end
@@ -110,7 +110,7 @@ flowchart TD
 3. 输出线性 `CoreMessage[]` 供模型单步消费。
 
 ### 3. Prompt 历史独立存储 (`packages/core/src/storage/history.ts`)
-- 采用 `node:sqlite` 操作 `.myagent/history.db`；
+- 采用 `node:sqlite` 操作 `.superiu/history.db`；
 - 表结构：
   ```sql
   CREATE TABLE IF NOT EXISTS history (
@@ -143,7 +143,7 @@ flowchart TD
   - `SessionEntry` 联合类型。
 - `paths.ts`:
   - `encodeCwd(cwd: string): string`: 对齐 omp 路径编码；
-  - `getSessionDir(workspaceDir?: string): string`: 解析 `.myagent/sessions/<encoded-cwd>`；
+  - `getSessionDir(workspaceDir?: string): string`: 解析 `.superiu/sessions/<encoded-cwd>`；
   - `createSessionFilePath(sessionId: string, timestamp: number, workspaceDir?: string): string`。
 - `manager.ts` (`SessionManager`):
   - 维护内存索引 `entriesById: Map<string, SessionEntry>`、`children: Map<string | null, SessionEntry[]>`、`leafId: string | null`；
@@ -162,7 +162,7 @@ flowchart TD
 
 ### 步骤 2：实现独立 Prompt History 存储 (`packages/core/src/storage/history.ts`)
 - 新建 `packages/core/src/storage/history.ts` (`PromptHistoryStorage`):
-  - 使用 `node:sqlite` 连接 `.myagent/history.db`；
+  - 使用 `node:sqlite` 连接 `.superiu/history.db`；
   - 记录用户输入并支持历史检索。
 
 ### 步骤 3：重构 ContextAssembler 与 AgentLoopEngine 接入 SessionManager
@@ -221,4 +221,4 @@ flowchart TD
 1. **类型检查**：`pnpm -r typecheck`，0 类型错误。
 2. **构建输出**：`pnpm -r build`，编译成功。
 3. **自动化冒烟**：执行 `node scripts/smoke-test.ts`，全量验证 JSONL 存储、树形链路、reset_boundary 隔离、工具独占执行与报错自愈。
-4. **CLI 交互验证**：运行 `node packages/cli/dist/index.js`，运行多步任务并在 `.myagent/sessions/` 中查看实际生成的 `.jsonl` 内容。
+4. **CLI 交互验证**：运行 `node packages/cli/dist/index.js`，运行多步任务并在 `.superiu/sessions/` 中查看实际生成的 `.jsonl` 内容。

@@ -38,7 +38,7 @@ export interface RunnerConfig {
   maxSteps?: number;
   /** Session file path or session id to resume; newest workspace session when omitted. */
   sessionId?: string;
-  /** Prompt history database path. Defaults to `<cwd>/.myagent/history.db`. */
+  /** Prompt history database path. Defaults to `<cwd>/.superiu/history.db`. */
   historyDbPath?: string;
   /** Force a fresh session instead of resuming the newest one. */
   newSession?: boolean;

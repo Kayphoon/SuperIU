@@ -38,7 +38,7 @@ interface HistoryRow {
 /**
  * Prompt recall/search storage, deliberately decoupled from the session tree.
  *
- * Lives in `.myagent/history.db` so prompt history survives session branching
+ * Lives in `.superiu/history.db` so prompt history survives session branching
  * and `/clear` boundaries.
  */
 export class PromptHistoryStorage {
@@ -51,7 +51,7 @@ export class PromptHistoryStorage {
   private stmtRecent!: StatementSync;
 
   constructor(options: PromptHistoryOptions = {}) {
-    this.dbPath = options.dbPath ?? path.resolve(process.cwd(), '.myagent', 'history.db');
+    this.dbPath = options.dbPath ?? path.resolve(process.cwd(), '.superiu', 'history.db');
 
     if (this.dbPath !== ':memory:') {
       const dir = path.dirname(this.dbPath);

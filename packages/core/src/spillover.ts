@@ -5,13 +5,13 @@ import * as crypto from 'node:crypto';
 import type { SpilloverResult } from './types.js';
 
 export async function ensureSpilloverDir(spilloverDir?: string): Promise<string> {
-  const targetDir = spilloverDir || path.join(os.homedir(), '.myagent', 'spillover');
+  const targetDir = spilloverDir || path.join(os.homedir(), '.superiu', 'spillover');
   try {
     await fs.mkdir(targetDir, { recursive: true });
     return targetDir;
   } catch (err) {
-    // Fallback to local workspace .myagent/spillover if homedir cannot be written
-    const fallbackDir = path.resolve('.myagent', 'spillover');
+    // Fallback to local workspace .superiu/spillover if homedir cannot be written
+    const fallbackDir = path.resolve('.superiu', 'spillover');
     await fs.mkdir(fallbackDir, { recursive: true });
     return fallbackDir;
   }

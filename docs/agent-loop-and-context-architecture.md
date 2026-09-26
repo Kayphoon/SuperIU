@@ -20,7 +20,7 @@
 
 ### 1.1 从 SQLite 单表到 JSONL 追加树
 
-旧架构把会话存进 `.myagent/sessions.db` 的两张关系表（`sessions` / `messages`），用 `session_id` 外键串成线性列表。三个结构性缺陷：
+旧架构把会话存进 `.superiu/sessions.db` 的两张关系表（`sessions` / `messages`），用 `session_id` 外键串成线性列表。三个结构性缺陷：
 
 | 缺陷 | 后果 |
 |---|---|
@@ -49,7 +49,7 @@
 ### 2.1 磁盘布局
 
 ```text
-<workspace>/.myagent/
+<workspace>/.superiu/
 ├── sessions/
 │   └── <encoded-cwd>/                      # 每个工作区一个桶
 │       └── <timestamp>_<sessionId>.jsonl   # 每个会话一个文件
@@ -470,7 +470,7 @@ OpenAI / Anthropic / DeepSeek 的 prompt caching 都是**前缀匹配**：缓存
 
 ### 4.3 三层记忆
 
-`resolveMemoryDir()` 的优先级：**工作区 `.myagent/` > 用户主目录 `~/.myagent/`**。文件不存在时自动写入默认模板。
+`resolveMemoryDir()` 的优先级：**工作区 `.superiu/` > 用户主目录 `~/.superiu/`**。文件不存在时自动写入默认模板。
 
 | 层 | 文件 | 内容 |
 |---|---|---|
@@ -512,7 +512,7 @@ Valence-Arousal-Fatigue 三维状态（`packages/core/src/emotion/engine.ts`）�
 - 分叉、压缩、会话切换都不应该影响输入历史；
 - 输入历史需要**子串检索**，会话树需要**图遍历**——数据模型不同。
 
-因此 `PromptHistoryStorage`（`packages/core/src/storage/history.ts`）使用独立的 SQLite 数据库 `.myagent/history.db`，与会话分叉树**完全解耦**。
+因此 `PromptHistoryStorage`（`packages/core/src/storage/history.ts`）使用独立的 SQLite 数据库 `.superiu/history.db`，与会话分叉树**完全解耦**。
 
 ### 5.2 表结构
 
@@ -733,7 +733,7 @@ runner.close();  // 关闭会话与 history 数据库
 |---|---|
 | Spillover / 沙箱 | 2000 字符熔断落盘；bash echo；直接子进程中断；**嵌套进程组树杀** |
 | 情绪 / 记忆 | 半衰期衰减；三层记忆加载 |
-| 路径规范 | `encodeCwd` 对齐 omp；`.myagent/sessions/<encoded-cwd>/<ts>_<id>.jsonl` 布局 |
+| 路径规范 | `encodeCwd` 对齐 omp；`.superiu/sessions/<encoded-cwd>/<ts>_<id>.jsonl` 布局 |
 | JSONL 规范 | Header 的 `type/version/id/timestamp/cwd/titleSource`；`parentId` 链；8 位 entry id；`toolResult` 落盘命名 |
 | 树状态机 | `leafId` 追踪；`branch()` 只移动指针（append-only 断言）；`open()` 重建 |
 | `/clear` | `reset_boundary` 落盘；`buildSessionContext` 截断；历史行数不减 |

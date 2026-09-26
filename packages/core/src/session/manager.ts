@@ -15,7 +15,7 @@ import { createSessionFilePath, createSessionId } from './paths.js';
 import { sessionTitle } from './title.js';
 
 export interface SessionManagerOptions {
-  /** Workspace root that owns the `.myagent/sessions` bucket. Defaults to the session cwd. */
+  /** Workspace root that owns the `.superiu/sessions` bucket. Defaults to the session cwd. */
   workspaceDir?: string;
   /** Session cwd recorded in the header and used for bucket encoding. Defaults to `process.cwd()`. */
   cwd?: string;

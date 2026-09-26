@@ -14,7 +14,7 @@ export interface ExtractedFacts {
 export interface MemoryExtractionOptions {
   /** Conversation history to mine; only user/assistant text is considered. */
   messages: ContextMessage[];
-  /** Memory directory override; defaults to the workspace `.myagent/`. */
+  /** Memory directory override; defaults to the workspace `.superiu/`. */
   memoryDir?: string;
   /** Extraction model caller; overrides the constructor caller, then falls back to rules. */
   modelCaller?: StepModelCaller;

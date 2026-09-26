@@ -26,17 +26,17 @@ Every shell ships **Chinese by default**; English is a first-class alternative, 
 
 | Shell | How to switch | Where it is stored |
 | --- | --- | --- |
-| Web console / desktop | Settings dialog (⌘,) → **界面语言 / Interface Language** | `.myagent/ui-settings.json` → `language` |
+| Web console / desktop | Settings dialog (⌘,) → **界面语言 / Interface Language** | `.superiu/ui-settings.json` → `language` |
 | macOS desktop | same control; the native menu bar rebuilds immediately | same file |
 | Terminal | edit the `language` field, or set `SUPERIU_LANGUAGE=zh\|en` before `pnpm cli` when the file has no `language` | read-only — the CLI never writes the settings file, it only reads it |
 
-Resolution order is the same everywhere: the `language` field in `.myagent/ui-settings.json` first, then an explicit `SUPERIU_LANGUAGE` environment variable, then `zh`. The file wins because it is the setting the dialog edits and the one the next launch reads — the environment variable only seeds the default for a workspace whose file does not set a language, exactly as it does for `apiKey` and the model names. A value the build cannot render is ignored rather than honored, so an older shell reading a newer settings file degrades to the default instead of showing a half-translated UI.
+Resolution order is the same everywhere: the `language` field in `.superiu/ui-settings.json` first, then an explicit `SUPERIU_LANGUAGE` environment variable, then `zh`. The file wins because it is the setting the dialog edits and the one the next launch reads — the environment variable only seeds the default for a workspace whose file does not set a language, exactly as it does for `apiKey` and the model names. A value the build cannot render is ignored rather than honored, so an older shell reading a newer settings file degrades to the default instead of showing a half-translated UI.
 
 The web console also mirrors the choice into `localStorage` so the first paint after a reload is already in the right language, with no English flash while `/api/settings` is in flight. The settings file remains authoritative — it is what the dialog edits and what the desktop shell reads at launch to build its menu bar.
 
 ## Appearance
 
-**System / Dark / Light**, in the same General pane as the interface language. The preference lives in `.myagent/ui-settings.json` → `theme` and is mirrored into `localStorage['superiu.theme']`, which the page's blocking pre-paint script reads before the first paint. That is what makes a reload free of the flash you get from applying a stored theme after `/api/settings` answers.
+**System / Dark / Light**, in the same General pane as the interface language. The preference lives in `.superiu/ui-settings.json` → `theme` and is mirrored into `localStorage['superiu.theme']`, which the page's blocking pre-paint script reads before the first paint. That is what makes a reload free of the flash you get from applying a stored theme after `/api/settings` answers.
 
 `system` follows the OS and tracks it live: a `prefers-color-scheme` change repaints immediately, without a reload. `dark` and `light` pin one scheme and deliberately ignore the OS.
 
@@ -92,14 +92,14 @@ Agent Status:
   State:    Idle
   Session:  3dac40eb8d3865d3
   Leaf ID:  (root)
-  Log file: /path/to/workspace/.myagent/sessions/.../<timestamp>_3dac40eb8d3865d3.jsonl
+  Log file: /path/to/workspace/.superiu/sessions/.../<timestamp>_3dac40eb8d3865d3.jsonl
   Messages: 0 in active branch
   Emotion:  Valence: 0.00, Arousal: 0.20, Fatigue: 0.00
   OS:       darwin 27.0.0 (arm64)
   Main:     gpt-4o
   Review:   gpt-4o-mini (Lenient)
   Approve:  interactive (this terminal)
-  Memory:   /path/to/workspace/.myagent
+  Memory:   /path/to/workspace/.superiu
 ```
 
 `Leaf ID: (root)` means the active branch has no entries yet — typical for a brand-new session.
@@ -151,7 +151,7 @@ Open the printed URL. Bind address and port come from `HOST` and `PORT` (default
 
 > The console has **no authentication** and can run shell commands through the agent. Keep it on loopback unless you understand the exposure.
 
-The console covers the same ground as the CLI: streaming turns, the approval card, session switching, prompt history, and a Settings dialog (⌘,) for credentials, models, the interface language, and the appearance. Settings are persisted to `.myagent/ui-settings.json`, seeded from the environment on first run; the file wins once written. The dialog is a preferences window with three submenus: **General** (interface language, appearance, reasoning effort, AutoReview, notifications), **Model Configuration** (providers and models), and **About** (product information and a local-storage note).
+The console covers the same ground as the CLI: streaming turns, the approval card, session switching, prompt history, and a Settings dialog (⌘,) for credentials, models, the interface language, and the appearance. Settings are persisted to `.superiu/ui-settings.json`, seeded from the environment on first run; the file wins once written. The dialog is a preferences window with three submenus: **General** (interface language, appearance, reasoning effort, AutoReview, notifications), **Model Configuration** (providers and models), and **About** (product information and a local-storage note).
 
 Model Configuration is a master–detail view. The left column lists the providers — the built-in presets (OpenAI, Anthropic, Google Gemini, DeepSeek) plus a **Custom** slot — with a filter box and an **Add provider** button; the right column edits the selected one: name, enable switch, API key (masked, with a show/hide toggle), Base URL, and the model list. **Fetch models** calls `POST /api/models/fetch` to pull the endpoint's live `GET /models` listing; models can also be typed in manually, and each row can be assigned as the main or the review model. Exactly one provider is active, and the top-level key and Base URL are a projection of it: each provider keeps its own credential, so switching to one that has no key leaves the app unconfigured rather than sending the previous provider's key to a different endpoint, and switching back restores it. A stored key is never re-displayed: leaving the field blank keeps the existing credential, which is what makes the masked round-trip safe. Provider labels and blurbs are localized by the console, and a provider you rename keeps your name. The footer reports unsaved changes and the save is a single `POST /api/settings`.
 

@@ -27,14 +27,14 @@ export async function resolveMemoryDir(customDir?: string): Promise<string> {
     return resolved;
   }
 
-  // Priority 1: Current working directory .myagent/
-  const localDir = path.resolve('.myagent');
+  // Priority 1: Current working directory .superiu/
+  const localDir = path.resolve('.superiu');
   try {
     await fs.mkdir(localDir, { recursive: true });
     return localDir;
   } catch {
-    // Priority 2: User homedir ~/.myagent/
-    const homeDir = path.join(os.homedir(), '.myagent');
+    // Priority 2: User homedir ~/.superiu/
+    const homeDir = path.join(os.homedir(), '.superiu');
     await fs.mkdir(homeDir, { recursive: true });
     return homeDir;
   }

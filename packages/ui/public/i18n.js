@@ -11,7 +11,7 @@
  *   1. `localStorage['superiu.language']` — read synchronously at module load so
  *      the very first paint is already in the user's language (no English
  *      flash while `/api/status` is in flight).
- *   2. `.myagent/ui-settings.json` → `language`, pushed in by the caller via
+ *   2. `.superiu/ui-settings.json` → `language`, pushed in by the caller via
  *      `setLanguage()` once the server answers. The file is authoritative: it is
  *      the value the settings dialog edits and the value the desktop shell's
  *      native menu reads at launch.

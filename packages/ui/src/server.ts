@@ -31,11 +31,11 @@ export interface StartServerOptions {
   port?: number;
   /** Bind address. Defaults to `HOST` env or 127.0.0.1. */
   host?: string;
-  /** Workspace root owning `.myagent/` (sessions, history, settings). Defaults to cwd. */
+  /** Workspace root owning `.superiu/` (sessions, history, settings). Defaults to cwd. */
   workspaceDir?: string;
   /** Directory holding `index.html` / `notifications.js`. Defaults to the package's `public/`. */
   publicDir?: string;
-  /** Settings JSON path. Defaults to `<workspaceDir>/.myagent/ui-settings.json`. */
+  /** Settings JSON path. Defaults to `<workspaceDir>/.superiu/ui-settings.json`. */
   settingsFile?: string;
   /** Suppress the startup banner. */
   quiet?: boolean;
@@ -64,7 +64,7 @@ export interface ServerHandle {
 
 // Resolved by startServer so the module can be imported without side effects.
 let PUBLIC_DIR = path.resolve(HERE, '..', 'public');
-let SETTINGS_FILE = path.join(process.cwd(), '.myagent', 'ui-settings.json');
+let SETTINGS_FILE = path.join(process.cwd(), '.superiu', 'ui-settings.json');
 
 /**
  * Models offered in the secondary menu's model selector; free-text entry is also
@@ -1609,7 +1609,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
   PUBLIC_DIR = options.publicDir ? path.resolve(options.publicDir) : path.resolve(HERE, '..', 'public');
   SETTINGS_FILE = options.settingsFile
     ? path.resolve(options.settingsFile)
-    : path.join(workspaceDir, '.myagent', 'ui-settings.json');
+    : path.join(workspaceDir, '.superiu', 'ui-settings.json');
 
   settings = loadSettings();
   memoryDir = await resolveMemoryDir();

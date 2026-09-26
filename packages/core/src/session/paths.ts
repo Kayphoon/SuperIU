@@ -14,13 +14,13 @@ export function encodeCwd(cwd: string): string {
   return encoded || '-';
 }
 
-/** Root directory holding all workspace buckets: `<base>/.myagent/sessions`. */
+/** Root directory holding all workspace buckets: `<base>/.superiu/sessions`. */
 export function getSessionsRoot(workspaceDir?: string): string {
   const base = workspaceDir ? path.resolve(workspaceDir) : process.cwd();
-  return path.join(base, '.myagent', 'sessions');
+  return path.join(base, '.superiu', 'sessions');
 }
 
-/** Bucket directory for one workspace: `<base>/.myagent/sessions/<encoded-cwd>`. */
+/** Bucket directory for one workspace: `<base>/.superiu/sessions/<encoded-cwd>`. */
 export function getSessionDir(cwd: string = process.cwd(), workspaceDir?: string): string {
   return path.join(getSessionsRoot(workspaceDir), encodeCwd(cwd));
 }

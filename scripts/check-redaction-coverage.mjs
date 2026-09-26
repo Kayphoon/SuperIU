@@ -25,7 +25,7 @@
  *                                         `resolvedCredentials` declaration and
  *                                         the five `console.error` sites;
  *   2. `packages/cli/src/index.ts`      — every CLI display sink;
- *   3. `packages/cli/bin/myagent.js`    — the entry point's fatal-error sink;
+ *   3. `packages/cli/bin/superiu.js`    — the entry point's fatal-error sink;
  *   4. `packages/cli/src/redact.ts`     — the CLI's redaction module, whose
  *                                         `SECRET_PATTERNS` must mirror the
  *                                         console's.
@@ -101,7 +101,7 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const UI_SERVER_PATH = path.join(REPO, 'packages/ui/src/server.ts');
 const CLI_INDEX_PATH = path.join(REPO, 'packages/cli/src/index.ts');
-const CLI_BIN_PATH = path.join(REPO, 'packages/cli/bin/myagent.js');
+const CLI_BIN_PATH = path.join(REPO, 'packages/cli/bin/superiu.js');
 const CLI_REDACT_PATH = path.join(REPO, 'packages/cli/src/redact.ts');
 
 // --- output -----------------------------------------------------------------
@@ -593,7 +593,7 @@ function extractSecretPatterns(source) {
 const SOURCES = [
   { id: 'server', label: 'packages/ui/src/server.ts', path: UI_SERVER_PATH },
   { id: 'cli', label: 'packages/cli/src/index.ts', path: CLI_INDEX_PATH },
-  { id: 'bin', label: 'packages/cli/bin/myagent.js', path: CLI_BIN_PATH }
+  { id: 'bin', label: 'packages/cli/bin/superiu.js', path: CLI_BIN_PATH }
 ];
 
 const scans = {};
@@ -749,7 +749,7 @@ check(
   cliFindings.length === 0,
   cliFindings.length === 0
     ? `${cliDangerousSites} sink(s), every err.message / message inside redactSecrets(...)`
-    : cliFindings.map((entry) => `${entry.id === 'bin' ? 'packages/cli/bin/myagent.js' : 'packages/cli/src/index.ts'}:${entry.line}  ${entry.sink} interpolates ${entry.name} unwrapped`).join('\n      ')
+    : cliFindings.map((entry) => `${entry.id === 'bin' ? 'packages/cli/bin/superiu.js' : 'packages/cli/src/index.ts'}:${entry.line}  ${entry.sink} interpolates ${entry.name} unwrapped`).join('\n      ')
 );
 
 check(

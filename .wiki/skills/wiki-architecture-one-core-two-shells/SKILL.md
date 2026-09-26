@@ -29,7 +29,7 @@ description: |
 ## 核心机制
 
 ### 1. 会话存储：omp 原生 JSONL 树 (`src/session/`)
-- **磁盘布局**: `<workspace>/.myagent/sessions/<encoded-cwd>/<timestamp>_<sessionId>.jsonl`。
+- **磁盘布局**: `<workspace>/.superiu/sessions/<encoded-cwd>/<timestamp>_<sessionId>.jsonl`。
 - **路径编码** (`paths.ts`): `encodeCwd()` 把 `[:/\\]+` 替换为 `-`，如 `/Users/kayphoon/SuperIU` → `-Users-kayphoon-SuperIU`。
 - **文件格式**: 第 1 行为 `SessionHeader`（`type: "session"`, `version: 3`）；第 2 行起为 `SessionEntry`，共享 `id` / `parentId` / `timestamp`。
 - **树与叶子** (`manager.ts`): append-only 树 + 可变 `leafId` 指针。每次 append 的 `parentId` 恒等于当前 leaf；`branch(entryId)` 只移动指针，不修改历史；`resetLeaf()` 置 `null` 产生新根。
@@ -41,7 +41,7 @@ description: |
 - **发现** (`discovery.ts`): `listSessions`（按 **mtime** 降序，非 header.timestamp，避免同毫秒打平）、`findMostRecentSession`、`resolveSessionFile`（绝对路径 / 文件名 / id / id 前缀）。
 
 ### 2. Prompt History 独立存储 (`src/storage/history.ts`)
-- 与会话分叉树**完全解耦**，独立数据库 `.myagent/history.db`（`node:sqlite`）。
+- 与会话分叉树**完全解耦**，独立数据库 `.superiu/history.db`（`node:sqlite`）。
 - 表 `history(id, prompt, created_at, cwd, session_id)` + 索引 `idx_history_cwd(cwd, created_at)`。
 - `append()` 丢弃同一会话内连续重复输入与空白输入，`cwd` 归一化为绝对路径。
 - `search(cwd, query?, limit = 20)` 省略 query 取最近 N 条，传入则 `LIKE %query%` 子串过滤。
@@ -86,7 +86,7 @@ description: |
 - **API**: `discoverSkills()` / `formatSkillsXml()` / `readSkill()` / `runner.getSkills()`。
 
 ### 4. 三层记忆与动态工作站 (`src/memory/` & `src/context/`)
-- **优先级**: 当前工作区 `.myagent/` > 用户主目录 `~/.myagent/`。
+- **优先级**: 当前工作区 `.superiu/` > 用户主目录 `~/.superiu/`。
 - **三层文件**:
   1. `SOUL.md`: Agent 身份定义、专业务实工程师基调、行为原则。
   2. `USER.md`: 用户环境（OS、Shell、输出风格偏好）。
@@ -111,7 +111,7 @@ description: |
 
 ### 6. Spillover 磁盘熔断机制 (`src/spillover.ts`)
 - **阈值**: 单次工具输出超过 2,000 字符触发熔断。
-- **落盘**: 写入 `<memoryDir>/spillover/spillover-<timestamp>-<id>.log`（主目录不可写时降级为工作区 `.myagent/spillover/`）。
+- **落盘**: 写入 `<memoryDir>/spillover/spillover-<timestamp>-<id>.log`（主目录不可写时降级为工作区 `.superiu/spillover/`）。
 - **摘要**: 向大模型注入头部 800 字符 + 尾部 800 字符预览，附带 `read_file` 针对性读取指引，防止上下文窗口被冗余日志挤爆。
 
 ### 7. 内置工具集 (`src/tools/`, 3个)
@@ -136,7 +136,7 @@ description: |
 - **路由面**: `/api/status`（状态轮询）、`/api/chat`、`/api/approve`（交互审批卡片回执）、`/api/abort`、`/api/settings`（GET/POST 设置管理，含 `activeProviderId` 与 `providers[]`）、`/api/models/fetch`（POST 实时探查端点的 `GET /models`）、`/api/model`、`/api/models`、`/api/sessions`、`/api/sessions/new|load`、`/api/messages`、`/api/history`、`/api/clear`、`/api/shutdown`；未知 `/api/*` 一律 404。
 - **渲染**: 流式 Markdown 逐帧追加；工具需人工确认时经 `permissionGate` 推送 `approval_request` 卡片，等待时长按工具名入队统计（`approvalWaits`）。
 - **草稿的渲染后果**: `/api/sessions` 只含已落盘会话，故草稿期间无任何条目为 `active`；会话选择器显示 `(未开始的新会话)` 占位项（空值，切换为空操作），状态面板依据 `/api/status` 的 `sessionPersisted` 给日志文件名加 `(not written yet)`。首个回合落盘后 `sendPrompt` 的 `finally` 与 `/clear` 分支都会重新拉取会话列表。
-- **设置持久化**: `<workspace>/.myagent/ui-settings.json`，含 `apiKey`（展示时掩码）、`baseURL`、`modelName`、`reviewModelName`、`autoReview`、`reasoningEffort`、`language`（`zh`/`en`）、`theme`（`system`/`dark`/`light`）、`activeProviderId` 与 `providers[]`；显式设置优先于环境变量。
+- **设置持久化**: `<workspace>/.superiu/ui-settings.json`，含 `apiKey`（展示时掩码）、`baseURL`、`modelName`、`reviewModelName`、`autoReview`、`reasoningEffort`、`language`（`zh`/`en`）、`theme`（`system`/`dark`/`light`）、`activeProviderId` 与 `providers[]`；显式设置优先于环境变量。
 - **多服务商模型（模型配置子菜单）**: 设置弹窗为三分栏偏好窗口——**通用**（语言/推理强度/AutoReview/通知）、**模型配置**（主从双栏：左为服务商列表 + 过滤 + 添加，右为选中服务商的名称/启用开关/API Key/Base URL/模型网格）、**关于**（产品信息与本地存储说明）。`providers[]` 每项为 `{ id, name, enabled, apiKey, baseURL, models[], description, helpUrl, custom }`，视图另带 `presetName`（该 id 的预设默认名，custom 槽为 `''`）——渲染层只在 `name === presetName` 时才用字典本地化，故「未改名的预设被翻译」与「用户改名后显示自己的名字」同时成立。内置预设只有公开厂商：OpenAI / Anthropic / Google Gemini / DeepSeek，加一个 **custom** 槽位；**私有中转网关绝不进内置表**（会把他人的个人端点写进产品源码，且主机名一改就失效），未命中预设的端点一律落入 custom。`createDefaultProviders()` 按当前 `baseURL` 的 host 匹配决定哪个预设为 `enabled`。**恰好一个服务商处于启用态**，顶层 `apiKey`/`baseURL` 是它的**纯投影（无条件赋值，绝不合并）**：切到自身无密钥的服务商 = 应用未配置（请求以明确鉴权错误失败），而**不是**沿用上一家的密钥——后者会把 A 家的密钥发往 B 家的端点。每个 provider 条目只持有自己的凭据，故切回即恢复，绝不做「把活跃密钥写回活跃条目」的回写（那会把一份密钥复制进多个条目，用户轮换后留下静默生效的陈旧副本）。删除当前活跃的服务商后，`activeProviderId` 回落到 `providers[0]?.id ?? ''`，不留悬空 id。`POST /api/models/fetch` 实时拉取端点 `GET /models`；**未显式传 apiKey 时按端点反查凭据**：找出 baseURL 与目标端点规范化（去尾斜杠 + 小写）后相等的那个 provider，用**它自己的** `apiKey`；仅当端点等于顶层 `settings.baseURL` 时才用 `settings.apiKey`。**绝不能用 `providerId` 提示去取键**——那会把活跃 provider 的密钥发往另一家的主机。未知端点发**匿名探测**（不带 Authorization），这既是无键可泄的证明，也是 Ollama 这类尚未保存的无密钥本地端点能用的前提。控制台无鉴权，故任何 caller 自选的 baseURL 都拿不到别人的凭据。失败一律返回 `200 { ok: false, error }`。服务端**不下发** provider 描述文案（否则英文界面渲染出中文），描述由前端按 `settings.providers.desc.<id>` 计算键取字典，只有用户自己填的描述才原样显示。**设置弹窗的焦点**：`openModal('settings')` 聚焦当前激活的 nav 标签（`#settings-nav .siu-nav-item[aria-selected="true"]`），**绝不**聚焦 `#set-api-key`——该输入框位于 `#settings-pane-providers`，默认 pane 为 general（`display:none`），对隐藏元素 `focus()` 静默失败，焦点会停在 `<body>`，键盘用户失去可见焦点指示。
 - **凭据线上守卫 (`scripts/provider-settings-wire.ts`，已接入 `pnpm test`)**: 断言全部落在**真正离开进程的字节**上——探针端点记录的 `Authorization` 头，以及服务端持久化的设置文件。断言响应体无法区分「凭据外泄」与「探测成功」，而这正是本面板两类缺陷的形态。探针按路径记录每个请求的 `authorization`，因此能证明**哪一把密钥到了哪一台主机**；全局不变式「没有任何请求收到不属于它的凭据」覆盖整个请求面，仅豁免 caller 显式传入 apiKey 的那一次（那是密钥抵达非归属端点的唯一合法途径）。反向证明：把 `models/fetch` 改回旧的回退逻辑、把投影改回 truthy 守卫、或删掉悬空 id 兜底，该脚本分别报错——三处守卫都是**承重**的。同一脚本另跑**用量链路**：探针额外应答 `/chat/completions` 并回报固定的 `prompt_tokens`，于是该数字必须**原样**出现在 `/api/status` 与 SSE `done` 帧上——只断言任一跳都证明不了链路。要驱动真实轮次，必须先用 `seedProbeProvider()` 把**活跃服务商**的 `baseURL` 指向探针（runner 的凭据/端点是活跃条目的投影）；否则请求会发往真实主机，用量表回落到估算，断言会**空转通过**。反向证明：从 `done` 帧删掉 `contextTokens`、让 `getContextUsage()` 忽略 provider 计数、或改坏 metadata 的 Gemini 家族窗口，分别有 2/3/2 条断言失败。
 - **界面主题 (Appearance)**: 设置弹窗「通用」栏内，紧邻界面语言。取值 `system`/`dark`/`light`，持久化于 `ui-settings.json` 的 `theme`，并镜像到 `localStorage['superiu.theme']`。**预绘制脚本**（`<head>` 内阻塞脚本）在首屏前解析该键：存储值为 `dark`/`light` 就直接用，否则读 `matchMedia('(prefers-color-scheme: dark)')`；**这是唯一能在首屏前运行的代码**，所以 localStorage 与设置文件不会各说各话。`system` 实时跟随系统（`matchMedia` 的 `change` 立即重绘，无需刷新），`dark`/`light` 钉住并**刻意忽略**系统切换。主题与语言一样是**纯展示设置**：`applySettings()` 不把它计入 `runnerChanged`，`POST /api/settings` 的 `presentationOnly` 白名单含 `theme`，故在途轮次中改主题不会 409、不会重启 runner、不会丢会话（含 `theme` 与其它键的混合 patch 仍照常 409）。`applyColorScheme()` 跳过同值写入——预绘制脚本通常已写对，重复赋值仍会触发样式重算。桌面外壳把偏好镜像到 Electron `nativeTheme.themeSource`（窗口边框/菜单/`under-window` 材质随之切换）；实测 `themeSource` **只在真正变化时**异步发 `updated`，故 `installThemeSync()` 只挂该事件转发 `superiu:theme`，IPC handler 里**不再重复广播**。

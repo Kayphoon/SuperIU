@@ -400,9 +400,9 @@ async function runSmokeTests() {
     assert(encodeCwd('/tmp/foo') === '-tmp-foo', `got ${encodeCwd('/tmp/foo')}`);
   });
 
-  await test('Session layout is <workspace>/.myagent/sessions/<encoded-cwd>/<ts>_<id>.jsonl', async () => {
+  await test('Session layout is <workspace>/.superiu/sessions/<encoded-cwd>/<ts>_<id>.jsonl', async () => {
     const cwd = path.join(workspace, 'proj');
-    const expectedDir = path.join(workspace, '.myagent', 'sessions', encodeCwd(cwd));
+    const expectedDir = path.join(workspace, '.superiu', 'sessions', encodeCwd(cwd));
     assert(getSessionDir(cwd, workspace) === expectedDir, `got ${getSessionDir(cwd, workspace)}`);
 
     const filePath = createSessionFilePath('abc123', Date.now(), cwd, workspace);
@@ -799,7 +799,7 @@ async function runSmokeTests() {
     ]);
 
     // The spill must land in the sandbox: an engine given no compactor lets the
-    // default ContextCompactor fall back to ~/.myagent/spillover, writing into
+    // default ContextCompactor fall back to ~/.superiu/spillover, writing into
     // the developer's real home directory.
     const spilloverDir = path.join(workspace, 'loop-spill-spillover');
     const assembler = new ContextAssembler({

@@ -317,7 +317,7 @@ async function bootstrap(): Promise<void> {
   await app.whenReady();
 
   // A bundled app launched from Finder or Spotlight inherits `cwd = /`, which is
-  // not writable: the engine's first `mkdir .myagent/…` would throw ENOENT and
+  // not writable: the engine's first `mkdir .superiu/…` would throw ENOENT and
   // the app would exit before showing a window. A GUI app has no "directory it
   // was started from", so the workspace is the user's home — the same place the
   // engine already falls back to for memory. `chdir` (rather than only passing

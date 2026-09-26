@@ -75,7 +75,7 @@ All configuration is environment-driven. Copy `.env.example` to `.env` and set:
 | `HOST` | `127.0.0.1` | Bind address for the web console (`@agent/ui` only). |
 | `SUPERIU_LANGUAGE` | `zh` | Interface language: `zh` or `en`. Seeds the default only — a `language` in the settings file wins over it. An unsupported value is ignored, falling back to the file and then to `zh`. |
 
-The web console additionally persists the same settings to `.myagent/ui-settings.json` so they can be edited from the Settings dialog (⌘,) without touching `.env`. Environment variables seed the defaults; the settings file wins once written. The interface language and the **appearance** (System / Dark / Light) are among those settings and can both be switched at runtime from the same dialog — see [Interface language](docs/shells-guide.md#interface-language) and [Appearance](docs/shells-guide.md#appearance).
+The web console additionally persists the same settings to `.superiu/ui-settings.json` so they can be edited from the Settings dialog (⌘,) without touching `.env`. Environment variables seed the defaults; the settings file wins once written. The interface language and the **appearance** (System / Dark / Light) are among those settings and can both be switched at runtime from the same dialog — see [Interface language](docs/shells-guide.md#interface-language) and [Appearance](docs/shells-guide.md#appearance).
 
 That dialog's **Model Configuration** pane manages providers rather than bare credential fields: each provider carries its own name, API key, Base URL, and model list, and exactly one is active — its key and Base URL are what the runner uses. Each provider keeps its own credential, so switching to one with no key of its own leaves the app unconfigured instead of sending the previous provider's key to a different endpoint. **Fetch models** probes the endpoint's live `GET /models` listing (`POST /api/models/fetch`), which resolves a stored key by endpoint, so no provider's credential is ever sent to another provider's host. A stored key is never sent back to the browser — leaving the field blank keeps it. Credentials remain in the same 0600 settings file.
 
@@ -136,11 +136,11 @@ A throwing tool is caught, formatted as `[Tool Error in X]: <message>`, and fed 
 
 ### JSONL session tree, `leafId`, and the `/clear` boundary
 
-Sessions are append-only JSONL trees at `<workspace>/.myagent/sessions/<encoded-cwd>/<timestamp>_<sessionId>.jsonl`. Each entry carries `id` / `parentId` / `timestamp`; every append parents to the current mutable `leafId` pointer, so branching moves the pointer without rewriting history.
+Sessions are append-only JSONL trees at `<workspace>/.superiu/sessions/<encoded-cwd>/<timestamp>_<sessionId>.jsonl`. Each entry carries `id` / `parentId` / `timestamp`; every append parents to the current mutable `leafId` pointer, so branching moves the pointer without rewriting history.
 
 `buildSessionContext(leafId)` walks back to the root, reverses to chronological order, truncates at the most recent `reset_boundary`, and drops dangling tool calls and orphaned tool results. `/clear` appends a `reset_boundary` entry — a hard truncation boundary rather than a deletion, so the prior branch stays on disk and remains resumable.
 
-Prompt history lives in a separate `node:sqlite` database (`.myagent/history.db`) decoupled from the session tree, written *before* the loop runs so an interrupted prompt is still remembered.
+Prompt history lives in a separate `node:sqlite` database (`.superiu/history.db`) decoupled from the session tree, written *before* the loop runs so an interrupted prompt is still remembered.
 
 ### Three-tier AutoReview with an interactive approval gate
 

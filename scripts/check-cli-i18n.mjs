@@ -12,7 +12,7 @@
  *     it ONLY as a `mapFile`: it extracts the three word-map literals
  *     (`riskWordKeys`, `reviewerWordKeys`, `modeWordKeys`) and compares their key
  *     NAMES across dictionaries. It never resolves the `tr()` key literals the
- *     CLI actually passes, and it never opens `bin/myagent.js` at all. So a key
+ *     CLI actually passes, and it never opens `bin/superiu.js` at all. So a key
  *     the tables do not define — which `t()` renders as the raw key string, the
  *     degrade-visibly path in `language.ts` — was invisible.
  *
@@ -25,7 +25,7 @@
  *
  *   1. `packages/cli/src/index.ts`      — every `tr()` / `t()` key, every display
  *                                         sink, and the three enum word maps;
- *   2. `packages/cli/bin/myagent.js`    — the entry point, which reaches the
+ *   2. `packages/cli/bin/superiu.js`    — the entry point, which reaches the
  *                                         dictionary through its own `t()` call
  *                                         on the fatal-error path;
  *   3. `packages/cli/src/language.ts`   — the dictionary, both tables;
@@ -112,7 +112,7 @@ import { fileURLToPath } from 'node:url';
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 const CLI_INDEX_PATH = path.join(REPO, 'packages/cli/src/index.ts');
-const CLI_BIN_PATH = path.join(REPO, 'packages/cli/bin/myagent.js');
+const CLI_BIN_PATH = path.join(REPO, 'packages/cli/bin/superiu.js');
 const CLI_LANGUAGE_PATH = path.join(REPO, 'packages/cli/src/language.ts');
 const CORE_REVIEW_TYPES_PATH = path.join(REPO, 'packages/core/src/review/types.ts');
 const CORE_TYPES_PATH = path.join(REPO, 'packages/core/src/types.ts');
@@ -370,7 +370,7 @@ function staticTemplateText(raw) {
 
 const SOURCES = [
   { id: 'cli', label: 'packages/cli/src/index.ts', path: CLI_INDEX_PATH },
-  { id: 'bin', label: 'packages/cli/bin/myagent.js', path: CLI_BIN_PATH }
+  { id: 'bin', label: 'packages/cli/bin/superiu.js', path: CLI_BIN_PATH }
 ];
 
 const cliScans = {};
@@ -597,7 +597,7 @@ check(
 check(
   'the bin key extraction found the entry point\'s dictionary reach',
   binKeyCount >= BIN_KEY_FLOOR,
-  `packages/cli/bin/myagent.js: ${binKeyCount} distinct keys (floor >= ${BIN_KEY_FLOOR})`
+  `packages/cli/bin/superiu.js: ${binKeyCount} distinct keys (floor >= ${BIN_KEY_FLOOR})`
 );
 check(
   'the CLI translate-call extraction matched real call sites',

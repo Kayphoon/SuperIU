@@ -16,7 +16,7 @@ export type UiLanguage = 'zh' | 'en';
 export const DEFAULT_LANGUAGE: UiLanguage = 'zh';
 
 /** The web shell owns this file; the CLI only ever reads it, never writes it. */
-const SETTINGS_FILE = path.join('.myagent', 'ui-settings.json');
+const SETTINGS_FILE = path.join('.superiu', 'ui-settings.json');
 
 function isUiLanguage(value: unknown): value is UiLanguage {
   return value === 'zh' || value === 'en';

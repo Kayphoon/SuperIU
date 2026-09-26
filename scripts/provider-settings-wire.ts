@@ -302,11 +302,11 @@ async function runMigrationTests() {
   /** Boot a server over `providers` and return the provider rows it serves. */
   const boot = async (providers: unknown[]) => {
     const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), 'superiu-migration-'));
-    const settingsFile = path.join(sandbox, '.myagent', 'ui-settings.json');
+    const settingsFile = path.join(sandbox, '.superiu', 'ui-settings.json');
     await fs.mkdir(path.dirname(settingsFile), { recursive: true });
     // `startServer` resolves its session/memory dirs from the process cwd while
     // settings come from `workspaceDir`, so anchor both to the sandbox — a stray
-    // `.myagent/` must never land in the repository.
+    // `.superiu/` must never land in the repository.
     const origin = process.cwd();
     process.chdir(sandbox);
     const written = `${JSON.stringify(
@@ -501,7 +501,7 @@ async function runWireTests() {
   console.log('=== Provider settings wire verification ===\n');
 
   const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), 'superiu-provider-wire-'));
-  const settingsFile = path.join(sandbox, '.myagent', 'ui-settings.json');
+  const settingsFile = path.join(sandbox, '.superiu', 'ui-settings.json');
   const probes: Probe[] = [];
   const probe = await startProbeServer(probes);
   /** Probe indexes at which the caller supplied the credential itself. */
@@ -509,7 +509,7 @@ async function runWireTests() {
 
   // `startServer` resolves its memory/history dirs from the process cwd while
   // settings come from `workspaceDir`, so anchor both to the sandbox — a stray
-  // `.myagent/` must never land in the repository.
+  // `.superiu/` must never land in the repository.
   process.chdir(sandbox);
 
   await fs.mkdir(path.dirname(settingsFile), { recursive: true });

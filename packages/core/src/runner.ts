@@ -157,7 +157,7 @@ export class AgentRunner {
 
     // 2. Prompt history lives in its own SQLite database, decoupled from the tree.
     this.history = new PromptHistoryStorage({
-      dbPath: options.historyDbPath ?? path.join(workspaceDir, '.myagent', 'history.db')
+      dbPath: options.historyDbPath ?? path.join(workspaceDir, '.superiu', 'history.db')
     });
 
     // 3. Context assembler: dynamic workstation + layered memory + branch messages.
