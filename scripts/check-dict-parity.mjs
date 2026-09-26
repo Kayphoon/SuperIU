@@ -1857,6 +1857,110 @@ const VALUE_DETAIL_SHAPES = [
   }
 ];
 
+// --- the two rule sets are mirrors ------------------------------------------
+//
+// The header above says the four patterns are character-for-character the ones
+// in `check-ui-i18n.mjs` and that "a rule added to one must be added to the
+// other". That promise lived in a comment and was enforced by nothing. The UI
+// copy grew a relative-path branch (`~/…`, `./`, `../`, `.myagent/…`) while this
+// copy kept the absolute-only pattern, so the defect's own token —
+// `.myagent/ui-settings.json`, which has NO leading slash — was reported in a
+// hardcoded sink and silently ignored in a dictionary value. Both suites stayed
+// green (141 PASS and 190 PASS) through the whole divergence.
+//
+// The check below is the missing mechanism, modelled on
+// `check-redaction-coverage.mjs`'s `CHECK F — the web and CLI redaction pattern
+// sets are equal`: read BOTH files, extract both rule sets, and fail when they
+// disagree, so a one-sided edit fails here instead of surviving on discipline.
+//
+// The extraction is LINE-based on purpose. A regex-literal scan over the whole
+// block also matches the `/Users/…` and `/models` tokens in the explanatory
+// comments above each pattern, which would make the blocks "differ" for a reason
+// unrelated to the rules. Each `id:` and `pattern:` line is read verbatim
+// instead, and a floor plus a shape assertion keep a renamed or emptied block
+// from reading as "equal".
+const UI_RULE_FILE = 'scripts/check-ui-i18n.mjs';
+/** Minimum rules per set (measured 4, floor 4 — a rule lost is a rule lost). */
+const RULE_SET_FLOOR = 4;
+
+/**
+ * The `id:` and `pattern:` lines of one `const …_SHAPES = [ … ];` block.
+ *
+ * `\n];` rather than `];` anchors the close to the array's own indentation, so a
+ * `];` inside a nested literal cannot truncate the block early.
+ */
+function extractRuleSet(source, marker) {
+  const start = source.indexOf(marker);
+  if (start === -1) return { error: `${marker} was not found` };
+  const end = source.indexOf('\n];', start);
+  if (end === -1) return { error: `${marker} block is not closed with a line-leading ];` };
+  const ids = [];
+  const patterns = [];
+  for (const line of source.slice(start, end).split('\n')) {
+    const trimmed = line.trim();
+    const field = (prefix) => trimmed.slice(prefix.length).replace(/,\s*$/, '').trim();
+    if (trimmed.startsWith('id:')) ids.push(field('id:'));
+    if (trimmed.startsWith('pattern:')) patterns.push(field('pattern:'));
+  }
+  return { ids, patterns };
+}
+
+const uiRuleSource = readSourceFile(UI_RULE_FILE);
+const ownRuleSource = readSourceFile('scripts/check-dict-parity.mjs');
+const uiRules = extractRuleSet(uiRuleSource.source ?? '', 'const IMPLEMENTATION_DETAIL_SHAPES');
+const valueRules = extractRuleSet(ownRuleSource.source ?? '', 'const VALUE_DETAIL_SHAPES');
+const ruleSetsRead = !uiRuleSource.error && !ownRuleSource.error && !uiRules.error && !valueRules.error;
+
+check(
+  'the two implementation-detail rule-set blocks are both readable',
+  ruleSetsRead,
+  ruleSetsRead
+    ? `${uiRules.patterns.length} ui / ${valueRules.patterns.length} value rule(s) sliced`
+    : uiRuleSource.error || ownRuleSource.error || uiRules.error || valueRules.error
+);
+
+// A block that was renamed, emptied or reformatted into a shape this reader
+// cannot see must fail here rather than read as "equal to nothing".
+const ruleShapeOk =
+  ruleSetsRead &&
+  uiRules.patterns.length >= RULE_SET_FLOOR &&
+  valueRules.patterns.length >= RULE_SET_FLOOR &&
+  uiRules.patterns.every((p) => /^\/.*\/[a-z]*$/.test(p)) &&
+  valueRules.patterns.every((p) => /^\/.*\/[a-z]*$/.test(p)) &&
+  uiRules.ids.length === uiRules.patterns.length &&
+  valueRules.ids.length === valueRules.patterns.length;
+
+check(
+  'the two rule sets were read with their ids and pattern literals intact',
+  ruleShapeOk,
+  ruleShapeOk
+    ? `ids ${uiRules.ids.join(', ')} | ${valueRules.ids.join(', ')}`
+    : `ui ids=${uiRules.ids.length} patterns=${uiRules.patterns.length}, value ids=${valueRules.ids.length} patterns=${valueRules.patterns.length} (floor >= ${RULE_SET_FLOOR} each, ids and patterns must pair 1:1)`
+);
+
+const patternsMirrored =
+  ruleShapeOk && uiRules.patterns.join('\u0000') === valueRules.patterns.join('\u0000');
+check(
+  'CHECK MIRROR — the web and dictionary-value implementation-detail patterns are equal',
+  patternsMirrored,
+  patternsMirrored
+    ? `${uiRules.patterns.length} identical pattern(s) in both files`
+    : ruleShapeOk
+      ? `the rule sets diverged:\n      ui   (${uiRules.patterns.length}): ${uiRules.patterns.join('\n              ')}\n      value (${valueRules.patterns.length}): ${valueRules.patterns.join('\n              ')}`
+      : 'not compared — the rule sets were not read intact'
+);
+
+const idsMirrored = ruleShapeOk && uiRules.ids.join('\u0000') === valueRules.ids.join('\u0000');
+check(
+  'CHECK MIRROR — the two rule sets name their shapes identically',
+  idsMirrored,
+  idsMirrored
+    ? `both name: ${uiRules.ids.join(', ')}`
+    : ruleShapeOk
+      ? `the shape ids diverged: ui ${uiRules.ids.join(', ')} vs value ${valueRules.ids.join(', ')} — the self-tests assert on hit.startsWith(id), so a stale id makes the two suites disagree about the same rule`
+      : 'not compared — the rule sets were not read intact'
+);
+
 /**
  * The slash commands the product implements, read from the code that implements
  * them rather than listed here.
