@@ -1277,13 +1277,16 @@ function wordMapGapMessage(entry, inspection) {
 // --- the enum word-map allowlist -------------------------------------------
 //
 // EMPTY, deliberately. It held one entry — `AutoReviewMode`, whose values were
-// printed raw in the `/status` line — and that fix has landed: `modeWordKeys`
-// lives in `packages/cli/src/index.ts` with `cli.status.modeLenient` /
-// `modeStrict` / `modeUnknown` in both tables of `packages/cli/src/language.ts`,
-// so the entry matched nothing and reported itself STALE every run. The entry is
-// now deleted AND the map is pinned at `ENUM_WORD_MAPS`, so the leak cannot come
-// back by reverting the CLI change: an emptied or renamed `modeWordKeys` is a
-// hard FAIL, not a gap this list could excuse.
+// printed raw in the `/status` line — and that fix has landed in commit
+// `f3d5cd5`: `modeWordKeys` lives in `packages/cli/src/index.ts` with
+// `cli.status.modeLenient` / `modeStrict` / `modeUnknown` in both tables of
+// `packages/cli/src/language.ts`, so the entry matched nothing and reported
+// itself STALE every run. The entry is now deleted AND the map is pinned at
+// `ENUM_WORD_MAPS`, so the leak cannot come back by reverting the CLI change: an
+// emptied or renamed `modeWordKeys` is a hard FAIL, not a gap this list could
+// excuse. With no allowlist entry left, class (B) fails on ANY unmapped enum
+// value: the list excuses nothing and only a map that translates every value
+// passes.
 //
 // The machinery is retained for a future structurally-unfixable gap. An entry is
 // `{ id, values, reason }` with `values` the EXACT unmapped-values list, matched
@@ -1538,10 +1541,12 @@ const SHARED_CONCEPTS = [
   // `reviewerWordKeys[undefined]` (packages/cli/src/index.ts), while the web card
   // names the same slots `approval.risk.*` / `approval.reviewer.unknown`. The
   // namespaces are disjoint, so the key-name join below cannot see any of this
-  // family: it was a coverage hole until these seven pairings existed. The five
-  // levels plus `unknown` are byte-identical in BOTH languages today and are
-  // therefore enforced; the reviewer fallback genuinely diverges in both
-  // languages and is allowlisted below.
+  // family: it was a coverage hole until these seven pairings existed. All seven
+  // are byte-identical in BOTH languages today and are therefore enforced. The
+  // reviewer fallback used to diverge — the web card read `自动判定` / `automatic
+  // decision` while the CLI read `未知来源` / `unknown source` — and was
+  // allowlisted twice; the web wording now matches the CLI and both entries are
+  // deleted, so this pairing ENFORCES the concept instead of tolerating it.
   ...[
     ['safe', 'riskSafe'],
     ['low', 'riskLow'],
@@ -1582,10 +1587,10 @@ const SHARED_CONCEPTS = [
 
 // --- the allowlist ----------------------------------------------------------
 //
-// Real, currently-unfixed divergences. They are NOT this script's to fix: the
-// web dictionary is another session's uncommitted in-flight work, and the CLI
-// and desktop files are out of scope. Each entry is printed as an INFO line so
-// the divergence stays visible, and each is pinned to the exact values measured
+// Real, currently-unfixed divergences. They are NOT this script's to fix: they
+// are product-copy decisions spanning two shells, so the guard records each one
+// rather than picking a winner. Each entry is printed as an INFO line so the
+// divergence stays visible, and each is pinned to the exact values measured
 // on the current tree: a divergence that changes SHAPE is a new divergence and
 // fails, so an entry cannot rot into a blanket excuse. When the two values
 // finally agree the entry is reported as stale and the check still passes.
@@ -1595,14 +1600,14 @@ const ALLOWED_DIVERGENCES = [
     language: 'en',
     left: { dict: 'web', key: 'status.card.file', value: 'file:' },
     right: { dict: 'cli', key: 'cli.status.logFile', value: 'Log file:' },
-    reason: 'Same RunnerCallbacks/AgentRunner.getStatus() field rendered by two shells: the web More panel writes a lowercase label into a padded monospace column, the CLI /status prints `Log file:`. Tolerated because the web side is uncommitted in-flight work by another session — which side moves is an agreement for both owners, not a decision this guard may take.'
+    reason: 'Same RunnerCallbacks/AgentRunner.getStatus() field rendered by two shells: the web More panel writes a lowercase label into a padded monospace column, the CLI /status prints `Log file:`. Tolerated because which side moves is a product-copy decision spanning both shells, not a decision this guard may take.'
   },
   {
     concept: 'status card [mainModel]',
     language: 'en',
     left: { dict: 'web', key: 'status.card.mainModel', value: 'main model:' },
     right: { dict: 'cli', key: 'cli.status.main', value: 'Main:' },
-    reason: 'Same as `file`: the web card spells the row out (`main model:`) while the CLI abbreviates it (`Main:`). Tolerated for the same reason — the web dictionary is another session\'s uncommitted work, so the wording cannot be unified here.'
+    reason: 'Same as `file`: the web card spells the row out (`main model:`) while the CLI abbreviates it (`Main:`). Tolerated for the same reason — unifying the wording is a product-copy decision spanning both shells, so the guard cannot make it here.'
   },
   {
     concept: 'status card [toolModel]',
@@ -1616,7 +1621,7 @@ const ALLOWED_DIVERGENCES = [
     language: 'en',
     left: { dict: 'web', key: 'status.card.toolModel', value: 'tool model:' },
     right: { dict: 'cli', key: 'cli.status.review', value: 'Review:' },
-    reason: 'The en half of the zh divergence above: `tool model:` vs `Review:`. Tolerated on the same grounds — the two owners must agree which vocabulary wins before either side changes.'
+    reason: 'The en half of the zh divergence above: `tool model:` vs `Review:`. Tolerated on the same grounds — renaming either side is a product-copy decision spanning both shells, and the guard must not pick the winner unilaterally.'
   },
   {
     concept: 'transcript thinking',
@@ -1645,25 +1650,6 @@ const ALLOWED_DIVERGENCES = [
     left: { dict: 'menu', key: 'focusInput', value: 'Focus Input' },
     right: { dict: 'web', key: 'palette.focus', value: 'Focus Prompt Input' },
     reason: 'Desktop-vs-web English casing: the menu item is terse (`Focus Input`) while the command-palette row names the target (`Focus Prompt Input`). The zh wording agrees (`聚焦输入框`) and IS enforced.'
-  },
-
-  // The reviewer fallback — the SAME slot (an unrecognised `reviewedBy` value)
-  // rendered with different wording in each shell, in BOTH languages. This is a
-  // real user-visible inconsistency, not a layout or casing choice, so it is
-  // pinned twice (once per language) rather than tolerated by silence.
-  {
-    concept: 'reviewer [unknown fallback]',
-    language: 'zh',
-    left: { dict: 'web', key: 'approval.reviewer.unknown', value: '自动判定' },
-    right: { dict: 'cli', key: 'cli.approval.reviewerUnknown', value: '未知来源' },
-    reason: 'Same slot (the fallback for an unrecognised reviewer) with different wording: the web card says `自动判定` (automatic decision) while the CLI says `未知来源` (unknown source) — the two shells tell the user different things about the same state. Not fixed here: the web dictionary is another session\'s uncommitted work and the CLI file is out of this session\'s write scope, so both owners must agree which side moves.'
-  },
-  {
-    concept: 'reviewer [unknown fallback]',
-    language: 'en',
-    left: { dict: 'web', key: 'approval.reviewer.unknown', value: 'automatic decision' },
-    right: { dict: 'cli', key: 'cli.approval.reviewerUnknown', value: 'unknown source' },
-    reason: 'The en half of the zh divergence above: `automatic decision` vs `unknown source` — the same state described as an action in one shell and a provenance in the other. Tolerated on the same grounds: the web side is another session\'s uncommitted work and the CLI file is out of write scope, so the two owners must agree which wording wins.'
   }
 ];
 
@@ -1691,6 +1677,10 @@ const FLOORS = {
   'enum word map keys': 13, // 16 (CLI 5 + 2 + 2, web 5 + 2); floored below the sum so an editorial addition does not trip it
   'word-map fallback keys': 5, // 5 (every render site names one: 3 CLI + 2 web)
   'key-name join keys': 8, // 8
+  // 806 = (298 web + 91 cli + 13 menu + 1 about) x 2 languages. A broken table
+  // slice yields zero entries, and zero entries is zero findings, so the value
+  // scan needs the floor to distinguish "clean" from "read nothing".
+  'value detail scan values': 700, // 806
   'concept comparisons': 60, // 68 (34 concepts x 2 languages)
   'value comparisons': 75 // 84 (68 concept + 16 join)
 };
@@ -1824,6 +1814,123 @@ for (const entry of sources) {
     );
   }
 }
+
+// --- (7) implementation detail in dictionary VALUES --------------------------
+//
+// This file owns the value-side half of the implementation-detail rule set, and
+// `check-ui-i18n.mjs` owns the display-sink and annotated-element halves. The
+// split follows the parsers rather than splitting a parser: this file already
+// slices both language tables of all FOUR dictionaries (`web`, `cli`, `menu`,
+// `about`) with `readTable`, and the UI guard never opens the CLI or desktop
+// dictionaries. Putting the value half here covers `packages/cli/src/language.ts`
+// — which no check in the UI guard could see — without a second table slicer.
+//
+// Why a value needs its own check at all: a dictionary value is the one place
+// every other check treats as APPROVED copy. The key resolves, the two tables
+// agree, `looksLikeCopy` sees a sentence — and the settings hint that read
+// `Stored locally in /Users/kayphoon/.myagent/ui-settings.json (0600), using
+// OPENAI_API_KEY to call /models.` passed all four guards. The shapes below are
+// the defect's own shapes.
+//
+// The four patterns are character-for-character the ones in
+// `check-ui-i18n.mjs`'s `IMPLEMENTATION_DETAIL_SHAPES`; the two files share no
+// module boundary (both are standalone scripts run by `pnpm test`), so the rule
+// set is written once per file, and a rule added to one must be added to the
+// other. The self-test below pins each shape in BOTH directions so a silent
+// divergence in one file fails its own suite.
+const VALUE_DETAIL_SHAPES = [
+  {
+    id: 'absolute path',
+    pattern: /(?:^|[\s(（"'`=:;,])[A-Za-z]:\\|(?:^|[\s(（"'`=:;,])[/](?![a-z\s])[\w.~-]/
+  },
+  {
+    id: 'file mode',
+    pattern: /(?:^|[\s(（])0[0-7]{3}(?:[\s)）.。]|$)|(?:权限|permission|chmod|mode bits)[^\n]{0,16}?(?<![\d])[0-7]{3,4}(?![\d])/i
+  },
+  {
+    id: 'environment variable',
+    pattern: /(?:^|[^A-Za-z0-9_])([A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)+)(?![A-Za-z0-9_])/
+  },
+  {
+    id: 'bare endpoint',
+    pattern: /(?:^|[\s(（"'`])(\/[a-z][\w./-]*)/
+  }
+];
+
+/**
+ * The slash commands the product implements, read from the code that implements
+ * them rather than listed here.
+ *
+ * `'清除当前上下文 (/clear)'` is documented product syntax, not a leaked route, and
+ * an allowlist of six strings would have to be re-edited every time a command is
+ * added. The set is read from the CLI dispatch (`case '/clear':`) and the SPA's
+ * completion entries (`name: '/status'`), so a command added tomorrow is
+ * excluded the moment it is implemented and a real endpoint is never in it.
+ */
+function productSlashCommands() {
+  const commands = new Set();
+  for (const file of ['packages/cli/src/index.ts', 'packages/ui/public/index.html']) {
+    const read = readSourceFile(file);
+    if (read.error) continue;
+    for (const match of read.source.matchAll(/case\s+'(\/[a-z][\w-]*)'/g)) commands.add(match[1]);
+    for (const match of read.source.matchAll(/name:\s*'(\/[a-z][\w-]*)'/g)) commands.add(match[1]);
+  }
+  return commands;
+}
+
+/**
+ * Every implementation-detail shape a dictionary VALUE carries.
+ *
+ * Named so the self-test drives this code rather than a copy of the loop.
+ */
+function valueDetailHits(value, commands) {
+  const hits = [];
+  for (const { id, pattern } of VALUE_DETAIL_SHAPES) {
+    const match = pattern.exec(value);
+    if (!match) continue;
+    if (id === 'bare endpoint' && commands.has(match[1] ?? match[0])) continue;
+    hits.push(`${id}: ${JSON.stringify(match[1] ?? match[0])}`);
+  }
+  return hits;
+}
+
+const productSlashCommandSet = productSlashCommands();
+check(
+  'slash-command set was derived from the implementing code (value rules)',
+  productSlashCommandSet.size >= 8,
+  `${productSlashCommandSet.size} commands: ${[...productSlashCommandSet].sort().join(', ')}`
+);
+
+let valueDetailScanned = 0;
+let valueDetailFindings = 0;
+for (const entry of sources) {
+  for (const language of LANGUAGES) {
+    const findings = [];
+    for (const record of tables[entry.id][language].entries) {
+      valueDetailScanned += 1;
+      const hits = valueDetailHits(record.value, productSlashCommandSet);
+      if (hits.length) findings.push({ ...record, hits });
+    }
+    valueDetailFindings += findings.length;
+    check(
+      `${entry.label} ${language}: no implementation detail in a dictionary value`,
+      findings.length === 0,
+      findings.length
+        ? findings.map((f) => `${JSON.stringify(f.key)} (line ${f.line}) ${show(f.value)} → ${f.hits.join(' | ')}`).join(' | ')
+        : `${tables[entry.id][language].entries.length} values checked`
+    );
+  }
+}
+
+// The floor: a scan that read no values would make every check above trivially
+// green, which is the failure mode a value scan is most exposed to (a broken
+// table slice yields zero entries, and zero entries is zero findings).
+metrics['value detail scan values'] = valueDetailScanned;
+check(
+  'the value implementation-detail scan read real values',
+  valueDetailScanned >= FLOORS['value detail scan values'],
+  `${valueDetailScanned} values across ${sources.length} dictionaries x ${LANGUAGES.length} languages (floor ${FLOORS['value detail scan values']})`
+);
 
 // --- (3a) key-name join ----------------------------------------------------
 
@@ -3491,6 +3598,70 @@ const FIXTURE_CONCEPT = {
     'self-test: the code mask leaves braces balanced (a ${ } must not unbalance a body)',
     balance(templateSource, templateMask) === 0 && realSpaBalance === 0,
     `fixture balance=${balance(templateSource, templateMask)}, ${realSpa.error ? 'SPA unreadable' : `real SPA balance=${realSpaBalance}`}`
+  );
+
+  // --- the implementation-detail value rules -------------------------------
+  //
+  // One positive and one negative case per shape, driven through the SAME
+  // `valueDetailHits` the real scan calls, so a rule that stops firing fails
+  // here as well as in the run above. The negative halves are the near-misses
+  // that would turn the rule set into a false-positive generator: bare numbers,
+  // a CSS hex colour, camelCase identifiers, dotted names, and the `a/b` pair
+  // inside a word.
+  const commands = productSlashCommandSet;
+
+  // The fixture travels through the real value scan: the defect value below is
+  // sliced from a synthetic dictionary and reported by `valueDetailHits`, which
+  // proves the scan reaches a table rather than only that the regexes work.
+  const defectValue = "'Stored locally in /Users/kayphoon/.myagent/ui-settings.json (0600), using OPENAI_API_KEY to call /models.'";
+  const defectTables = fixtureTables('defectDict', [['hint', defectValue]], [['hint', defectValue]]);
+  const defectHits = defectTables.defectDict.zh.entries.flatMap((record) => valueDetailHits(record.value, commands));
+  check(
+    'self-test: all four implementation-detail shapes are reported in one value',
+    ['absolute path', 'file mode', 'environment variable', 'bare endpoint'].every((id) => defectHits.some((hit) => hit.startsWith(id))),
+    defectHits.join(' | ') || 'no hit'
+  );
+
+  check(
+    'self-test: an absolute path is reported and an endpoint-shaped word is not',
+    valueDetailHits('Stored in /Users/kayphoon/.myagent/ui-settings.json', commands).some((hit) => hit.startsWith('absolute path')) &&
+      valueDetailHits('Saved to C:\\Users\\kay\\.myagent', commands).some((hit) => hit.startsWith('absolute path')) &&
+      !valueDetailHits('See README.md or v1.2.3 for details', commands).length,
+    JSON.stringify([...valueDetailHits('Stored in /Users/kayphoon/.myagent/ui-settings.json', commands), ...valueDetailHits('See README.md or v1.2.3 for details', commands)])
+  );
+
+  check(
+    'self-test: a permission mode is reported and bare numbers are not',
+    valueDetailHits('权限 0600，仅本人可读', commands).some((hit) => hit.startsWith('file mode')) &&
+      valueDetailHits('Set the limit to 4096 and retry 200 times', commands).length === 0 &&
+      valueDetailHits('--siu-accent: #0071e3; --siu-text-inverse: #06070b;', commands).length === 0,
+    JSON.stringify([...valueDetailHits('权限 0600，仅本人可读', commands), ...valueDetailHits('Set the limit to 4096 and retry 200 times', commands)])
+  );
+
+  check(
+    'self-test: an env-var name is reported and camelCase identifiers are not',
+    valueDetailHits('using OPENAI_API_KEY to call the provider', commands).some((hit) => hit.startsWith('environment variable')) &&
+      valueDetailHits('apiKey, baseURL, Authorization and activeProviderId', commands).length === 0,
+    JSON.stringify([...valueDetailHits('using OPENAI_API_KEY to call the provider', commands), ...valueDetailHits('apiKey, baseURL, Authorization and activeProviderId', commands)])
+  );
+
+  check(
+    'self-test: a bare endpoint is reported and documented slash commands are not',
+    valueDetailHits('calls the /models route', commands).some((hit) => hit.startsWith('bare endpoint')) &&
+      valueDetailHits('POST (/api/chat', commands).some((hit) => hit.startsWith('bare endpoint')) &&
+      valueDetailHits('清除当前上下文 (/clear)', commands).length === 0 &&
+      valueDetailHits('either/or and/or both', commands).length === 0,
+    JSON.stringify([...valueDetailHits('calls the /models route', commands), ...valueDetailHits('清除当前上下文 (/clear)', commands), ...valueDetailHits('either/or and/or both', commands)])
+  );
+
+  // The rules must be clean on the REAL values through the real helper, which is
+  // the statement the run above makes; asserting it here means a future edit
+  // that makes the rules noisy fails inside the self-test too.
+  const realValueHits = sources.flatMap((entry) => LANGUAGES.flatMap((language) => tables[entry.id][language].entries.flatMap((record) => valueDetailHits(record.value, commands).map((hit) => `${entry.id}/${language} ${record.key}: ${hit}`))));
+  check(
+    'self-test: the value implementation-detail rules are clean on the real dictionaries',
+    realValueHits.length === 0,
+    realValueHits.slice(0, 3).join(' | ') || `clean across ${valueDetailScanned} values`
   );
 }
 
