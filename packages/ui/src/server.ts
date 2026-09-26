@@ -454,9 +454,25 @@ function loadSettings(): UiSettings {
   }
 }
 
+/**
+ * Write the settings file, reporting failure as a stable sentence.
+ *
+ * The raw `ENOTDIR`/`EACCES` message embeds the absolute path of the settings
+ * file, and `applySettings` failures travel straight into the Settings dialog
+ * (`index.html` renders `err.message` verbatim). So the filesystem detail is
+ * logged server-side — redacted, like every other diagnostic on this surface —
+ * and the caller only ever sees a sentence. Validation errors thrown by
+ * `applySettings` itself are deliberate user-facing copy and never pass through
+ * here.
+ */
 function persistSettings(next: UiSettings): void {
-  fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
-  fs.writeFileSync(SETTINGS_FILE, `${JSON.stringify(next, null, 2)}\n`, { encoding: 'utf-8', mode: 0o600 });
+  try {
+    fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
+    fs.writeFileSync(SETTINGS_FILE, `${JSON.stringify(next, null, 2)}\n`, { encoding: 'utf-8', mode: 0o600 });
+  } catch (err) {
+    console.error(`[server] settings save failed: ${redactSecrets(errorMessage(err), 300)}`);
+    throw new Error('Could not save settings. Check the server log for details.');
+  }
 }
 
 /** Never echo a raw credential back to the browser; show a recognisable stub instead. */
@@ -498,6 +514,34 @@ function recordApprovalWait(toolCallId: string): void {
   approvalWaits.set(name, stack);
   approvalStartedAt.delete(toolCallId);
   approvalToolNames.delete(toolCallId);
+}
+
+/**
+ * Every credential the runner ACTUALLY resolved, for redaction.
+ *
+ * `runnerOptions()` above is what the runner is built FROM; this is what it
+ * resolved TO, and the two are not the same set. `AgentRunner` falls back to
+ * `OPENAI_API_KEY` when `settings.apiKey` is empty, and `applySettings` blanks
+ * the stored key (`next.apiKey = activeProvider?.apiKey ?? ''`) when the active
+ * provider is keyless — so a key that lives only in the environment is sent
+ * upstream while being invisible to every `settings`-derived scan.
+ * `blankConfiguredSecrets` reads `settings`, so without this the provider's own
+ * 401 envelope (`Incorrect API key provided: …`) reaches the transcript and the
+ * desktop notification verbatim.
+ *
+ * Read from `getModelRoutes()` — the resolved routes the provider factories are
+ * handed — rather than from `config.apiKey`, because a role may name its own
+ * credential, and the env fallback is applied by the runner, not by the
+ * embedder. Each route's `baseURL` is scanned too: it may embed a key
+ * (`?api_key=…`, `token@host`) that no other field carries.
+ */
+function resolvedCredentials(target: AgentRunner): string[] {
+  const found: string[] = [];
+  for (const route of Object.values(target.getModelRoutes())) {
+    if (route.apiKey) found.push(route.apiKey);
+    found.push(...credentialsInUrl(route.baseURL));
+  }
+  return found;
 }
 
 function runnerOptions(sessionReference?: string, historyDbPath?: string, newSession = false) {
@@ -691,8 +735,113 @@ const SECRET_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
   [/("(?:api[_-]?key|token|secret|password)"\s*:\s*")[^"]*(")/gi, '$1[redacted]$2']
 ];
 
-function redactSecrets(text: string, maxChars = 500): string {
-  let out = text;
+/**
+ * Shortest credential worth blanking by literal value. Nothing this short is a
+ * real key, and matching one would shred ordinary prose — a two-character key is
+ * a substring of half the English language.
+ */
+const MIN_LITERAL_SECRET_CHARS = 8;
+
+/**
+ * Query-string names whose value is a credential. Same vocabulary as the JSON
+ * key alternation in `SECRET_PATTERNS`, so the two agree on what counts as one.
+ */
+const URL_CREDENTIAL_PARAM = /^(?:api[_-]?key|key|token|access_token|auth|secret|password)$/i;
+
+/** `decodeURIComponent` throws on a malformed `%` escape; a base URL is user input. */
+function credentialsInUrl(url: unknown): string[] {
+  if (typeof url !== 'string' || url.length === 0) return [];
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return [];
+  }
+
+  const found: string[] = [];
+  // Userinfo is percent-encoded by the URL parser while the upstream sees the
+  // decoded form, so both spellings are matched; `URLSearchParams` values are
+  // already decoded. A malformed `%` escape is not decodable at all, so its raw
+  // form stands in.
+  for (const part of [parsed.username, parsed.password]) {
+    if (!part) continue;
+    found.push(part);
+    try {
+      const decoded = decodeURIComponent(part);
+      if (decoded !== part) found.push(decoded);
+    } catch {
+      // Not decodable — the raw form above is the only candidate.
+    }
+  }
+  for (const [name, value] of parsed.searchParams) {
+    if (URL_CREDENTIAL_PARAM.test(name)) found.push(value);
+  }
+  return found;
+}
+
+/**
+ * Blank the credentials the user has actually configured, BY LITERAL VALUE,
+ * before the pattern pass.
+ *
+ * `SECRET_PATTERNS` above is prefix-based, so it only covers vendors whose keys
+ * carry a recognizable shape (`sk-…`, `ghp_…`). This app also ships presets for
+ * Groq (`gsk_…`), Google (`AIza…`) and xAI (`xai-…`), and the custom slot takes
+ * whatever a relay issued — none of which any pattern matches, so a rejected key
+ * from any of them used to travel to the transcript verbatim.
+ *
+ * The credential a provider echoes back on a 401 is by definition one the user
+ * configured, so matching those literals covers every provider — present, future
+ * and unlisted — without knowing its key format. This strengthens the pattern
+ * pass rather than replacing it: a literal that never appears (a leaked key the
+ * user has not stored here) is still caught by shape alone.
+ *
+ * `extraSecrets` carries request-scoped credentials that are NOT in `settings`
+ * yet — the not-yet-saved key a caller hands to `/api/models/fetch`, which this
+ * server then sends upstream, so a provider echoing it on a 401 would otherwise
+ * write it verbatim into the log. They travel the identical path (same
+ * `typeof` check, same `MIN_LITERAL_SECRET_CHARS` floor, same escaping).
+ */
+function blankConfiguredSecrets(out: string, extraSecrets: readonly unknown[] = []): string {
+  // `settings.apiKey` is the credential that belongs to `settings.baseURL` —
+  // the two are a pair, resolved together by endpoint — and that endpoint may
+  // itself embed one (`?api_key=…`, `token@host`). Neither the endpoint nor any
+  // other non-secret field is blanked: replacing it would destroy the part of
+  // the message that names the host that failed.
+  const configured: unknown[] = [settings.apiKey, ...credentialsInUrl(settings.baseURL), ...extraSecrets];
+  // Defensive: a settings file may omit `providers` entirely, or a partial write
+  // may leave the field holding something other than a list.
+  if (Array.isArray(settings.providers)) {
+    for (const provider of settings.providers) {
+      configured.push(provider?.apiKey, ...credentialsInUrl(provider?.baseURL));
+    }
+  }
+
+  for (const value of configured) {
+    if (typeof value !== 'string' || value.length < MIN_LITERAL_SECRET_CHARS) continue;
+    // An issued key is opaque text, so escape it before it becomes a pattern:
+    // `+`, `.`, `$`, `(` are all legitimate characters in one.
+    const escaped = value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(escaped, 'g'), '[redacted]');
+  }
+  return out;
+}
+
+/**
+ * Bound for a message on the SSE `error` frame.
+ *
+ * That frame is the one redaction call site whose output a human reads — it is
+ * rendered into the transcript and raised as a desktop notification — whereas
+ * the log-only sites below keep the default bound, where clipping is harmless.
+ * This constant exists solely to stop a pathological or hostile upstream body
+ * from becoming an unbounded notification; it is NOT a length budget for normal
+ * prose. A real provider envelope (error `code` + `message` + `param`) runs a few
+ * hundred characters, so the previous 300 silently clipped a message the user
+ * was meant to read.
+ */
+const USER_FACING_ERROR_CHARS = 2000;
+
+function redactSecrets(text: string, maxChars = 500, extraSecrets: readonly unknown[] = []): string {
+  let out = blankConfiguredSecrets(text, extraSecrets);
   for (const [pattern, replacement] of SECRET_PATTERNS) out = out.replace(pattern, replacement);
   return out.slice(0, maxChars);
 }
@@ -996,7 +1145,7 @@ async function handleApi(
         signal: AbortSignal.timeout(10000)
       });
       if (!resp.ok) {
-        console.error(`[models/fetch] ${modelsUrl} -> HTTP ${resp.status}: ${redactSecrets(await resp.text())}`);
+        console.error(`[models/fetch] ${modelsUrl} -> HTTP ${resp.status}: ${redactSecrets(await resp.text(), 500, [targetKey])}`);
         sendJson(res, 200, { ok: false, error: `HTTP ${resp.status}`, models: [] });
         return true;
       }
@@ -1010,7 +1159,7 @@ async function handleApi(
     } catch (err) {
       // A non-JSON 200 body surfaces here as a `JSON.parse` error whose message
       // quotes the raw body, so the detail is logged redacted and never returned.
-      console.error(`[models/fetch] ${modelsUrl} failed: ${redactSecrets(errorMessage(err), 300)}`);
+      console.error(`[models/fetch] ${modelsUrl} failed: ${redactSecrets(errorMessage(err), 300, [targetKey])}`);
       sendJson(res, 200, { ok: false, error: 'Fetch failed', models: [] });
       return true;
     }
@@ -1075,7 +1224,7 @@ async function handleApi(
     const presentationOnly = Object.keys(body).every((key) => key === 'language' || key === 'theme');
 
     if (!presentationOnly && runner.status !== 'idle') {
-      sendError(res, 409, `Cannot apply settings while the agent is ${runner.status}. Abort the turn first.`);
+      sendError(res, 409, 'Cannot apply settings while the agent is busy. Abort the turn first.');
       return true;
     }
 
@@ -1243,7 +1392,7 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
   const turnModel = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : undefined;
 
   if (runner.status !== 'idle') {
-    sendError(res, 409, `Agent is busy (status: ${runner.status}). Abort or wait for the current turn.`);
+    sendError(res, 409, 'Agent is busy. Abort or wait for the current turn.');
     return;
   }
 
@@ -1295,6 +1444,9 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
     phase: string,
     modelOverride?: string
   ): Promise<string> => {
+    // Resolved once per turn, from the same runner the turn runs on: the
+    // credential that runner will actually send, not the one settings imply.
+    const secrets = resolvedCredentials(target);
     const callbacks: RunnerCallbacks = {
       onStatusChange: (status) => write({ type: 'status', status }),
       onStepStart: (step) => write({ type: 'step', step, phase }),
@@ -1322,7 +1474,11 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
       },
       onError: (err) => {
         errorSent = true;
-        write({ type: 'error', message: err.message, phase });
+        // A failed model call surfaces the provider's own error envelope, which
+        // echoes the rejected credential back. This frame is rendered into the
+        // transcript and raised as a desktop notification, so it takes the same
+        // redaction as every other upstream-derived string on this surface.
+        write({ type: 'error', message: redactSecrets(err.message, USER_FACING_ERROR_CHARS, secrets), phase });
       }
     };
     return target.run(turnPrompt, callbacks, modelOverride ? { model: modelOverride } : {});
@@ -1355,7 +1511,15 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
     finish(finalText);
   } catch (err) {
     settled = true;
-    if (!errorSent) write({ type: 'error', message: errorMessage(err) });
+    // The same resolved credentials as the `onError` frame above: this path
+    // catches a failure raised outside the model call, which can still carry the
+    // provider's envelope.
+    if (!errorSent) {
+      write({
+        type: 'error',
+        message: redactSecrets(errorMessage(err), USER_FACING_ERROR_CHARS, resolvedCredentials(runner))
+      });
+    }
     finish('');
   } finally {
     approvalSink = null;
