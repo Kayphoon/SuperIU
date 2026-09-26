@@ -51,15 +51,48 @@ export interface ModelRouterOptions {
  */
 export const DEFAULT_REASONING_EFFORT: ReasoningEffort = 'medium';
 
-/** Reasoning model families that accept a `reasoning_effort` parameter. */
-const REASONING_MODEL_PATTERNS: readonly RegExp[] = [/^o[1-9]/, /^gpt-5/];
+/**
+ * Reasoning model families that accept a `reasoning_effort` parameter.
+ *
+ * Each entry is a family whose own documentation states that it takes the
+ * parameter, because the guard is an allowlist and a missing family only costs
+ * the default effort, while a wrong one costs the turn:
+ *
+ *   - OpenAI `o`-series and `gpt-5` and later. GPT-6 is covered explicitly:
+ *     `gpt-6-astra`'s own model page lists `reasoning.effort` support, and the
+ *     reasoning guide documents the `reasoning_effort` form on Chat Completions
+ *     (only `none` is rejected, with HTTP 400), so a catalog that offers it
+ *     would otherwise show an empty effort pill for its flagship.
+ *   - Gemini's 3 and 2.5 series. Its OpenAI-compatibility endpoint maps
+ *     `reasoning_effort` onto `thinking_level` / `thinking_budget`
+ *     (<https://ai.google.dev/gemini-api/docs/openai>). The 1.5 and 2.0 series
+ *     predate thinking entirely — the thinking guide scopes itself to "the
+ *     Gemini 3 and 2.5 series models" — so they are deliberately absent rather
+ *     than merely unmatched.
+ *   - DeepSeek's current ids, which document `reasoning_effort` on their
+ *     OpenAI-format surface (<https://api-docs.deepseek.com/guides/thinking_mode>).
+ *     The retired `deepseek-chat` / `deepseek-reasoner` names are absent: they
+ *     stopped being valid `model` values in July 2026, so there is no request
+ *     left for the parameter to control.
+ */
+const REASONING_MODEL_PATTERNS: readonly RegExp[] = [
+  /^o[1-9]/,
+  /^gpt-5/,
+  /^gpt-6/,
+  /^gemini-3/,
+  /^gemini-2\.5/,
+  /^deepseek-flash/,
+  /^deepseek-v4-pro/
+];
 
 /**
  * Reasoning models that predate `reasoning_effort` and reject the parameter.
  *
  * `o1-mini` / `o1-preview` are reasoning models, but they shipped before the
  * control existed and answer a request carrying it with an unknown-parameter
- * error, so they must not be sent one.
+ * error, so they must not be sent one. They are the only family that both
+ * matches an accepting pattern and refuses the parameter; every other tier this
+ * module excludes is excluded by not being in the allowlist above.
  */
 const EFFORT_INCAPABLE_PATTERNS: readonly RegExp[] = [/^o1-(mini|preview)/];
 

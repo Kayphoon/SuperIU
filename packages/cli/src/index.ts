@@ -18,6 +18,28 @@ export async function startCli() {
   const cancelPendingApprovals = new Set<() => void>();
 
   /**
+   * `riskLevel`, `reviewedBy` and `mode` are internal enums ('low', 'rule',
+   * 'lenient'); they are mapped to words here so a surface never shows a raw
+   * token. A value from a newer core than this dictionary knows degrades to a
+   * neutral word.
+   */
+  const riskWordKeys: Record<string, string> = {
+    safe: 'cli.approval.riskSafe',
+    low: 'cli.approval.riskLow',
+    medium: 'cli.approval.riskMedium',
+    high: 'cli.approval.riskHigh',
+    critical: 'cli.approval.riskCritical',
+  };
+  const reviewerWordKeys: Record<string, string> = {
+    rule: 'cli.approval.reviewerRule',
+    model: 'cli.approval.reviewerModel',
+  };
+  const modeWordKeys: Record<string, string> = {
+    lenient: 'cli.status.modeLenient',
+    strict: 'cli.status.modeStrict',
+  };
+
+  /**
    * Terminal approval card. Anything AutoReview escalates (`ask_user`) lands
    * here: the developer sees the exact command and rationale, and decides.
    * Defaults to NO — an unanswered, closed, or non-interactive prompt must never
@@ -29,9 +51,11 @@ export async function startCli() {
       return false;
     }
 
+    const risk = tr(riskWordKeys[review.riskLevel] ?? 'cli.approval.riskUnknown');
+    const reviewer = tr(reviewerWordKeys[review.reviewedBy] ?? 'cli.approval.reviewerUnknown');
     output.write(
       `\n${pc.yellow(tr('cli.approval.title'))} ${pc.bold(toolCall.name)} ` +
-        `${pc.dim(`(${tr('cli.approval.risk')}: ${review.riskLevel}, ${tr('cli.approval.by')} ${review.reviewedBy})`)}\n`
+        `${pc.dim(`(${tr('cli.approval.risk')}: ${risk}, ${tr('cli.approval.by')} ${reviewer})`)}\n`
     );
     output.write(`  ${pc.dim(tr('cli.approval.reason'))} ${review.reason}\n`);
     output.write(`  ${pc.dim(tr('cli.approval.args'))} ${JSON.stringify(toolCall.args)}\n`);
@@ -89,9 +113,9 @@ export async function startCli() {
     }
   });
 
-  // Welcome banner
+  // Welcome banner. Deliberately free of filesystem paths — `/status` is the
+  // diagnostics surface that reports the memory directory and the session log.
   console.log(pc.bold(pc.cyan(`\n${tr('cli.banner')}`)));
-  console.log(pc.dim(tr('cli.memoryDir', { path: memoryDir })));
   console.log(pc.dim(tr('cli.mainModel', { model: String(runner.config.modelName) })));
   console.log(
     pc.dim(
@@ -103,16 +127,6 @@ export async function startCli() {
     )
   );
   console.log(pc.dim(tr('cli.session', { id: runner.getSessionId() })));
-  // A boot with no resumable session starts a draft: the path is planned, not real.
-  console.log(
-    pc.dim(
-      tr('cli.log', {
-        path: `${runner.getSessionFile() ?? tr('cli.inMemory')}${
-          runner.session.materialized ? '' : tr('cli.logNotWritten')
-        }`,
-      })
-    )
-  );
   console.log(pc.dim(`${tr('cli.hint')}\n`));
 
   rl.setPrompt(pc.bold(pc.blue(tr('cli.prompt'))));
@@ -165,7 +179,7 @@ export async function startCli() {
           console.log(`  ${tr('cli.status.os')}${workstation.os} (${workstation.arch})`);
           console.log(`  ${tr('cli.status.main')}${runner.config.modelName}`);
           console.log(
-            `  ${tr('cli.status.review')}${runner.reviewer ? `${runner.config.reviewModelName} (${runner.reviewer.mode})` : tr('cli.status.reviewDisabled')}`
+            `  ${tr('cli.status.review')}${runner.reviewer ? `${runner.config.reviewModelName} (${tr(modeWordKeys[runner.reviewer.mode] ?? 'cli.status.modeUnknown')})` : tr('cli.status.reviewDisabled')}`
           );
           console.log(
             `  ${tr('cli.status.approve')}${runner.permissionGate ? tr('cli.status.approveInteractive') : tr('cli.status.approveNone')}`
@@ -196,8 +210,13 @@ export async function startCli() {
           for (const session of sessions) {
             const active = session.id === runner.getSessionId() ? pc.green('* ') : '  ';
             const stamp = session.timestamp.slice(0, 19).replace('T', ' ');
-            console.log(`${active}${pc.cyan(session.id)}  ${pc.dim(stamp)}  ${session.title ?? ''}`);
-            console.log(`    ${pc.dim(session.filePath)}`);
+            // No file path here: `/status` reports the log of the active session,
+            // and a routine listing is about picking a conversation, not a file.
+            // An unnamed session carries no title, so a bare `${title ?? ''}`
+            // would leave a dangling gap after the timestamp.
+            console.log(
+              `${active}${pc.cyan(session.id)}  ${pc.dim(stamp)}  ${session.title ?? tr('cli.sessions.untitled')}`
+            );
           }
           console.log();
           break;
@@ -229,15 +248,6 @@ export async function startCli() {
         case '/new': {
           const session = runner.createSession(rest.join(' ').trim() || undefined);
           console.log(pc.green(`${tr('cli.new.ok', { id: session.getSessionId() })}\n`));
-          // The file appears only once the first message lands; say so rather
-          // than print a path that does not exist yet as if it did.
-          console.log(
-            pc.dim(
-              `  ${session.getFilePath() ?? tr('cli.inMemory')}${
-                session.materialized ? '' : tr('cli.logNotWritten')
-              }\n`
-            )
-          );
           break;
         }
 

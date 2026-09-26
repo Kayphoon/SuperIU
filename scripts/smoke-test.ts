@@ -27,6 +27,7 @@ import {
   resolveSessionFile,
   PromptHistoryStorage,
   ContextAssembler,
+  ContextCompactor,
   AgentLoopEngine,
   MockStepAdapter,
   AgentRunner,
@@ -38,6 +39,9 @@ import {
   DEFAULT_REASONING_EFFORT,
   parseReasoningEffort,
   supportsReasoningEffort,
+  modelMetadataFor,
+  formatContextLimit,
+  estimateContextTokens,
   CURRENT_SESSION_VERSION,
   DEFAULT_MAIN_MODEL,
   DEFAULT_REVIEW_MODEL,
@@ -794,7 +798,15 @@ async function runSmokeTests() {
       { text: 'settled' }
     ]);
 
-    const assembler = new ContextAssembler({ session, workspaceDir: workspace });
+    // The spill must land in the sandbox: an engine given no compactor lets the
+    // default ContextCompactor fall back to ~/.myagent/spillover, writing into
+    // the developer's real home directory.
+    const spilloverDir = path.join(workspace, 'loop-spill-spillover');
+    const assembler = new ContextAssembler({
+      session,
+      workspaceDir: workspace,
+      compactor: new ContextCompactor({ spilloverDir })
+    });
     const engine = new AgentLoopEngine({ session, assembler, stepCaller, tools });
     await engine.run(undefined, {});
 
@@ -802,6 +814,11 @@ async function runSmokeTests() {
     const payload = String(toolMessage?.toolResults?.[0].result);
     assert(payload.includes('OUTPUT TRUNCATED'), 'spillover marker missing');
     assert(payload.length < 2000, `compacted payload ${payload.length} chars`);
+    // The compaction must be real, not vacuous: the bytes are on disk in the sandbox.
+    const spilled = await fs.readdir(spilloverDir);
+    assert(spilled.length === 1, `expected exactly one spilled log in the sandbox, got ${spilled.length}`);
+    const spilledBytes = await fs.readFile(path.join(spilloverDir, spilled[0]), 'utf-8');
+    assert(spilledBytes.length === 6000, `spilled log ${spilledBytes.length} chars`);
   });
 
   await test('Loop reports abort mid-turn', async () => {
@@ -1819,10 +1836,38 @@ async function runSmokeTests() {
     assert(supportsReasoningEffort('o3-mini'), 'o3-mini rejected');
     assert(supportsReasoningEffort('o4-mini'), 'o4-mini rejected');
     assert(supportsReasoningEffort('gpt-5.4'), 'gpt-5 rejected');
+    // The catalog's OpenAI flagship. Its model page lists `reasoning.effort`
+    // support, so advertising it while the allowlist stopped at gpt-5 would
+    // leave its effort pill empty — the defect this catalog refresh fixes.
+    assert(supportsReasoningEffort('gpt-6-astra'), 'gpt-6-astra rejected');
+    assert(supportsReasoningEffort('gpt-6-sol'), 'gpt-6-sol rejected');
     assert(supportsReasoningEffort('openai/o3-mini'), 'vendor prefix not stripped');
+
+    // Gemini's OpenAI-compatibility endpoint maps `reasoning_effort` onto
+    // `thinking_level` / `thinking_budget`. Its own thinking guide scopes the
+    // control to "the Gemini 3 and 2.5 series models", so the older tiers are
+    // absent from the allowlist rather than merely unmatched — a gateway that
+    // forwards the parameter to `gemini-1.5-*` must not receive one.
+    assert(supportsReasoningEffort('gemini-3.8-flash'), 'gemini-3.8-flash rejected');
+    assert(supportsReasoningEffort('gemini-3-flash-preview'), 'gemini-3 preview rejected');
+    assert(supportsReasoningEffort('gemini-2.5-flash'), 'gemini-2.5-flash rejected');
+    assert(supportsReasoningEffort('gemini-2.5-pro'), 'gemini-2.5-pro rejected');
+    assert(!supportsReasoningEffort('gemini-1.5-flash'), 'gemini-1.5-flash accepted the parameter');
+    assert(!supportsReasoningEffort('gemini-1.5-pro'), 'gemini-1.5-pro accepted the parameter');
+    assert(!supportsReasoningEffort('gemini-2.0-flash'), 'gemini-2.0-flash accepted the parameter');
+
+    // DeepSeek documents `reasoning_effort` on its OpenAI-format surface for the
+    // ids it currently serves. The retired `deepseek-chat` / `deepseek-reasoner`
+    // names are negative controls on purpose: they stopped being valid `model`
+    // values, so there is no request for the parameter to control.
+    assert(supportsReasoningEffort('deepseek-flash'), 'deepseek-flash rejected');
+    assert(supportsReasoningEffort('deepseek-v4-pro'), 'deepseek-v4-pro rejected');
+    assert(!supportsReasoningEffort('deepseek-chat'), 'retired deepseek-chat accepted the parameter');
+    assert(!supportsReasoningEffort('deepseek-reasoner'), 'retired deepseek-reasoner accepted the parameter');
+
     assert(!supportsReasoningEffort('gpt-4o'), 'gpt-4o accepted the parameter');
     assert(!supportsReasoningEffort('gpt-4o-mini'), 'gpt-4o-mini accepted the parameter');
-    assert(!supportsReasoningEffort('deepseek-chat'), 'unknown model accepted the parameter');
+    assert(!supportsReasoningEffort('claude-3-7-sonnet-20250219'), 'claude accepted the parameter');
     assert(!supportsReasoningEffort('o1-mini'), 'o1-mini predates the parameter but accepted it');
     assert(!supportsReasoningEffort('o1-preview'), 'o1-preview predates the parameter but accepted it');
 
@@ -1855,6 +1900,22 @@ async function runSmokeTests() {
     });
     assert(plain.resolve('main').reasoningEffort === undefined, 'gpt-4o was given an effort');
     assert(plain.resolve('main').maxTokens === 2048, 'gpt-4o budget changed');
+
+    // The same gate applied to a Gemini main model: the predicate returning true
+    // is only useful if `resolve()` then carries the effort through to the route
+    // the adapter sends, budget included.
+    const gemini = new ModelRouter({
+      defaultRoute: { model: 'gemini-3.8-flash' },
+      routes: { review: { model: 'gemini-1.5-flash' } },
+      defaultReasoningEffort: DEFAULT_REASONING_EFFORT
+    });
+    assert(gemini.resolve('main').reasoningEffort === 'medium', 'gemini main lost the derived effort');
+    assert(gemini.resolve('main').maxTokens === 4096, 'gemini main budget not scaled');
+    assert(
+      gemini.resolve('review').reasoningEffort === undefined,
+      'gemini-1.5 review inherited an effort it cannot take'
+    );
+    assert(gemini.resolve('review').maxTokens === 2048, 'gemini-1.5 review budget changed');
 
     // An explicit per-role effort is an instruction and is never second-guessed,
     // even on a model the capability check does not recognize.
@@ -2104,6 +2165,352 @@ async function runSmokeTests() {
     // The reviewer must never approve its own actions: it is a distinct caller.
     assert(builtRoutes.includes('review-a'), 'review route was never built into a caller');
     runner.close();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Context usage + model metadata
+  //
+  // The meter divides the model's window into the tokens the last step consumed.
+  // Both halves are pinned here: the window comes from a table (a wrong number
+  // shows a false "nearly full" or hides an imminent truncation), and the
+  // numerator must be the provider's own count when one exists — falling back to
+  // an estimate only for a branch no step has measured yet.
+  // ---------------------------------------------------------------------------
+  await test('Engine records the latest step usage and reports it in the run result', async () => {
+    const cwd = path.join(workspace, 'usage-engine');
+    const session = SessionManager.create({ workspaceDir: workspace, cwd });
+    const assembler = new ContextAssembler({ session, workspaceDir: workspace });
+    const stepCaller = new MockStepAdapter([{ text: 'measured' }]);
+    const engine = new AgentLoopEngine({ session, assembler, stepCaller });
+
+    assert(engine.latestUsage === undefined, 'a fresh engine must report no usage');
+    const result = await engine.run('go', {});
+
+    // MockStepAdapter reports 10/10/20; the engine must surface the same numbers
+    // both on itself (polled mid-turn) and on the result (read after the turn).
+    assert(engine.latestUsage?.promptTokens === 10, `engine usage ${JSON.stringify(engine.latestUsage)}`);
+    assert(result.usage?.promptTokens === 10, `result usage ${JSON.stringify(result.usage)}`);
+    assert(result.usage?.totalTokens === 20, `result total ${result.usage?.totalTokens}`);
+  });
+
+  await test('A step that reports no usage leaves the meter estimated instead of NaN', async () => {
+    const cwd = path.join(workspace, 'usage-nan');
+    await fs.mkdir(cwd, { recursive: true });
+
+    // A provider that omits `stream_options.include_usage` answers NaN, not
+    // undefined. `NaN` serializes to `null` over JSON, so a meter that trusted it
+    // would render an empty reading for a conversation that plainly has content.
+    const runner = new AgentRunner({
+      workspaceDir: cwd,
+      memoryDir: path.join(sandbox, 'usage-nan-memory'),
+      spilloverDir: path.join(sandbox, 'usage-nan-spill'),
+      modelName: 'gpt-4o',
+      stepCaller: {
+        async callStep() {
+          return { text: 'z'.repeat(3500), toolCalls: [], usage: { promptTokens: NaN, completionTokens: NaN } };
+        }
+      }
+    });
+
+    await runner.run('go');
+    const usage = runner.getContextUsage();
+    assert(Number.isFinite(usage.tokens), `non-finite tokens reached the meter: ${usage.tokens}`);
+    assert(Number.isFinite(usage.percent), `non-finite percent reached the meter: ${usage.percent}`);
+    assert(usage.tokens >= 900, `the estimate did not cover the branch: ${usage.tokens}`);
+    runner.close();
+  });
+
+  await test('Context usage divides the provider count by the model window', async () => {
+    const cwd = path.join(workspace, 'usage-runner');
+    await fs.mkdir(cwd, { recursive: true });
+
+    const build = (modelName: string) =>
+      new AgentRunner({
+        workspaceDir: cwd,
+        memoryDir: path.join(sandbox, 'usage-runner-memory'),
+        spilloverDir: path.join(sandbox, 'usage-runner-spill'),
+        modelName,
+        stepCaller: {
+          async callStep() {
+            return { text: 'measured', toolCalls: [], usage: { promptTokens: 500_000, completionTokens: 5 } };
+          }
+        }
+      });
+
+    const runner = build('gemini-3.8-flash');
+    // No step has run yet, and the draft branch is empty: the meter reads zero
+    // rather than dividing an undefined numerator.
+    const before = runner.getContextUsage();
+    assert(before.tokens === 0, `fresh tokens ${before.tokens}`);
+    assert(before.limit === 1_000_000, `gemini-3.8-flash window ${before.limit}`);
+    assert(before.percent === 0, `fresh percent ${before.percent}`);
+
+    await runner.run('go');
+    const after = runner.getContextUsage();
+    assert(after.tokens === 500_000, `provider count ignored: ${after.tokens}`);
+    assert(after.limit === 1_000_000, `window changed after a turn: ${after.limit}`);
+    assert(after.percent === 50, `percent ${after.percent}`);
+    runner.close();
+
+    const deepseek = build('deepseek-flash');
+    await deepseek.run('go');
+    assert(deepseek.getContextUsage().limit === 1_000_000, 'deepseek-flash window');
+    assert(deepseek.getContextUsage().percent === 50, `deepseek percent ${deepseek.getContextUsage().percent}`);
+    deepseek.close();
+  });
+
+  await test('Context usage reports the provider count for the session that produced it', async () => {
+    const cwd = path.join(workspace, 'usage-scope');
+    await fs.mkdir(cwd, { recursive: true });
+
+    const runner = new AgentRunner({
+      workspaceDir: cwd,
+      memoryDir: path.join(sandbox, 'usage-scope-memory'),
+      spilloverDir: path.join(sandbox, 'usage-scope-spill'),
+      modelName: 'gemini-3.8-flash',
+      stepCaller: {
+        async callStep() {
+          return { text: 'measured', toolCalls: [], usage: { promptTokens: 500_000, completionTokens: 5 } };
+        }
+      }
+    });
+
+    // The denominator is the model's published window, so 500K is half of it.
+    await runner.run('go');
+    const usage = runner.getContextUsage();
+    assert(usage.tokens === 500_000, `provider count ignored: ${usage.tokens}`);
+    assert(usage.limit === 1_000_000, `gemini-3.8-flash window ${usage.limit}`);
+    assert(usage.percent === 50, `percent ${usage.percent}`);
+
+    // `createSession()` rebinds the shared engine to an empty draft that has run
+    // no step, so nothing describes it — least of all the count above, which
+    // belongs to the session that was just left behind. This is the first of the
+    // three rebinding sites; `reset()` and `loadSession()` are covered below.
+    runner.createSession();
+    assert(runner.getMessages().length === 0, 'the new session was not empty');
+    assert(
+      runner.getContextUsage().tokens === 0,
+      `a new draft inherited the previous session's count: ${runner.getContextUsage().tokens}`
+    );
+    runner.close();
+  });
+
+  await test('reset() drops the previous provider count so the meter falls back to the estimate', async () => {
+    const cwd = path.join(workspace, 'usage-clear');
+    await fs.mkdir(cwd, { recursive: true });
+
+    const runner = new AgentRunner({
+      workspaceDir: cwd,
+      memoryDir: path.join(sandbox, 'usage-clear-memory'),
+      spilloverDir: path.join(sandbox, 'usage-clear-spill'),
+      modelName: 'gemini-3.8-flash',
+      stepCaller: {
+        async callStep() {
+          return { text: 'measured', toolCalls: [], usage: { promptTokens: 500_000, completionTokens: 5 } };
+        }
+      }
+    });
+
+    await runner.run('go');
+    assert(runner.getContextUsage().tokens === 500_000, 'the turn did not record usage');
+
+    // `/clear` truncates the branch in place, so the session object is unchanged
+    // while the messages the provider counted are gone. The measurement must not
+    // survive it: a meter that kept 500K would report a full window for a
+    // conversation that is now empty.
+    runner.reset();
+    const cleared = runner.getContextUsage();
+    assert(runner.getMessages().length === 0, `clear left ${runner.getMessages().length} messages`);
+    assert(cleared.tokens !== 500_000, `the meter kept the pre-clear count: ${cleared.tokens}`);
+    assert(cleared.tokens === 0, `a cleared branch estimated ${cleared.tokens}, expected 0`);
+    assert(cleared.percent === 0, `a cleared branch read ${cleared.percent}%`);
+    runner.close();
+  });
+
+  await test('loadSession() rebinds the meter to the session that was loaded', async () => {
+    const cwd = path.join(workspace, 'usage-load');
+    await fs.mkdir(cwd, { recursive: true });
+
+    const runner = new AgentRunner({
+      workspaceDir: cwd,
+      memoryDir: path.join(sandbox, 'usage-load-memory'),
+      spilloverDir: path.join(sandbox, 'usage-load-spill'),
+      modelName: 'gemini-3.8-flash',
+      stepCaller: {
+        async callStep() {
+          return { text: 'measured', toolCalls: [], usage: { promptTokens: 500_000, completionTokens: 5 } };
+        }
+      }
+    });
+
+    await runner.run('first');
+    assert(runner.getContextUsage().tokens === 500_000, 'the first turn did not record usage');
+
+    // A second session written straight to disk, holding a small branch. Loading
+    // it rebinds the shared engine to a conversation that has run no step at all,
+    // so the only defensible reading is an estimate of ITS branch — never the
+    // 500K the engine still remembers from the session just left behind.
+    const other = SessionManager.create({ workspaceDir: cwd, cwd, title: 'other' });
+    other.appendMessage({ role: 'user', content: 'z'.repeat(350) });
+    const otherFile = other.getFilePath();
+    other.close();
+    assert(otherFile !== null, 'the second session never materialized');
+
+    runner.loadSession(otherFile);
+    assert(runner.getMessages().length === 1, `the loaded session has ${runner.getMessages().length} messages`);
+    const loaded = runner.getContextUsage();
+    assert(loaded.tokens !== 500_000, `the loaded session inherited a stale count: ${loaded.tokens}`);
+    assert(loaded.tokens === 100, `the loaded branch estimated ${loaded.tokens}, expected 100`);
+    assert(loaded.percent === 0, `the loaded branch read ${loaded.percent}%`);
+    runner.close();
+  });
+
+  await test('A resumed session with no step yet estimates its context from the branch', async () => {
+    const cwd = path.join(workspace, 'usage-resume');
+    await fs.mkdir(cwd, { recursive: true });
+
+    const options = {
+      workspaceDir: cwd,
+      memoryDir: path.join(sandbox, 'usage-resume-memory'),
+      spilloverDir: path.join(sandbox, 'usage-resume-spill'),
+      modelName: 'deepseek-chat'
+    };
+
+    const first = new AgentRunner({ ...options, stepCaller: new MockStepAdapter([{ text: 'x'.repeat(3500) }]) });
+    await first.run('hello');
+    const sessionFile = first.getSessionFile();
+    first.close();
+
+    // Reopening the log restores the branch but not the provider's count, so the
+    // estimate is the only thing keeping the meter off zero for a loaded session.
+    const second = new AgentRunner({
+      ...options,
+      sessionId: sessionFile ?? undefined,
+      stepCaller: new MockStepAdapter([{ text: 'y' }])
+    });
+    const usage = second.getContextUsage();
+    assert(second.getMessages().length > 0, 'resumed session lost its messages');
+    assert(usage.tokens >= 1000, `estimate did not see the branch: ${usage.tokens}`);
+    assert(usage.limit === 128_000, `deepseek-chat window ${usage.limit}`);
+    second.close();
+  });
+
+  await test('Model metadata table maps every advertised model to its window', async () => {
+    const expected: Array<[string, number, string]> = [
+      ['gemini-3.8-flash', 1_000_000, '1M'],
+      ['gemini-2.5-flash', 1_000_000, '1M'],
+      ['gemini-2.5-pro', 1_000_000, '1M'],
+      ['gemini-1.5-pro', 2_000_000, '2M'],
+      ['gemini-1.5-flash', 1_000_000, '1M'],
+      ['claude-sonnet-5', 1_000_000, '1M'],
+      ['claude-opus-5-5', 1_000_000, '1M'],
+      ['claude-haiku-4-5', 200_000, '200K'],
+      ['gpt-6-astra', 1_050_000, '1.1M'],
+      ['gpt-5.6-terra', 1_050_000, '1.1M'],
+      ['gpt-4o', 128_000, '128K'],
+      ['gpt-4o-mini', 128_000, '128K'],
+      ['gpt-4.1', 128_000, '128K'],
+      ['o1', 200_000, '200K'],
+      ['o3-mini', 200_000, '200K'],
+      ['deepseek-flash', 1_000_000, '1M'],
+      ['deepseek-v4-pro', 1_000_000, '1M'],
+      ['qwen3.8-max', 1_000_000, '1M'],
+      ['kimi-k3', 1_000_000, '1M'],
+      ['kimi-k2.6', 256_000, '256K'],
+      // Legacy ids that are still served keep their own rows; `qwen-max` is
+      // deliberately unrowed and so is the control for the default below.
+      ['qwen-max', 128_000, '128K'],
+      // An unknown model must not inherit a neighbour's window. Deliberately a
+      // synthetic id: a real-but-retired one would read as a supported model
+      // the table forgot.
+      ['some-unknown-model-9000', 128_000, '128K']
+    ];
+
+    for (const [model, limit, formatted] of expected) {
+      const meta = modelMetadataFor(model);
+      assert(meta.contextLimit === limit, `${model} window ${meta.contextLimit}, expected ${limit}`);
+      assert(meta.formattedContext === formatted, `${model} formatted ${meta.formattedContext}`);
+    }
+
+    // Tool support is asserted on the models where a wrong answer would change
+    // behaviour; both current DeepSeek ids declare tool calls, and the legacy
+    // `qwen-max` lands on the default row.
+    for (const model of [
+      'gemini-2.5-flash',
+      'claude-sonnet-5',
+      'gpt-4o',
+      'o3-mini',
+      'deepseek-flash',
+      'deepseek-v4-pro',
+      'qwen-max'
+    ]) {
+      assert(modelMetadataFor(model).tools === true, `${model} reported no tool support`);
+    }
+
+    // A figure below the million boundary must stay in `K` rather than being
+    // rounded up into `1M` — that is what `kimi-k2`'s 256K window pins.
+    assert(formatContextLimit(256_000) === '256K', `256000 formatted ${formatContextLimit(256_000)}`);
+    assert(formatContextLimit(1_000_000) === '1M', '1M formatting');
+    assert(formatContextLimit(2_000_000) === '2M', '2M formatting');
+    // A window that is not a whole number of millions keeps one decimal rather
+    // than collapsing to a whole `M`, which is what `gpt-6`'s 1.05M relies on.
+    assert(formatContextLimit(1_050_000) === '1.1M', `1050000 formatted ${formatContextLimit(1_050_000)}`);
+
+    // A gateway answers `models/gemini-2.5-flash`; the routing prefix is not part
+    // of the model's name and must not defeat the table.
+    assert(
+      modelMetadataFor('models/gemini-2.5-flash').contextLimit === 1_000_000,
+      'a prefixed model id missed the table'
+    );
+
+    // Capability flags that differ inside one family.
+    assert(modelMetadataFor('gpt-4o').vision === true, 'gpt-4o has no vision');
+    assert(modelMetadataFor('qwen3.8-max').vision === true, 'qwen3.8-max lost vision');
+    assert(modelMetadataFor('deepseek-flash').vision === true, 'deepseek-flash lost vision');
+    assert(modelMetadataFor('deepseek-v4-pro').vision === false, 'deepseek-v4-pro gained vision');
+    assert(modelMetadataFor('o1-mini').vision === false, 'o1-mini gained vision');
+    assert(modelMetadataFor('o1-mini').tools === false, 'o1-mini gained tools');
+  });
+
+  await test('Context estimate counts content, tool calls and tool results', async () => {
+    const toolCalls = [{ id: 'c1', name: 'bash', args: { command: 'ls' } }];
+    const toolResults = [{ toolCallId: 'c1', name: 'bash', result: 'y'.repeat(350) }];
+    const messages = [
+      { id: 'a', role: 'user' as const, content: 'x'.repeat(350), createdAt: 0 },
+      { id: 'b', role: 'assistant' as const, content: '', createdAt: 0, toolCalls },
+      { id: 'c', role: 'tool' as const, createdAt: 0, toolResults }
+    ];
+
+    const estimated = estimateContextTokens(messages);
+    assert(estimated >= 200, `estimate too low: ${estimated}`);
+    assert(estimateContextTokens([]) === 0, 'an empty branch must estimate zero');
+
+    // Differential, one term at a time. A bare `>= 200` did NOT pin the three
+    // terms: the fixture totals 228, so a mutant that stopped counting tool
+    // calls still landed on 213 and passed. Dropping a single term must lower
+    // the estimate by exactly that term's contribution (its JSON length over
+    // 3.5, the same conversion the function applies), which is what makes each
+    // term individually load-bearing. The fixture is sized so each term's
+    // contribution survives the function's single rounding step intact.
+    const drop = (id: string, patch: Record<string, unknown>) =>
+      estimateContextTokens(messages.map((message) => (message.id === id ? { ...message, ...patch } : message)));
+
+    const withoutToolCalls = drop('b', { toolCalls: undefined });
+    const withoutToolResults = drop('c', { toolResults: undefined });
+    const withoutContent = drop('a', { content: '' });
+
+    assert(
+      estimated - withoutToolCalls === Math.round(JSON.stringify(toolCalls).length / 3.5),
+      `tool calls not counted: ${estimated} vs ${withoutToolCalls}`
+    );
+    assert(
+      estimated - withoutToolResults === Math.round(JSON.stringify(toolResults).length / 3.5),
+      `tool results not counted: ${estimated} vs ${withoutToolResults}`
+    );
+    assert(
+      estimated - withoutContent === Math.round(350 / 3.5),
+      `content not counted: ${estimated} vs ${withoutContent}`
+    );
   });
 
   // ---------------------------------------------------------------------------

@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { SessionHeader } from './types.js';
 import { getSessionDir, SESSION_FILE_EXTENSION } from './paths.js';
+import { sessionTitle } from './title.js';
 
 export interface SessionDescriptor extends SessionHeader {
   filePath: string;
@@ -60,6 +61,12 @@ export function listSessions(
       const header = JSON.parse(firstLine) as SessionHeader;
       if (header?.type !== 'session' || typeof header.id !== 'string') continue;
       if (!hasMessageEntry(content)) continue;
+      // Same normalization as `readHeader`: a legacy on-disk placeholder is
+      // data, not copy, so the listing hands the shell "no title" and the
+      // shell renders its own localized label.
+      const title = sessionTitle(header);
+      if (title === undefined) delete header.title;
+      else header.title = title;
       descriptors.push({ ...header, filePath, mtimeMs: stat.mtimeMs });
     } catch {
       continue;

@@ -71,6 +71,20 @@ const MENU_LABELS = {
 } as const;
 
 /**
+ * Native About-panel copy, keyed by UI language.
+ *
+ * Same `zh`/`en` shape and same reason as {@link MENU_LABELS}: the panel is
+ * drawn by AppKit in the main process, so the renderer's dictionary
+ * (`packages/ui/public/i18n.js`) cannot reach it — but the product must not be
+ * described in two vocabularies, so `credits` repeats the SPA's
+ * `settings.about.product` string verbatim.
+ */
+export const ABOUT_LABELS = {
+  zh: { credits: 'SuperIU · 自主智能体控制台' },
+  en: { credits: 'SuperIU · Autonomous agent console' }
+} as const;
+
+/**
  * The macOS application menu.
  *
  * Accelerators here are REAL main-process menu accelerators — they are handled

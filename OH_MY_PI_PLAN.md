@@ -79,10 +79,10 @@ flowchart TD
     "id": "c1f9d2a6b9c0d123",
     "timestamp": "2026-09-21T12:00:00.000Z",
     "cwd": "/Users/kayphoon/SuperIU",
-    "title": "Initial Session",
     "titleSource": "auto"
   }
   ```
+  （`title` 为可选键：无人命名的会话不带该键，读取侧把旧版英文占位标题归一为"无标题"，文件不重写。）
 - **Entry 基础字段**：
   ```json
   {

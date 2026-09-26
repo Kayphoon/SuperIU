@@ -12,6 +12,7 @@ import {
   type SessionMessageEntry
 } from './types.js';
 import { createSessionFilePath, createSessionId } from './paths.js';
+import { sessionTitle } from './title.js';
 
 export interface SessionManagerOptions {
   /** Workspace root that owns the `.myagent/sessions` bucket. Defaults to the session cwd. */
@@ -98,9 +99,12 @@ export class SessionManager {
       id: createSessionId(),
       timestamp: new Date(timestamp).toISOString(),
       cwd,
-      title: options.title ?? 'Initial Session',
       titleSource: 'auto'
     };
+    // No invented title: a session nobody named carries no title at all, and
+    // each shell renders its own localized label for that state. Baking an
+    // English string in here leaks English into every other language.
+    if (options.title !== undefined) header.title = options.title;
 
     const inMemory = options.inMemory === true;
     const filePath = inMemory
@@ -140,7 +144,7 @@ export class SessionManager {
       id: createSessionId(),
       timestamp: new Date().toISOString(),
       cwd,
-      title: 'Initial Session',
+      // Same as `create`: no invented English title, see `title.ts`.
       titleSource: 'auto'
     };
     const manager = new SessionManager(header, filePath, false, true);
@@ -156,6 +160,11 @@ export class SessionManager {
       if (!firstLine) return null;
       const parsed = JSON.parse(firstLine) as SessionHeader;
       if (parsed?.type !== 'session' || typeof parsed.id !== 'string') return null;
+      // A legacy on-disk placeholder reads as "no title", so the shell renders
+      // its own label instead of the English string older builds stamped here.
+      const title = sessionTitle(parsed);
+      if (title === undefined) delete parsed.title;
+      else parsed.title = title;
       return parsed;
     } catch {
       return null;

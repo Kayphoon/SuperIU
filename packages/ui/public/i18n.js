@@ -2,7 +2,7 @@
  * SuperIU · UI internationalisation.
  *
  * ── Why a module rather than inline strings ─────────────────────────────────
- * The SPA is one 4500-line `index.html` plus `notifications.js`. Every
+ * The SPA is one large `index.html` plus `notifications.js`. Every
  * user-visible string lives in the dictionary below, so adding a language is a
  * data change rather than a hunt through render functions, and the two shells
  * that share `@agent/core` cannot drift into half-translated states.
@@ -19,9 +19,6 @@
  *
  * ── Markup contract ─────────────────────────────────────────────────────────
  *   `data-i18n`               → textContent
- *   `data-i18n-html`          → innerHTML (dictionary values are authored here,
- *                               never user input; only used where a key carries
- *                               inline `<code>`)
  *   `data-i18n-title`         → title attribute
  *   `data-i18n-placeholder`   → placeholder attribute
  *   `data-i18n-aria-label`    → aria-label attribute
@@ -63,6 +60,32 @@ const DICT = {
     'composer.stop.title': '中止本轮',
     'composer.send': '发送',
     'composer.send.title': '发送',
+
+    'composer.effort.title': '推理强度',
+    'composer.effort.aria': '推理强度',
+    'composer.effort.list': '推理强度选项',
+    'composer.effort.off': '关闭',
+    'composer.effort.unset': '未设置 —— 使用模型默认值',
+    'composer.effort.low': '低',
+    'composer.effort.medium': '中',
+    'composer.effort.high': '高',
+    'composer.effort.pending': '已保存 —— 切换到支持推理的模型后生效',
+
+    'composer.model.title': '主模型',
+    'composer.model.aria': '选择主模型',
+    'composer.model.search': '搜索模型…',
+    'composer.model.list': '模型列表',
+    'composer.model.empty': '没有匹配的模型',
+    'composer.model.current': '当前',
+    'composer.model.noModels': '{provider} 尚未添加模型',
+    'composer.model.favorites': '收藏',
+    'composer.model.favorite.add': '收藏 {model}',
+    'composer.model.favorite.remove': '取消收藏 {model}',
+    'composer.model.vision': '支持图像输入',
+    'composer.model.tools': '支持工具调用',
+
+    'composer.context.title': '{tokens} / {limit}（{percent}%）',
+    'composer.context.aria': '上下文占用 {percent}%',
     'menu.title': '更多',
     'menu.close': '关闭菜单',
 
@@ -75,10 +98,10 @@ const DICT = {
     'menu.session.new': '+ 新建',
     'menu.session.new.title': '新建会话',
     'menu.session.clear': '/clear',
-    'menu.session.clear.title': '追加 reset_boundary',
+    'menu.session.clear.title': '清除当前上下文 (/clear)',
 
-    'menu.model.select': '主模型（智能体循环）',
-    'menu.model.effort.title': '推理强度（主路由）',
+    'menu.model.select': '主模型',
+    'menu.model.effort.title': '推理强度',
     'menu.model.tool.title': '工具 / 审查模型',
     'menu.model.noEffort': '不发送',
     'menu.model.autoReviewOff': 'AutoReview 已关闭',
@@ -86,8 +109,17 @@ const DICT = {
     'menu.status.workstation': '实时工作站快照',
     'menu.status.detecting': '检测中…',
 
+    // Tooltip labels for the workstation badge. The values beside them (OS
+    // string, arch, git branch, timestamp) are data and stay verbatim; only
+    // these four labels and the "no branch" fallback are copy.
+    'workstation.os': '操作系统：',
+    'workstation.arch': '架构：',
+    'workstation.git': 'Git：',
+    'workstation.time': '时间：',
+    'workstation.none': '无',
+
     'menu.emotion.title': '情绪状态',
-    'menu.emotion.scale': 'VA · τ 5m',
+    'menu.emotion.scale': '近 5 分钟',
     'menu.emotion.valence': '效价',
     'menu.emotion.arousal': '唤醒度',
     'menu.emotion.fatigue': '疲劳度',
@@ -100,7 +132,7 @@ const DICT = {
 
     'menu.posture.title': '运行姿态',
     'menu.posture.baseline': '基线 —— 无生效的修饰语',
-    'menu.posture.caption': '以下为注入系统提示词的原文（保持英文，模型按原文执行）',
+    'menu.posture.caption': '以下文字即模型实际收到的内容，保持英文。',
 
     'posture.terse': '精简直接',
     'posture.cautious': '谨慎专注',
@@ -116,7 +148,7 @@ const DICT = {
     'menu.info.file': '日志文件',
 
     'menu.history.title': '输入历史',
-    'menu.history.empty': '(空)',
+    'menu.history.empty': '（空）',
 
     'menu.actions.notify': '通知',
     'menu.actions.notify.on': '通知已开',
@@ -128,22 +160,16 @@ const DICT = {
 
     'settings.title': '设置',
     'settings.close': '关闭设置',
-    'settings.apiKey': 'OPENAI_API_KEY',
-    'settings.apiKey.hint':
-      '本地保存在 <code>.myagent/ui-settings.json</code>（权限 0600）。留空则保留当前密钥。',
-    'settings.baseURL': 'OPENAI_BASE_URL',
-    'settings.baseURL.hint': '任意 OpenAI 兼容端点（DeepSeek、SiliconFlow、Ollama、Moonshot…）。',
-    'settings.model': '主模型名称',
-    'settings.model.hint': '也可在「更多」面板中切换。',
-    'settings.reviewModel': '工具 / 审查模型名称',
-    'settings.reviewModel.hint': '用于 AutoReview 的判定。',
+    'settings.apiKey': 'API 密钥',
+    'settings.apiKey.hint': '密钥保存在本地设备中。留空则保留当前密钥。',
+    'settings.baseURL': 'API 地址',
+    'settings.baseURL.hint': '服务商 API 基础地址（Base URL），留空使用默认地址。',
     'settings.effort': '推理强度',
-    'settings.effort.unset': '未设置 —— 从 OPENAI_REASONING_EFFORT 推导',
-    'settings.effort.active': '主路由当前发送 <span class="text-secondary">reasoningEffort: {level}</span>。',
-    'settings.effort.none': '主路由不发送 reasoningEffort。',
-    'settings.effort.unsupported':
-      '当前主模型不接受 reasoning_effort，因此不会发送（非推理模型会以 HTTP 400 拒绝该参数）。',
-    'settings.effort.pending': '仍会保存 —— 切换到推理模型后生效。',
+    'settings.effort.unset': '未设置 —— 使用模型默认值',
+    'settings.effort.active': '当前推理强度：<span class="text-secondary">{level}</span>。',
+    'settings.effort.none': '未设置推理强度，将使用服务商默认值。',
+    'settings.effort.unsupported': '当前模型不支持调整推理强度。',
+    'settings.effort.pending': '已保存 —— 切换到支持推理的模型后生效。',
     'settings.language': '界面语言',
     'settings.language.hint': '立即生效并保存，重启后保持。',
     'settings.theme': '界面主题',
@@ -155,13 +181,10 @@ const DICT = {
     'settings.autoReview.hint': '让每一次工具调用都经过工具模型审核；升级为人工确认的调用会弹出审批卡片。',
     'settings.notifications': '桌面通知与提示音',
     'settings.notifications.hint': '在审批请求与任务完成时提醒。',
-    'settings.env': '环境变量',
-    'settings.env.note': '已保存的设置优先于环境变量默认值。',
-    'settings.cancel': '取消',
     'settings.save': '保存',
     'settings.saving': '保存中…',
     'settings.saved': '✓ 已保存',
-    'settings.savedRestarted': '✓ 已保存 · 运行器已重启',
+    'settings.savedRestarted': '✓ 已保存并生效',
 
     'settings.nav.general': '通用',
     'settings.nav.providers': '模型配置',
@@ -169,7 +192,9 @@ const DICT = {
     'settings.general.title': '通用',
     'settings.general.subtitle': '界面、审批与推理行为',
     'settings.about.title': '关于',
-    'settings.about.subtitle': '文件位置与环境快照',
+    'settings.about.subtitle': '产品信息',
+    'settings.about.product': 'SuperIU · 自主智能体控制台',
+    'settings.about.storage': '所有设置与密钥仅保存在本机。',
     'settings.providers.title': '模型配置',
     'settings.providers.subtitle': '管理服务商、密钥与可用模型',
     'settings.providers.search': '搜索服务商…',
@@ -178,17 +203,18 @@ const DICT = {
     'settings.providers.empty': '没有匹配的服务商',
     'settings.providers.select': '从左侧选择一个服务商',
     'settings.providers.enabled': '启用',
+    'settings.providers.enabledHint': '设为当前生效服务商，对话与任务将通过此服务商执行。',
     'settings.providers.name': '名称',
     'settings.providers.delete': '删除服务商',
     'settings.providers.unnamed': '未命名服务商',
-    'settings.providers.desc.openai': 'OpenAI 官方端点，包括 GPT-4o、o3 与 GPT-4o-mini。',
-    'settings.providers.desc.anthropic': 'Anthropic Claude 模型，包括 Claude 3.7 Sonnet 与 Claude 3.5 Haiku。',
-    'settings.providers.desc.gemini': 'Google 官方 OpenAI 兼容端点，包括 Gemini 2.0 Flash 与 Gemini 1.5 Pro。',
-    'settings.providers.desc.deepseek': 'DeepSeek 开放平台，包括 DeepSeek-V3 与 DeepSeek-R1 推理模型。',
-    'settings.providers.desc.custom': '任意兼容 OpenAI 协议的自建端点、Ollama、OneAPI 或第三方中转。',
+    'settings.providers.desc.openai': 'OpenAI 官方端点，包括 gpt-6-astra、gpt-5.6-terra 与 gpt-4o。',
+    'settings.providers.desc.anthropic': 'Anthropic Claude 模型，包括 claude-sonnet-5、claude-opus-5-5 与 claude-haiku-4-5。',
+    'settings.providers.desc.gemini': 'Google 官方 OpenAI 兼容端点，包括 gemini-3.8-flash、gemini-2.5-flash 与 gemini-2.5-pro。',
+    'settings.providers.desc.deepseek': 'DeepSeek 开放平台，包括 deepseek-flash 与 deepseek-v4-pro。',
+    'settings.providers.desc.custom': '兼容 OpenAI 接口规范的自定义端点或本地服务。',
     'settings.providers.apiKey.unchanged': '{masked}（保持不变）',
     'settings.providers.apiKey.unset': '未配置 —— 输入密钥后保存',
-    'settings.providers.apiKey.warning': '当前服务商尚未配置密钥，请求会带着占位令牌发出并被服务端拒绝。请填入密钥后保存。',
+    'settings.providers.apiKey.warning': '当前服务商尚未配置密钥，暂时无法使用。请填入密钥后保存。',
     'settings.providers.name.custom': '自定义服务商',
     'settings.providers.apiKey.show': '显示密钥',
     'settings.providers.apiKey.hide': '隐藏密钥',
@@ -197,7 +223,7 @@ const DICT = {
     'settings.providers.fetching': '获取中…',
     'settings.providers.fetchOk': '已获取 {count} 个模型',
     'settings.providers.fetchFail': '获取失败：{message}',
-    'settings.providers.fetchHint': '通过 <code>/models</code> 实时拉取该端点公布的模型列表。',
+    'settings.providers.fetchHint': '实时获取该服务商支持的模型列表。',
     'settings.providers.models': '模型',
     'settings.providers.searchModels': '搜索模型…',
     'settings.providers.modelsEmpty': '暂无模型 —— 点击「获取模型」或手动添加。',
@@ -210,14 +236,14 @@ const DICT = {
     'settings.closeBtn': '关闭',
 
     'quit.title': '退出 SuperIU？',
-    'quit.body': 'Web 外壳将关闭，智能体会话已保存到其 JSONL 日志。',
+    'quit.body': '应用将退出，当前会话已保存在本地。',
     'quit.cancel': '取消',
     'quit.confirm': '退出',
 
     'complete.aria': '命令补全',
-    'slash.clear.desc': '清空当前上下文（追加 reset_boundary）',
+    'slash.clear.desc': '清空当前上下文，后续对话从新轮次开始',
     'slash.status.desc': '查看智能体与工作台状态',
-    'slash.sessions.desc': '列出已落盘会话',
+    'slash.sessions.desc': '列出已保存的会话',
 
     'palette.aria': '命令面板',
     'palette.placeholder': '输入命令…',
@@ -244,6 +270,29 @@ const DICT = {
     'status.aborted': '已中止',
     'status.error': '出错',
 
+    // The /status card pads its own labels so the values line up as a column.
+    // A CJK glyph (11.5px) is not an integral multiple of a monospace cell
+    // (6.92px), so ASCII spaces alone cannot align labels whose CJK length
+    // differs — each label carries U+3000 ideographic spaces sized so that
+    // every one occupies exactly six fullwidth cells, plus two ASCII spaces to
+    // land on the English column. Same reasoning as the CLI's `cli.status.*`
+    // keys; the `\u3000` escapes keep the padding reviewable.
+    'status.card.state': '状态：\u3000\u3000\u3000  ',
+    'status.card.session': '会话：\u3000\u3000\u3000  ',
+    'status.card.leaf': '叶节点：\u3000\u3000  ',
+    'status.card.messages': '消息数：\u3000\u3000  ',
+    'status.card.file': '日志文件：\u3000  ',
+    'status.card.mainModel': '主模型：\u3000\u3000  ',
+    'status.card.toolModel': '工具模型：\u3000  ',
+    'status.card.effort': '推理强度：\u3000  ',
+    'status.card.valence': '效价：\u3000\u3000\u3000  ',
+    'status.card.arousal': '\u3000唤醒度：\u3000  ',
+    'status.card.fatigue': '\u3000疲劳度：\u3000  ',
+    'status.card.posture': '运行姿态：\u3000  ',
+    'status.card.root': '（根）',
+    'status.card.autoReviewOff': '（AutoReview 已关闭）',
+    'status.card.noEffort': '（未发送）',
+
     'badge.running': '运行中',
     'badge.done': '完成',
     'badge.error': '错误',
@@ -253,7 +302,7 @@ const DICT = {
     'transcript.thinking': '思考中…',
     'transcript.thinkingSummary': '思考摘要（{n} 字）',
     'transcript.step': '步骤 {n}',
-    'transcript.stepReview': '审查 · 步骤 {n}',
+    'transcript.stepReview': '复核 · 步骤 {n}',
     'transcript.arguments': '参数',
     'transcript.output': '输出',
     'transcript.noOutput': '[无输出]',
@@ -266,6 +315,15 @@ const DICT = {
 
     'approval.title': '需要审批',
     'approval.via': '经由 {name}',
+    'approval.risk.safe': '安全',
+    'approval.risk.low': '低',
+    'approval.risk.medium': '中',
+    'approval.risk.high': '高',
+    'approval.risk.critical': '严重',
+    'approval.risk.unknown': '未知',
+    'approval.reviewer.rule': '规则引擎',
+    'approval.reviewer.model': '审查模型',
+    'approval.reviewer.unknown': '自动判定',
     'approval.waiting': '等待你的决定…',
     'approval.approve': '允许执行',
     'approval.reject': '拒绝',
@@ -274,11 +332,11 @@ const DICT = {
     'approval.retired': '已失效',
     'approval.retiredNote': '本轮在做出决定前已结束',
 
-    'session.file.inMemory': '(内存中)',
+    'session.file.inMemory': '（内存中）',
     'session.file.notWritten': '{path}（尚未写入）',
-    'session.select.empty': '(未开始的新会话)',
-    'session.select.none': '(暂无会话)',
-    'session.untitled': '会话 {id}',
+    'session.select.empty': '（未开始的新会话）',
+    'session.select.none': '（暂无会话）',
+    'session.untitled': '未命名会话',
 
     'toast.clipboard': '剪贴板不可用',
     'toast.unknownCommand': '未知命令：{cmd}',
@@ -289,18 +347,21 @@ const DICT = {
     'toast.newSession': '已创建新会话',
     'toast.loadedSession': '已加载会话 {id}',
     'toast.notifyEnabled': '桌面通知已开启',
-    'toast.notifyPermission': '通知权限：{permission}',
-    'toast.notifyUnavailable': 'notifications.js 不可用',
+    'toast.notifyPermission': '无法获取桌面通知权限。',
+    'toast.notifyPermission.granted': '桌面通知已开启。',
+    'toast.notifyPermission.denied': '桌面通知权限被拒绝，请在系统设置中开启。',
+    'toast.notifyPermission.default': '桌面通知权限尚未授权。',
+    'toast.notifyPermission.unsupported': '此环境不支持桌面通知。',
+    'toast.notifyUnavailable': '此环境不支持桌面通知。',
+    'toast.requestFailed': '请求失败，请稍后重试。',
     'toast.contextCleared': '上下文已清空',
     'toast.aborting': '正在中止本轮…',
     'toast.nothingRunning': '当前没有正在运行的任务',
     'toast.modelChanged': '主模型 → {model}',
     'toast.settingsSaved': '设置已保存',
-    'toast.shutdown': 'SuperIU Web 外壳已关闭，此标签页可以关闭了。',
-    'toast.about': 'SuperIU · 单核双驱 —— 自主智能体控制台',
-    'toast.docs': '文档：docs/shells-guide.md · docs/agent-loop-and-context-architecture.md',
+    'toast.shutdown': 'SuperIU 已关闭，此标签页可以关闭了。',
 
-    'note.resetBoundary': '✓ 已追加 reset_boundary · 有效上下文已截断',
+    'note.resetBoundary': '✓ 上下文已清空 · 后续对话将作为新轮次开始',
 
     'notify.stack': '通知',
     'notify.dismiss': '关闭通知',
@@ -311,7 +372,8 @@ const DICT = {
     'notify.waiting': '智能体正在等待你的决定。',
     'notify.alertsEnabled': 'SuperIU：通知已启用',
     'notify.alertsEnabledBody': '任务完成或需要审批时，你会收到提醒。',
-    'notify.settled': '智能体循环已结束。',
+    'notify.settled': '任务已结束，没有更多输出。',
+    'notify.approvalFallback': '此操作需要你确认后才会执行。',
     'notify.kind.info': '提示',
     'notify.kind.success': '完成',
     'notify.kind.error': '错误',
@@ -339,6 +401,32 @@ const DICT = {
     'composer.stop.title': 'Abort',
     'composer.send': 'Send',
     'composer.send.title': 'Send',
+
+    'composer.effort.title': 'Reasoning effort',
+    'composer.effort.aria': 'Reasoning effort',
+    'composer.effort.list': 'Reasoning effort options',
+    'composer.effort.off': 'Off',
+    'composer.effort.unset': 'Unset — use the model default',
+    'composer.effort.low': 'Low',
+    'composer.effort.medium': 'Medium',
+    'composer.effort.high': 'High',
+    'composer.effort.pending': 'Saved — applies once a reasoning-capable model is active',
+
+    'composer.model.title': 'Main model',
+    'composer.model.aria': 'Choose the main model',
+    'composer.model.search': 'Search models…',
+    'composer.model.list': 'Model list',
+    'composer.model.empty': 'No matching model',
+    'composer.model.current': 'Current',
+    'composer.model.noModels': '{provider} has no models yet',
+    'composer.model.favorites': 'Favorites',
+    'composer.model.favorite.add': 'Add {model} to favorites',
+    'composer.model.favorite.remove': 'Remove {model} from favorites',
+    'composer.model.vision': 'Accepts image input',
+    'composer.model.tools': 'Supports tool calls',
+
+    'composer.context.title': '{tokens} / {limit} ({percent}%)',
+    'composer.context.aria': 'Context usage {percent}%',
     'menu.title': 'More',
     'menu.close': 'Close menu',
 
@@ -351,10 +439,10 @@ const DICT = {
     'menu.session.new': '+ New',
     'menu.session.new.title': 'New session',
     'menu.session.clear': '/clear',
-    'menu.session.clear.title': 'Append reset_boundary',
+    'menu.session.clear.title': 'Clear conversation context (/clear)',
 
-    'menu.model.select': 'Main model (agent loop)',
-    'menu.model.effort.title': 'Reasoning effort (main route)',
+    'menu.model.select': 'Main model',
+    'menu.model.effort.title': 'Reasoning effort',
     'menu.model.tool.title': 'Tool / review model',
     'menu.model.noEffort': 'no effort',
     'menu.model.autoReviewOff': 'AutoReview off',
@@ -362,8 +450,14 @@ const DICT = {
     'menu.status.workstation': 'Live workstation snapshot',
     'menu.status.detecting': 'detecting…',
 
+    'workstation.os': 'OS:',
+    'workstation.arch': 'Arch:',
+    'workstation.git': 'Git:',
+    'workstation.time': 'Time:',
+    'workstation.none': 'n/a',
+
     'menu.emotion.title': 'Emotion State',
-    'menu.emotion.scale': 'VA · τ 5m',
+    'menu.emotion.scale': 'last 5 minutes',
     'menu.emotion.valence': 'Valence',
     'menu.emotion.arousal': 'Arousal',
     'menu.emotion.fatigue': 'Fatigue',
@@ -376,7 +470,7 @@ const DICT = {
 
     'menu.posture.title': 'Operational Posture',
     'menu.posture.baseline': 'baseline — no active modifier',
-    'menu.posture.caption': 'Injected system-prompt text, shown verbatim (English is what the model reads)',
+    'menu.posture.caption': 'The text below is exactly what the model receives, so it stays in English.',
 
     'posture.terse': 'Terse & Direct',
     'posture.cautious': 'Cautious & Focused',
@@ -404,22 +498,16 @@ const DICT = {
 
     'settings.title': 'Settings',
     'settings.close': 'Close settings',
-    'settings.apiKey': 'OPENAI_API_KEY',
-    'settings.apiKey.hint':
-      'Stored locally in <code>.myagent/ui-settings.json</code> (0600). Leave blank to keep the current key.',
-    'settings.baseURL': 'OPENAI_BASE_URL',
-    'settings.baseURL.hint': 'Any OpenAI-compatible endpoint (DeepSeek, SiliconFlow, Ollama, Moonshot…).',
-    'settings.model': 'Main Model Name',
-    'settings.model.hint': 'Also switchable from the secondary menu.',
-    'settings.reviewModel': 'Tool / Review Model Name',
-    'settings.reviewModel.hint': 'Used for AutoReview verdicts.',
+    'settings.apiKey': 'API Key',
+    'settings.apiKey.hint': 'Stored locally on your device. Leave empty to keep current key.',
+    'settings.baseURL': 'Base URL',
+    'settings.baseURL.hint': 'Provider API base URL. Leave empty to use the default.',
     'settings.effort': 'Reasoning Effort',
-    'settings.effort.unset': 'Unset — derive from OPENAI_REASONING_EFFORT',
-    'settings.effort.active': 'Main route currently sends <span class="text-secondary">reasoningEffort: {level}</span>.',
-    'settings.effort.none': 'Main route sends no reasoningEffort.',
-    'settings.effort.unsupported':
-      'The current main model does not accept reasoning_effort, so nothing is sent (a non-reasoning model rejects the parameter with HTTP 400).',
-    'settings.effort.pending': 'Saved anyway — it will apply once you switch to a reasoning model.',
+    'settings.effort.unset': 'Unset — use the model default',
+    'settings.effort.active': 'Current reasoning effort: <span class="text-secondary">{level}</span>.',
+    'settings.effort.none': 'No reasoning effort set; the provider default applies.',
+    'settings.effort.unsupported': 'The current model does not support adjusting reasoning effort.',
+    'settings.effort.pending': 'Saved — it applies once you switch to a reasoning-capable model.',
     'settings.language': 'Interface Language',
     'settings.language.hint': 'Applies immediately and persists across restarts.',
     'settings.theme': 'Appearance',
@@ -432,13 +520,10 @@ const DICT = {
       'Gate every tool call through the tool model. Escalated calls surface an interactive approval card.',
     'settings.notifications': 'Desktop notifications & chime',
     'settings.notifications.hint': 'Alert on approval requests and task completion.',
-    'settings.env': 'Environment',
-    'settings.env.note': 'Saved settings override environment defaults.',
-    'settings.cancel': 'Cancel',
     'settings.save': 'Save',
     'settings.saving': 'Saving…',
     'settings.saved': '✓ Saved',
-    'settings.savedRestarted': '✓ Saved · runner restarted',
+    'settings.savedRestarted': '✓ Saved and applied',
 
     'settings.nav.general': 'General',
     'settings.nav.providers': 'Model Configuration',
@@ -446,7 +531,9 @@ const DICT = {
     'settings.general.title': 'General',
     'settings.general.subtitle': 'Interface, approvals, and reasoning behaviour',
     'settings.about.title': 'About',
-    'settings.about.subtitle': 'File locations and environment snapshot',
+    'settings.about.subtitle': 'Product information',
+    'settings.about.product': 'SuperIU · Autonomous agent console',
+    'settings.about.storage': 'All settings and keys are stored on this device only.',
     'settings.providers.title': 'Model Configuration',
     'settings.providers.subtitle': 'Manage providers, credentials, and available models',
     'settings.providers.search': 'Search providers…',
@@ -455,18 +542,18 @@ const DICT = {
     'settings.providers.empty': 'No matching providers',
     'settings.providers.select': 'Select a provider on the left',
     'settings.providers.enabled': 'Enabled',
+    'settings.providers.enabledHint': 'Set as the active provider; conversation and tasks will route through it.',
     'settings.providers.name': 'Name',
     'settings.providers.delete': 'Delete provider',
     'settings.providers.unnamed': 'Unnamed provider',
-    'settings.providers.desc.openai': "OpenAI's own endpoint, including GPT-4o, o3, and GPT-4o-mini.",
-    'settings.providers.desc.anthropic': 'Anthropic Claude models, including Claude 3.7 Sonnet and Claude 3.5 Haiku.',
-    'settings.providers.desc.gemini': "Google's OpenAI-compatible endpoint, including Gemini 2.0 Flash and Gemini 1.5 Pro.",
-    'settings.providers.desc.deepseek': 'The DeepSeek platform, including DeepSeek-V3 and the DeepSeek-R1 reasoning model.',
-    'settings.providers.desc.custom': 'Any OpenAI-compatible endpoint: a self-hosted server, Ollama, OneAPI, or a third-party relay.',
+    'settings.providers.desc.openai': "OpenAI's own endpoint, including gpt-6-astra, gpt-5.6-terra, and gpt-4o.",
+    'settings.providers.desc.anthropic': 'Anthropic Claude models, including claude-sonnet-5, claude-opus-5-5, and claude-haiku-4-5.',
+    'settings.providers.desc.gemini': "Google's OpenAI-compatible endpoint, including gemini-3.8-flash, gemini-2.5-flash, and gemini-2.5-pro.",
+    'settings.providers.desc.deepseek': 'The DeepSeek platform, including deepseek-flash and deepseek-v4-pro.',
+    'settings.providers.desc.custom': 'OpenAI-compatible custom endpoint or local service.',
     'settings.providers.apiKey.unchanged': '{masked} (unchanged)',
     'settings.providers.apiKey.unset': 'Not configured — enter a key and save',
-    'settings.providers.apiKey.warning':
-      'This active provider has no key, so requests go out with a placeholder token and are rejected. Enter a key and save.',
+    'settings.providers.apiKey.warning': 'This provider has no API key yet and cannot be used. Enter a key and save.',
     'settings.providers.name.custom': 'Custom provider',
     'settings.providers.apiKey.show': 'Show key',
     'settings.providers.apiKey.hide': 'Hide key',
@@ -475,7 +562,7 @@ const DICT = {
     'settings.providers.fetching': 'Fetching…',
     'settings.providers.fetchOk': 'Fetched {count} models',
     'settings.providers.fetchFail': 'Fetch failed: {message}',
-    'settings.providers.fetchHint': 'Pulls the model list this endpoint advertises from <code>/models</code> in real time.',
+    'settings.providers.fetchHint': 'Fetch available models from this provider.',
     'settings.providers.models': 'Models',
     'settings.providers.searchModels': 'Search models…',
     'settings.providers.modelsEmpty': 'No models yet — fetch them or add one manually.',
@@ -488,14 +575,14 @@ const DICT = {
     'settings.closeBtn': 'Close',
 
     'quit.title': 'Quit SuperIU?',
-    'quit.body': 'The web shell will shut down and the agent session is saved to its JSONL log.',
+    'quit.body': 'The application will close. Your session is saved locally.',
     'quit.cancel': 'Cancel',
     'quit.confirm': 'Quit',
 
     'complete.aria': 'Command completion',
-    'slash.clear.desc': 'Clear the current context (appends reset_boundary)',
+    'slash.clear.desc': 'Clear the current context; later messages start fresh',
     'slash.status.desc': 'Show agent and workstation status',
-    'slash.sessions.desc': 'List persisted sessions',
+    'slash.sessions.desc': 'List saved sessions',
 
     'palette.aria': 'Command palette',
     'palette.placeholder': 'Type a command…',
@@ -522,6 +609,27 @@ const DICT = {
     'status.aborted': 'Aborted',
     'status.error': 'Error',
 
+    // Padding rationale lives on the zh entries; the English labels are twelve
+    // monospace cells, which is the column the Chinese labels are sized to.
+    'status.card.state': 'state:      ',
+    'status.card.session': 'session:    ',
+    'status.card.leaf': 'leaf:       ',
+    'status.card.messages': 'messages:   ',
+    'status.card.file': 'file:       ',
+    'status.card.mainModel': 'main model: ',
+    'status.card.toolModel': 'tool model: ',
+    'status.card.effort': 'effort:     ',
+    'status.card.valence': 'valence:    ',
+    // The arousal/fatigue labels keep a leading separator, because the emotion
+    // row is a run of label+value pairs: without it the previous value would
+    // touch the next label.
+    'status.card.arousal': '   arousal: ',
+    'status.card.fatigue': '   fatigue: ',
+    'status.card.posture': 'posture:    ',
+    'status.card.root': '(root)',
+    'status.card.autoReviewOff': ' (autoReview off)',
+    'status.card.noEffort': '(none sent)',
+
     'badge.running': 'RUNNING',
     'badge.done': 'DONE',
     'badge.error': 'ERROR',
@@ -531,7 +639,7 @@ const DICT = {
     'transcript.thinking': 'Thinking…',
     'transcript.thinkingSummary': 'Thinking summary ({n} words)',
     'transcript.step': 'step {n}',
-    'transcript.stepReview': 'review · step {n}',
+    'transcript.stepReview': 'check · step {n}',
     'transcript.arguments': 'arguments',
     'transcript.output': 'output',
     'transcript.noOutput': '[no output]',
@@ -544,6 +652,15 @@ const DICT = {
 
     'approval.title': 'Approval required',
     'approval.via': 'via {name}',
+    'approval.risk.safe': 'safe',
+    'approval.risk.low': 'low',
+    'approval.risk.medium': 'medium',
+    'approval.risk.high': 'high',
+    'approval.risk.critical': 'critical',
+    'approval.risk.unknown': 'unknown',
+    'approval.reviewer.rule': 'rule engine',
+    'approval.reviewer.model': 'review model',
+    'approval.reviewer.unknown': 'automatic decision',
     'approval.waiting': 'waiting for your decision…',
     'approval.approve': 'Approve',
     'approval.reject': 'Reject',
@@ -556,7 +673,7 @@ const DICT = {
     'session.file.notWritten': '{path} (not written yet)',
     'session.select.empty': '(no session yet)',
     'session.select.none': '(no sessions)',
-    'session.untitled': 'Session {id}',
+    'session.untitled': 'Untitled session',
 
     'toast.clipboard': 'Clipboard unavailable',
     'toast.unknownCommand': 'Unknown command: {cmd}',
@@ -567,18 +684,21 @@ const DICT = {
     'toast.newSession': 'New session created',
     'toast.loadedSession': 'Loaded session {id}',
     'toast.notifyEnabled': 'Desktop notifications enabled',
-    'toast.notifyPermission': 'Notification permission {permission}',
-    'toast.notifyUnavailable': 'notifications.js unavailable',
+    'toast.notifyPermission': 'Could not determine the desktop notification permission.',
+    'toast.notifyPermission.granted': 'Desktop notifications are enabled.',
+    'toast.notifyPermission.denied': 'Desktop notification permission was denied — enable it in System Settings.',
+    'toast.notifyPermission.default': 'Desktop notification permission has not been granted yet.',
+    'toast.notifyPermission.unsupported': 'Desktop notifications are not available in this environment.',
+    'toast.notifyUnavailable': 'Desktop notifications are not available in this environment.',
+    'toast.requestFailed': 'The request failed. Please try again.',
     'toast.contextCleared': 'Context cleared',
     'toast.aborting': 'Aborting turn…',
     'toast.nothingRunning': 'Nothing is running',
     'toast.modelChanged': 'Main model → {model}',
     'toast.settingsSaved': 'Settings saved',
-    'toast.shutdown': 'SuperIU web shell shut down. This tab can be closed.',
-    'toast.about': 'SuperIU · One Core, Two Shells — autonomous agent console',
-    'toast.docs': 'Docs: docs/shells-guide.md · docs/agent-loop-and-context-architecture.md',
+    'toast.shutdown': 'SuperIU has shut down. This tab can be closed.',
 
-    'note.resetBoundary': '✓ reset_boundary appended · active context truncated',
+    'note.resetBoundary': '✓ Context cleared · subsequent messages start a new context',
 
     'notify.stack': 'Notifications',
     'notify.dismiss': 'Dismiss notification',
@@ -589,7 +709,8 @@ const DICT = {
     'notify.waiting': 'The agent is waiting for your decision.',
     'notify.alertsEnabled': 'SuperIU: 通知已启用 / Alerts enabled',
     'notify.alertsEnabledBody': 'You will be notified when a task completes or an approval is needed.',
-    'notify.settled': 'The agent loop has settled.',
+    'notify.settled': 'The task finished without further output.',
+    'notify.approvalFallback': 'This action needs your confirmation before it can run.',
     'notify.kind.info': 'Info',
     'notify.kind.success': 'Done',
     'notify.kind.error': 'Error',
@@ -641,8 +762,9 @@ function lookup(key) {
 
 /**
  * Translate `key`, substituting `{name}` placeholders from `params`.
- * Values are authored here and never user input, so HTML-bearing entries are
- * safe to hand to `innerHTML` (the `*-html` markup attribute does exactly that).
+ * Values are authored here and never user input, so an entry that carries
+ * inline markup (`settings.effort.active`) is safe to hand to `innerHTML` —
+ * which is what `renderReasoningHint()` does with it.
  */
 export function t(key, params) {
   const value = lookup(key);
@@ -665,9 +787,6 @@ export function apply(root) {
   const scope = root ?? document;
   scope.querySelectorAll('[data-i18n]').forEach((node) => {
     node.textContent = t(node.dataset.i18n);
-  });
-  scope.querySelectorAll('[data-i18n-html]').forEach((node) => {
-    node.innerHTML = t(node.dataset.i18nHtml);
   });
   scope.querySelectorAll('[data-i18n-title]').forEach((node) => {
     node.title = t(node.dataset.i18nTitle);

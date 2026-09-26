@@ -5,7 +5,8 @@ import type { ToolCallItem, ToolResultItem } from '../context/types.js';
 import type {
   StepModelCaller,
   LoopExecutionOptions,
-  StepExecutionResult
+  StepExecutionResult,
+  StepUsage
 } from './types.js';
 import type { IAutoReviewer, PermissionGate, ReviewResult } from '../review/types.js';
 import { type ModelRoute, type ModelRouter } from '../model/router.js';
@@ -44,6 +45,11 @@ export interface AgentLoopRunResult {
   stepCount: number;
   totalToolCalls: number;
   aborted: boolean;
+  /**
+   * Usage of the LAST step that reported any, so a caller gets the context size
+   * of the turn it just ran without reaching into the engine.
+   */
+  usage?: StepUsage;
   error?: Error;
 }
 
@@ -73,6 +79,13 @@ export class AgentLoopEngine {
   public workspaceDir: string;
   public modelRouter?: ModelRouter;
   public createStepCaller?: (route: ModelRoute) => StepModelCaller;
+  /**
+   * Usage reported by the most recent step, or `undefined` before any step has
+   * run in this engine's lifetime. Held on the engine (rather than returned only
+   * from `run`) because a shell polls it while the turn is still streaming —
+   * `run` has not resolved yet, but the meter must already move.
+   */
+  public latestUsage?: StepUsage;
 
   constructor(options: AgentLoopEngineOptions) {
     this.session = options.session;
@@ -140,7 +153,8 @@ export class AgentLoopEngine {
           finalText: lastAssistantText || '[Task aborted by user]',
           stepCount: stepIndex,
           totalToolCalls,
-          aborted: true
+          aborted: true,
+          usage: this.latestUsage
         };
       }
 
@@ -173,7 +187,8 @@ export class AgentLoopEngine {
             finalText: lastAssistantText || '[Task aborted by user]',
             stepCount: stepIndex,
             totalToolCalls,
-            aborted: true
+            aborted: true,
+            usage: this.latestUsage
           };
         }
 
@@ -182,6 +197,12 @@ export class AgentLoopEngine {
       }
 
       lastAssistantText = stepResult.text;
+      // Kept for the whole engine, not just this turn: a shell polls it mid-turn
+      // (before `run` resolves) and after a reload, when the resumed branch has
+      // no usage of its own to report.
+      if (stepResult.usage) {
+        this.latestUsage = stepResult.usage;
+      }
 
       // 3. Persist the assistant turn (with its tool calls) into the JSONL tree.
       this.session.appendMessage({
@@ -197,7 +218,8 @@ export class AgentLoopEngine {
           finalText: stepResult.text,
           stepCount: stepIndex,
           totalToolCalls,
-          aborted: false
+          aborted: false,
+          usage: this.latestUsage
         };
       }
 
@@ -306,7 +328,8 @@ export class AgentLoopEngine {
       finalText: lastAssistantText || '[Loop reached maximum step limit]',
       stepCount: stepIndex,
       totalToolCalls,
-      aborted: false
+      aborted: false,
+      usage: this.latestUsage
     };
   }
 

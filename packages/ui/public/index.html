@@ -1846,6 +1846,279 @@
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+
+      /* =====================================================================
+         Composer tool pills (effort · model · context)
+
+         These are the composer's own read-outs, so they take the composer's
+         control language — a fully-rounded pill on the inset token, like
+         `.siu-btn-send` / `.siu-btn-stop` — rather than the 18px `.siu-chip`
+         the drawer uses for its labels.
+         ===================================================================== */
+      .siu-pill,
+      .siu-context-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--siu-space-1);
+        height: 22px;
+        max-width: 190px;
+        padding: 0 var(--siu-space-2);
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-full);
+        background: var(--siu-bg-inset);
+        color: var(--siu-text-muted);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-micro);
+        line-height: 1;
+        white-space: nowrap;
+        transition: border-color var(--siu-dur-base) var(--siu-ease-out),
+          background var(--siu-dur-base) var(--siu-ease-out),
+          color var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-pill {
+        cursor: pointer;
+      }
+      /* The context meter is a reading, not a control — no pointer, no hover.
+         Named apart from the emotion bars' `.siu-meter`, which is a 6px track:
+         sharing the name would repaint those as pills. */
+      .siu-context-pill {
+        cursor: default;
+      }
+      .siu-pill > svg,
+      .siu-context-pill > svg {
+        flex: none;
+      }
+      .siu-pill-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .siu-pill-chev {
+        opacity: 0.6;
+      }
+      /* The level owns the resting colour, so a pill reads as a state rather
+         than a button — the same mapping `.siu-chip--effort` uses. `off` has no
+         rule: the base declaration above already is that colour. */
+      .siu-pill[data-level='high'] {
+        border-color: var(--siu-warn-bd);
+        background: var(--siu-warn-bg);
+        color: var(--siu-warn-fg);
+      }
+      .siu-pill[data-level='medium'] {
+        border-color: var(--siu-info-bd);
+        background: var(--siu-info-bg);
+        color: var(--siu-info-fg);
+      }
+      .siu-pill[data-level='low'] {
+        border-color: var(--siu-accent-border);
+        background: var(--siu-accent-weak);
+        color: var(--siu-accent-text);
+      }
+      /* Interaction state outranks the level colour, so hover is visible on a
+         pill whatever state it is in. Unqualified by `[data-level]`: the model
+         pill has no level, and a level-less pill must still react. Source order
+         puts these after the level rules, so they win at equal specificity. */
+      .siu-pill:hover,
+      .siu-pill[aria-expanded='true'] {
+        border-color: var(--siu-border-strong);
+        background: var(--siu-bg-hover);
+        color: var(--siu-text-primary);
+      }
+      .siu-pill:focus-visible {
+        outline: none;
+        border-color: var(--siu-accent-border);
+        box-shadow: 0 0 0 3px var(--siu-accent-weak);
+      }
+      /* Context meter: calm while the window is half empty, amber past 60%,
+         then red past 85% — the point where a long turn starts compacting. */
+      .siu-context-pill[data-level='ok'] {
+        color: var(--siu-success-fg);
+      }
+      .siu-context-pill[data-level='warn'] {
+        color: var(--siu-warn-fg);
+      }
+      .siu-context-pill[data-level='danger'] {
+        border-color: var(--siu-danger-bd);
+        background: var(--siu-danger-bg);
+        color: var(--siu-danger-fg);
+      }
+      .siu-ring-track {
+        stroke: var(--siu-border-strong);
+      }
+      .siu-ring-fill {
+        stroke: currentColor;
+      }
+      /* Start the arc at 12 o'clock rather than 3 o'clock. */
+      .siu-ring {
+        transform: rotate(-90deg);
+      }
+
+      /* =====================================================================
+         Composer popovers (model · reasoning effort)
+
+         Anchored ABOVE the toolbar: the composer is pinned to the bottom of the
+         window, so a panel opening downward would leave its list off-screen.
+         Absolutely positioned inside `.siu-composer-inner`, so opening one never
+         reflows the transcript — the same reason `#complete` is.
+         ===================================================================== */
+      .siu-popover {
+        position: absolute;
+        left: 0;
+        bottom: calc(100% + 8px);
+        z-index: 41;
+        display: flex;
+        flex-direction: column;
+        max-height: min(360px, 60vh);
+        padding: 5px;
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-md);
+        background: var(--siu-bg-panel);
+        backdrop-filter: blur(36px) saturate(190%);
+        -webkit-backdrop-filter: blur(36px) saturate(190%);
+        box-shadow: 0 16px 42px -10px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.08);
+      }
+      .siu-popover[hidden] {
+        display: none;
+      }
+      .siu-popover--model {
+        width: min(440px, 100%);
+      }
+      .siu-popover--effort {
+        width: min(200px, 100%);
+      }
+      .siu-popover-search {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-2);
+        padding: 6px var(--siu-space-2);
+        border-bottom: 1px solid var(--siu-border);
+        color: var(--siu-text-muted);
+      }
+      /* `appearance: none` plus an explicit background: the UA field look would
+         otherwise paint a native inset control inside our panel. */
+      .siu-popover-search input {
+        flex: 1;
+        min-width: 0;
+        border: none;
+        appearance: none;
+        -webkit-appearance: none;
+        background: transparent;
+        outline: none;
+        color: var(--siu-text-primary);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
+      }
+      .siu-popover-search input::placeholder {
+        color: var(--siu-text-disabled);
+      }
+      .siu-popover-body {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+        overflow-y: auto;
+        padding-top: var(--siu-space-1);
+      }
+      .siu-popover-group-head {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 6px var(--siu-space-2) 3px;
+        color: var(--siu-text-muted);
+        font-family: var(--siu-font-mono);
+        font-size: 9.5px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      /* Row, not a button: it nests the star toggle, so it cannot be one. */
+      .siu-popover-row {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-2);
+        padding: 6px var(--siu-space-2);
+        border-radius: var(--siu-radius-sm);
+        cursor: pointer;
+        transition: background var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-popover-row:hover {
+        background: var(--siu-bg-hover);
+      }
+      /* Rows are focusable (roving tabindex), so they need a visible focus ring —
+         without one the arrow keys move an invisible caret. */
+      .siu-popover-row:focus-visible {
+        outline: none;
+        background: var(--siu-bg-hover);
+        box-shadow: 0 0 0 2px var(--siu-accent-border);
+      }
+      .siu-popover-row[data-current='true'] {
+        background: var(--siu-accent-weak);
+      }
+      .siu-popover-check {
+        display: inline-flex;
+        flex: none;
+        width: 12px;
+        color: var(--siu-accent-text);
+      }
+      .siu-popover-name {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        color: var(--siu-text-secondary);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .siu-popover-row[data-current='true'] .siu-popover-name {
+        color: var(--siu-text-primary);
+      }
+      .siu-popover-meta {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        gap: 5px;
+        color: var(--siu-text-muted);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-micro);
+        font-variant-numeric: tabular-nums;
+      }
+      .siu-popover-badge {
+        display: inline-flex;
+        color: var(--siu-text-muted);
+      }
+      .siu-popover-star {
+        display: inline-flex;
+        flex: none;
+        align-items: center;
+        justify-content: center;
+        width: 20px;
+        height: 20px;
+        padding: 0;
+        border: none;
+        border-radius: var(--siu-radius-xs);
+        background: transparent;
+        color: var(--siu-text-disabled);
+        cursor: pointer;
+        transition: background var(--siu-dur-base) var(--siu-ease-out),
+          color var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-popover-star:hover {
+        background: var(--siu-bg-hover);
+        color: var(--siu-warn-fg);
+      }
+      .siu-popover-star[data-on='true'] {
+        color: var(--siu-warn-fg);
+      }
+      .siu-popover-empty {
+        padding: 10px var(--siu-space-2);
+        color: var(--siu-text-muted);
+        font-size: var(--siu-text-tiny);
+      }
+      .siu-popover-hint {
+        padding: 6px var(--siu-space-2) 2px;
+        border-top: 1px solid var(--siu-border);
+        color: var(--siu-text-muted);
+        font-size: var(--siu-text-micro);
+      }
       .siu-btn-send {
         display: inline-flex;
         align-items: center;
@@ -2552,12 +2825,15 @@
         gap: var(--siu-space-4);
         padding: var(--siu-space-5);
       }
-      .siu-provider-name-row {
-        display: flex;
-        align-items: flex-end;
-        gap: var(--siu-space-3);
-      }
       .siu-provider-name-field {
+        min-width: 0;
+      }
+      .siu-provider-name-control {
+        display: flex;
+        align-items: center;
+        gap: var(--siu-space-2);
+      }
+      .siu-provider-name-control .siu-field {
         flex: 1;
         min-width: 0;
       }
@@ -2854,6 +3130,52 @@
                    the markup (rather than built per keystroke) so the list is a
                    stable node the keydown handler can address. -->
               <div id="complete" class="siu-complete" role="listbox" aria-label="命令补全" data-i18n-aria-label="complete.aria" hidden></div>
+              <!-- Model picker. Populated by renderModelPopover() on open (and
+                   on every keystroke in its search box) so it always reflects
+                   the live settings + favorites. -->
+              <div
+                id="model-popover"
+                class="siu-popover siu-popover--model siu-pop"
+                role="dialog"
+                aria-label="选择主模型"
+                data-i18n-aria-label="composer.model.aria"
+                hidden
+              >
+                <div class="siu-popover-search">
+                  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" stroke-linecap="round" />
+                  </svg>
+                  <input
+                    id="model-search"
+                    type="text"
+                    autocomplete="off"
+                    spellcheck="false"
+                    placeholder="搜索模型…"
+                    data-i18n-placeholder="composer.model.search"
+                    aria-label="搜索模型"
+                    data-i18n-aria-label="composer.model.search"
+                  />
+                </div>
+                <div id="model-popover-list" class="siu-popover-body siu-no-scrollbar" role="listbox" aria-label="模型列表" data-i18n-aria-label="composer.model.list"></div>
+              </div>
+              <!-- Reasoning effort. Four fixed rows, so it is rebuilt per open
+                   rather than kept in the markup — the labels are dictionary
+                   lookups that a language switch has to re-resolve. -->
+              <div
+                id="effort-popover"
+                class="siu-popover siu-popover--effort siu-pop"
+                role="dialog"
+                aria-label="推理强度"
+                data-i18n-aria-label="composer.effort.aria"
+                hidden
+              >
+                <div
+                  id="effort-popover-list"
+                  role="listbox"
+                  aria-label="推理强度选项"
+                  data-i18n-aria-label="composer.effort.list"
+                ></div>
+              </div>
               <div class="siu-composer-well">
                 <textarea
                   id="prompt"
@@ -2863,6 +3185,72 @@
                   class="siu-composer-input"
                 ></textarea>
                 <div class="siu-composer-toolbar">
+                  <!-- Left group: the three state controls. Built as static
+                       markup (not JS) so the icons live next to the rest of the
+                       page's SVGs; only the labels, `data-level` and the ring
+                       geometry are rewritten by renderStatus(). -->
+                  <div class="flex items-center gap-1.5 min-w-0">
+                    <button
+                      id="btn-effort"
+                      class="siu-pill"
+                      type="button"
+                      data-level="off"
+                      aria-haspopup="true"
+                      aria-expanded="false"
+                      title="推理强度"
+                      data-i18n-title="composer.effort.title"
+                    >
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true">
+                        <path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.4.3.5.7.5 1.1h6c0-.4.1-.8.5-1.1A6 6 0 0 0 12 3z" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                      <span id="effort-label" class="siu-pill-label"></span>
+                    </button>
+                    <button
+                      id="btn-model"
+                      class="siu-pill"
+                      type="button"
+                      aria-haspopup="true"
+                      aria-expanded="false"
+                      title="主模型"
+                      data-i18n-title="composer.model.title"
+                    >
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor" aria-hidden="true">
+                        <path d="M12 2l2.2 6.4L20.5 11l-6.3 2.6L12 20l-2.2-6.4L3.5 11l6.3-2.6z" />
+                        <path d="M18.5 2l.9 2.6L22 5.5l-2.6.9-.9 2.6-.9-2.6L15 5.5l2.6-.9z" opacity="0.75" />
+                      </svg>
+                      <span id="model-label" class="siu-pill-label"></span>
+                      <svg class="siu-pill-chev" viewBox="0 0 10 10" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                        <path d="M2.5 6.5L5 4l2.5 2.5" stroke-linecap="round" stroke-linejoin="round" />
+                      </svg>
+                    </button>
+                    <!-- Read-out, not a control: there is nothing to open, so it
+                         is a span rather than a button that would lie about
+                         being actionable. `role="img"` keeps it out of the tab
+                         order while its label still describes the reading. -->
+                    <span
+                      id="btn-context"
+                      class="siu-context-pill"
+                      data-level="ok"
+                      role="img"
+                      aria-label=""
+                    >
+                      <svg class="siu-ring" viewBox="0 0 20 20" width="13" height="13" aria-hidden="true">
+                        <circle class="siu-ring-track" cx="10" cy="10" r="7.5" fill="none" stroke-width="3" />
+                        <circle
+                          id="context-ring"
+                          class="siu-ring-fill"
+                          cx="10"
+                          cy="10"
+                          r="7.5"
+                          fill="none"
+                          stroke-width="3"
+                          stroke-linecap="round"
+                          stroke-dasharray="0 47.124"
+                        />
+                      </svg>
+                      <span id="context-percent" class="siu-pill-label"></span>
+                    </span>
+                  </div>
                   <div class="flex items-center gap-2">
                     <button id="btn-abort" class="siu-btn-stop hidden" title="中止本轮" data-i18n-title="composer.stop.title">
                       <span class="siu-stop-glyph"></span> <span data-i18n="composer.stop">停止</span>
@@ -2914,7 +3302,7 @@
             <select id="session-select" class="siu-select w-full" title="当前会话" data-i18n-title="menu.session.select"></select>
             <div class="siu-menu-actions">
               <button id="btn-new" class="siu-btn siu-btn--mono" title="新建会话" data-i18n-title="menu.session.new.title"><span data-i18n="menu.session.new">+ 新建</span></button>
-              <button id="btn-clear" class="siu-btn siu-btn--mono" title="追加 reset_boundary" data-i18n-title="menu.session.clear.title"><span data-i18n="menu.session.clear">/clear</span></button>
+              <button id="btn-clear" class="siu-btn siu-btn--mono" title="清除当前上下文 (/clear)" data-i18n-title="menu.session.clear.title"><span data-i18n="menu.session.clear">/clear</span></button>
             </div>
           </div>
         </section>
@@ -2927,10 +3315,10 @@
                 <rect x="4" y="4" width="16" height="16" rx="4" />
                 <path d="M9 9h6v6H9z" />
               </svg>
-              <select id="model-select" class="siu-select w-full" title="主模型（智能体循环）" data-i18n-title="menu.model.select"></select>
+              <select id="model-select" class="siu-select w-full" title="主模型" data-i18n-title="menu.model.select"></select>
             </div>
             <div class="flex flex-wrap items-center gap-2">
-              <span id="model-effort-chip" class="siu-chip siu-chip--effort" title="推理强度（主路由）" data-i18n-title="menu.model.effort.title"></span>
+              <span id="model-effort-chip" class="siu-chip siu-chip--effort" title="推理强度" data-i18n-title="menu.model.effort.title"></span>
               <span id="tool-model-chip" class="siu-chip siu-chip--tool" title="工具 / 审查模型" data-i18n-title="menu.model.tool.title"></span>
             </div>
           </div>
@@ -2961,7 +3349,7 @@
         <section class="siu-section">
           <header class="mb-3 flex items-center justify-between">
             <h2 class="siu-section-title" data-i18n="menu.emotion.title">情绪状态</h2>
-            <span class="font-mono text-[10px] text-muted" data-i18n="menu.emotion.scale">VA · τ 5m</span>
+            <span class="font-mono text-[10px] text-muted" data-i18n="menu.emotion.scale">近 5 分钟</span>
           </header>
           <div class="space-y-3">
             <div>
@@ -3007,7 +3395,7 @@
           <div id="posture-modifier" class="mt-3 space-y-1.5 font-mono text-[10.5px] leading-relaxed text-muted"></div>
           <!-- The modifier body above is injected system-prompt text and stays
                verbatim English; only this caption is UI prose. -->
-          <p class="siu-field-hint" data-i18n="menu.posture.caption">以下为注入系统提示词的原文（保持英文，模型按原文执行）</p>
+          <p class="siu-field-hint" data-i18n="menu.posture.caption">以下文字即模型实际收到的内容，保持英文。</p>
         </section>
 
         <section class="siu-section">
@@ -3034,7 +3422,7 @@
                 <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" stroke-linejoin="round" />
                 <path d="M13.7 21a2 2 0 0 1-3.4 0" stroke-linecap="round" />
               </svg>
-              <span id="notify-label">通知</span>
+              <span id="notify-label" data-i18n="menu.actions.notify">通知</span>
             </button>
             <button id="btn-palette" class="siu-btn no-drag" title="命令面板" data-i18n-title="menu.actions.commands.title">
               <svg viewBox="0 0 24 24" class="h-3.5 w-3.5" fill="none" stroke="currentColor" stroke-width="1.9">
@@ -3063,7 +3451,6 @@
       <div class="siu-modal siu-modal--prefs siu-pop" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <div class="siu-modal-header">
           <h2 id="settings-title" class="siu-modal-title" data-i18n="settings.title">设置</h2>
-          <span class="min-w-0 flex-1 truncate font-mono text-[10.5px] text-muted" id="settings-file-label"></span>
           <button class="siu-modal-close" data-close="settings" aria-label="关闭设置" data-i18n-aria-label="settings.close">
             <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke-linecap="round" /></svg>
           </button>
@@ -3099,14 +3486,20 @@
               <div>
                 <label class="siu-field-label" for="set-reasoning-effort" data-i18n="settings.effort">推理强度</label>
                 <select id="set-reasoning-effort" class="siu-field">
-                  <option value="" data-i18n="settings.effort.unset">未设置 —— 从 OPENAI_REASONING_EFFORT 推导</option>
-                  <option value="low">low</option>
-                  <option value="medium">medium</option>
-                  <option value="high">high</option>
+                  <option value="" data-i18n="settings.effort.unset">未设置 —— 使用模型默认值</option>
+                  <!-- The value stays the API enum; only the label is copy, and
+                       it reuses the composer popover's keys so the two surfaces
+                       can never drift apart. -->
+                  <option value="low" data-i18n="composer.effort.low">低</option>
+                  <option value="medium" data-i18n="composer.effort.medium">中</option>
+                  <option value="high" data-i18n="composer.effort.high">高</option>
                 </select>
-                <!-- Rewritten by renderReasoningHint(); the initial text is the
-                     translated "none" variant so the first paint is not English. -->
-                <p class="siu-field-hint" id="set-reasoning-hint">主路由不发送 reasoningEffort。</p>
+                <!-- Rewritten by renderReasoningHint() once settings load; the
+                     annotation is the fallback, and its value is the same
+                     translated "none" variant, so the first paint is never
+                     English — including on the error paths where the rewrite
+                     never runs because /api/settings failed. -->
+                <p class="siu-field-hint" id="set-reasoning-hint" data-i18n="settings.effort.none">未设置推理强度，将使用服务商默认值。</p>
               </div>
 
               <div class="siu-toggle-row">
@@ -3152,25 +3545,26 @@
                 <p id="provider-detail-empty" class="siu-provider-empty" data-i18n="settings.providers.select"></p>
 
                 <div id="provider-form" class="siu-provider-form" hidden>
-                  <div class="siu-provider-name-row">
-                    <div class="siu-provider-name-field">
-                      <label class="siu-field-label" for="provider-name" data-i18n="settings.providers.name"></label>
+                  <div class="siu-provider-name-field">
+                    <label class="siu-field-label" for="provider-name" data-i18n="settings.providers.name"></label>
+                    <div class="siu-provider-name-control">
                       <input id="provider-name" type="text" class="siu-field" autocomplete="off" spellcheck="false" />
+                      <span id="provider-custom-badge" class="siu-provider-badge" data-i18n="settings.providers.custom" hidden></span>
                     </div>
-                    <span id="provider-custom-badge" class="siu-provider-badge" data-i18n="settings.providers.custom" hidden></span>
+                    <p class="siu-field-hint" id="provider-desc"></p>
                   </div>
 
                   <div class="siu-toggle-row siu-provider-enable-row">
                     <div class="flex-1">
                       <div class="siu-toggle-row-title" data-i18n="settings.providers.enabled"></div>
-                      <p class="siu-toggle-row-hint" id="provider-desc"></p>
+                      <p class="siu-toggle-row-hint" data-i18n="settings.providers.enabledHint">设为当前生效服务商，对话与任务将通过此服务商执行。</p>
                     </div>
                     <button id="provider-enabled" class="siu-switch" data-on="false" role="switch" aria-checked="false" data-i18n-aria-label="settings.providers.enabled"></button>
                   </div>
 
                   <div>
                     <div class="siu-provider-key-head">
-                      <label class="siu-field-label" for="set-api-key" data-i18n="settings.apiKey">OPENAI_API_KEY</label>
+                      <label class="siu-field-label" for="set-api-key" data-i18n="settings.apiKey">API 密钥</label>
                       <a id="provider-help" class="siu-provider-help" target="_blank" rel="noreferrer" data-i18n="settings.providers.apiKey.get" hidden></a>
                     </div>
                     <div class="siu-provider-key-row">
@@ -3180,23 +3574,24 @@
                       </button>
                     </div>
                     <!-- Shown only while the ACTIVE provider has no credential of
-                         its own: the request would then carry a placeholder token
-                         and fail with an opaque auth error, so the state has to be
+                         its own: core falls back to a placeholder key when
+                         neither the provider nor the environment supplies one,
+                         so such a request cannot authenticate. The state is
                          stated rather than left to a bare placeholder. -->
                     <p class="siu-field-hint" id="provider-key-warning" data-tone="warn" hidden></p>
-                    <p class="siu-field-hint" data-i18n-html="settings.apiKey.hint">本地保存在 <code>.myagent/ui-settings.json</code>（权限 0600）。留空则保留当前密钥。</p>
+                    <p class="siu-field-hint" data-i18n="settings.apiKey.hint">密钥保存在本地设备中。留空则保留当前密钥。</p>
                   </div>
 
                   <div>
-                    <label class="siu-field-label" for="set-base-url" data-i18n="settings.baseURL">OPENAI_BASE_URL</label>
+                    <label class="siu-field-label" for="set-base-url" data-i18n="settings.baseURL">API 地址</label>
                     <input id="set-base-url" type="text" class="siu-field" placeholder="https://api.openai.com/v1" autocomplete="off" spellcheck="false" />
-                    <p class="siu-field-hint" data-i18n="settings.baseURL.hint">任意 OpenAI 兼容端点（DeepSeek、SiliconFlow、Ollama、Moonshot…）。</p>
+                    <p class="siu-field-hint" data-i18n="settings.baseURL.hint">服务商 API 基础地址（Base URL），留空使用默认地址。</p>
                   </div>
 
                   <div class="siu-provider-fetch">
                     <button id="provider-fetch" type="button" class="siu-btn siu-btn--mono" data-i18n="settings.providers.fetch"></button>
                     <span id="provider-fetch-msg" class="siu-provider-fetch-msg"></span>
-                    <p class="siu-field-hint" data-i18n-html="settings.providers.fetchHint"></p>
+                    <p class="siu-field-hint" data-i18n="settings.providers.fetchHint"></p>
                   </div>
 
                   <div class="siu-provider-models">
@@ -3232,12 +3627,9 @@
               <p class="siu-prefs-subtitle" data-i18n="settings.about.subtitle"></p>
             </header>
             <div class="siu-prefs-pane-body">
-              <div class="rounded-lg border border-line bg-fill-subtle px-4 py-3 font-mono text-[10.5px] leading-relaxed text-muted">
-                <div class="mb-1 uppercase tracking-wider text-muted" data-i18n="settings.env">环境变量</div>
-                <div id="set-env-info">—</div>
-                <!-- Sibling, not a child of #set-env-info: fillSettingsForm() replaces
-                     that node's innerHTML wholesale, which would drop this note. -->
-                <div class="text-muted" data-i18n="settings.env.note">已保存的设置优先于环境变量默认值。</div>
+              <div class="rounded-lg border border-line bg-fill-subtle px-4 py-3 leading-relaxed">
+                <div class="text-primary" data-i18n="settings.about.product"></div>
+                <p class="siu-prefs-subtitle" data-i18n="settings.about.storage"></p>
               </div>
             </div>
           </section>
@@ -3264,7 +3656,7 @@
           </div>
           <h2 id="quit-title" class="text-[14px] font-semibold text-primary" data-i18n="quit.title">退出 SuperIU？</h2>
           <p class="mt-2 text-[12px] leading-relaxed text-muted" data-i18n="quit.body">
-            Web 外壳将关闭，智能体会话已保存到其 JSONL 日志。
+            应用将退出，当前会话已保存在本地。
           </p>
         </div>
         <div class="mt-5 flex gap-2 px-6 pb-6">
@@ -3331,6 +3723,22 @@
         // Last /api/status payload, so a language switch can re-render the
         // status panel without another round trip.
         lastStatus: null,
+        // The main model in force. `#model-select` holds it too, but the model
+        // popover's check mark is drawn from the list of providers, and reading
+        // it back out of a <select> would couple two unrelated controls.
+        currentModel: '',
+        // The composer toolbar's own slice of the settings view. Kept apart from
+        // `state.settings` (the settings form's draft) because a pick made on the
+        // composer must not disturb edits the user has not saved yet.
+        composer: {
+          modelName: '',
+          providers: [],
+          activeProviderId: '',
+          reasoningEffort: '',
+          reasoningEffortEffective: '',
+          reasoningSupported: true,
+          modelMetadata: {}
+        },
         // Same idea for the session list (sidebar + select).
         sessions: [],
         // Restored history, kept so a language switch can re-render the
@@ -3503,7 +3911,14 @@
       async function api(path, options) {
         const response = await fetch(path, options);
         const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.error || response.status + ' ' + response.statusText);
+        if (!response.ok) {
+          // The server's `error` is already a human sentence; a bare status line
+          // is not, so it goes to the console for developers and the user sees
+          // localized copy instead of "500 Internal Server Error".
+          if (payload.error) throw new Error(payload.error);
+          console.error(`[api] ${path} failed: ${response.status} ${response.statusText}`);
+          throw new Error(tr('toast.requestFailed'));
+        }
         return payload;
       }
 
@@ -3731,6 +4146,14 @@
               closeCompletions();
               return;
             }
+            // The composer popovers sit at the same layer as the completion
+            // menu and must be dismissed before Esc can reach the abort path —
+            // otherwise Esc over an open model list would kill the turn.
+            if (composerPopoverOpen()) {
+              event.preventDefault();
+              hideComposerPopovers(true);
+              return;
+            }
             if (anyModalOpen()) {
               event.preventDefault();
               closeAllModals();
@@ -3776,14 +4199,6 @@
             case 'focus-input':
               closeAllModals();
               promptInput.focus();
-              break;
-            case 'about':
-              toast(tr('toast.about'), 'ok');
-              break;
-            case 'docs':
-              // No hosted docs URL is configured for this repo, so point at the
-              // local guides rather than opening a dead placeholder link.
-              toast(tr('toast.docs'), 'ok');
               break;
           }
         });
@@ -4020,9 +4435,39 @@
       // =======================================================================
       function riskChip(risk) {
         if (!risk) return null;
-        const chip = el('span', 'siu-chip', String(risk).toUpperCase());
+        const chip = el('span', 'siu-chip', riskLabel(risk));
         chip.classList.add(risk === 'high' || risk === 'critical' ? 'siu-chip--risk-high' : risk === 'medium' ? 'siu-chip--risk-medium' : 'siu-chip--risk-low');
         return chip;
+      }
+
+      /**
+       * `reviewedBy` is an internal enum ('rule' | 'model'), never user copy.
+       * Map it to words the same way the CLI does; an unknown value from a newer
+       * core degrades to a neutral phrase rather than printing a raw token.
+       */
+      function reviewerLabel(reviewedBy) {
+        const keys = {
+          rule: 'approval.reviewer.rule',
+          model: 'approval.reviewer.model'
+        };
+        return tr(keys[reviewedBy] ?? 'approval.reviewer.unknown');
+      }
+
+      /**
+       * `riskLevel` is an internal enum ('safe' | 'low' | 'medium' | 'high' |
+       * 'critical'), never user copy. Map it to words the same way the CLI does;
+       * an unknown value from a newer core degrades to a neutral phrase rather
+       * than printing a raw token.
+       */
+      function riskLabel(risk) {
+        const keys = {
+          safe: 'approval.risk.safe',
+          low: 'approval.risk.low',
+          medium: 'approval.risk.medium',
+          high: 'approval.risk.high',
+          critical: 'approval.risk.critical'
+        };
+        return tr(keys[risk] ?? 'approval.risk.unknown');
       }
 
       function approvalCard(event) {
@@ -4037,7 +4482,7 @@
         head.appendChild(el('span', 'siu-approval-name', event.name));
         const risk = riskChip(event.riskLevel);
         if (risk) head.appendChild(risk);
-        if (event.reviewedBy) head.appendChild(el('span', 'siu-label', tr('approval.via', { name: event.reviewedBy })));
+        if (event.reviewedBy) head.appendChild(el('span', 'siu-label', tr('approval.via', { name: reviewerLabel(event.reviewedBy) })));
         card.appendChild(head);
 
         if (event.reason) {
@@ -4229,15 +4674,22 @@
       }
 
       /**
-       * The Log file row advertises where the session lives, which is also its
-       * identity — so keep showing the path even before the file exists, and
-       * qualify it instead. `sessionPersisted` comes from /api/status, which is
-       * the only side that can stat; the renderer must not infer it from
+       * The Log file row advertises the session's identity, so it still shows
+       * something before the file exists — but only the file's own name, never
+       * the absolute path: the home directory is the developer's context, not
+       * the user's. `sessionPersisted` comes from /api/status, which is the
+       * only side that can stat; the renderer must not infer it from
        * `/api/sessions` membership, because a draft that has only been
        * `/clear`ed is on disk yet still absent from that list.
        */
+      function sessionFileName(filePath) {
+        if (!filePath) return '';
+        const parts = String(filePath).split(/[\\/]/);
+        return parts[parts.length - 1] || String(filePath);
+      }
+
       function renderSessionFile() {
-        const label = state.sessionFile || tr('session.file.inMemory');
+        const label = sessionFileName(state.sessionFile) || tr('session.file.inMemory');
         const text = state.sessionFile && !state.sessionPersisted
           ? tr('session.file.notWritten', { path: label })
           : label;
@@ -4251,7 +4703,8 @@
         setStatus(payload.status);
         $('info-session').textContent = payload.sessionId || '—';
         $('info-session').title = payload.sessionId || '';
-        $('info-leaf').textContent = payload.leafId || '(root)';
+        // Same fallback the /status card uses, so the panel and the card agree.
+        $('info-leaf').textContent = payload.leafId || tr('status.card.root');
         $('info-leaf').title = payload.leafId || '';
         $('info-count').textContent = String(payload.messageCount ?? 0);
         state.sessionFile = payload.sessionFile || '';
@@ -4261,15 +4714,14 @@
         fillModelSelect(payload.model, payload.modelChoices || []);
         const effort = payload.modelRoutes && payload.modelRoutes.main ? payload.modelRoutes.main.reasoningEffort : undefined;
         const effortChip = $('model-effort-chip');
-        // The level drives the colour; the prefix would just repeat the chip's role.
-        // A bare em-dash for "unset" reads as a stray separator next to the model
-        // name, so spell out the one state that is not self-evident.
-        effortChip.textContent = effort || tr('menu.model.noEffort');
+        // The level drives the colour, so the attribute keeps the RAW enum;
+        // the visible text and the tooltip localize it. A bare em-dash for
+        // "unset" reads as a stray separator next to the model name, so spell
+        // out the one state that is not self-evident.
+        effortChip.textContent = effort ? effortLevelLabel(effort) : tr('menu.model.noEffort');
         effortChip.dataset.level = effort || 'unset';
-        // The level itself is an API value, so it stays verbatim; only the frame
-        // around it is prose.
         effortChip.title = effort
-          ? tr('menu.model.effort.title') + ' · ' + effort
+          ? tr('menu.model.effort.title') + ' · ' + effortLevelLabel(effort)
           : tr('menu.model.effort.title') + ' · ' + tr('menu.model.noEffort');
         const chip = $('tool-model-chip');
         const autoReviewOff = payload.autoReview === false;
@@ -4280,12 +4732,22 @@
 
         const ws = payload.workstation;
         if (ws) {
+          // The runtime version and the working directory are the developer's
+          // context, not the user's: neither belongs on a badge in the chrome.
           $('ws-text').textContent =
-            ws.os.split(' ')[0] + ' · ' + ws.arch + ' · ' + ws.nodeVersion + (ws.gitBranch ? ' · ' + ws.gitBranch : '');
+            ws.os.split(' ')[0] + ' · ' + ws.arch + (ws.gitBranch ? ' · ' + ws.gitBranch : '');
+          // The four labels and the "no branch" fallback are copy; the four
+          // values (os, arch, branch, timestamp) are data and stay verbatim.
           $('workstation-badge').title =
-            'OS: ' + ws.os + '\nArch: ' + ws.arch + '\nNode: ' + ws.nodeVersion + '\nGit: ' +
-            (ws.gitBranch || 'n/a') + '\nCWD: ' + ws.cwd + '\nTime: ' + ws.timestamp;
+            tr('workstation.os') + ' ' + ws.os + '\n' +
+            tr('workstation.arch') + ' ' + ws.arch + '\n' +
+            tr('workstation.git') + ' ' + (ws.gitBranch || tr('workstation.none')) + '\n' +
+            tr('workstation.time') + ' ' + ws.timestamp;
         }
+
+        // Last: the composer toolbar reads the same payload, and doing it here
+        // keeps one writer for the three controls.
+        renderComposerControls(payload);
       }
 
       function fillModelSelect(current, choices) {
@@ -4319,6 +4781,22 @@
       function shortTime(timestamp) {
         if (typeof timestamp !== 'string' || timestamp.length < 16) return timestamp || '';
         return timestamp.slice(11, 16);
+      }
+
+      /**
+       * The row label for one session.
+       *
+       * Core stores titles as data and no longer invents an English default, so
+       * an unnamed session arrives with no title at all. Every render site goes
+       * through here: the localized label is the only thing keeping a
+       * title-less row from rendering as a gap — or, for sessions older builds
+       * wrote, from rendering the English placeholder verbatim.
+       *
+       * The 8-hex id is deliberately NOT part of the label: every row already
+       * leads with it, so including it here would print it twice.
+       */
+      function sessionLabel(session) {
+        return session.title || tr('session.untitled');
       }
 
       async function refreshSessions() {
@@ -4365,8 +4843,8 @@
             option.value = session.id;
             option.textContent =
               (session.active ? '● ' : '  ') + session.id.slice(0, 8) + '  ' +
-              shortTime(session.timestamp) + '  ' + (session.title || '');
-            option.title = session.timestamp + (session.title ? '  ' + session.title : '');
+              shortTime(session.timestamp) + '  ' + sessionLabel(session);
+            option.title = session.timestamp + '  ' + sessionLabel(session);
             select.appendChild(option);
             if (session.active) select.value = session.id;
           }
@@ -4384,7 +4862,7 @@
               item.setAttribute('role', 'button');
               item.tabIndex = 0;
 
-              const titleText = session.title || tr('session.untitled', { id: session.id.slice(0, 8) });
+              const titleText = sessionLabel(session);
               const titleEl = el('div', 'siu-session-item-title', titleText);
 
               const metaEl = el('div', 'siu-session-item-meta');
@@ -4645,7 +5123,7 @@
               if (Notifications) {
                 Notifications.notifyApprovalRequired(
                   tr('notify.approvalRequired'),
-                  event.name + ' — ' + (event.reason || 'flagged by AutoReview'),
+                  event.name + ' — ' + (event.reason || tr('notify.approvalFallback')),
                   { tag: 'superiu-approval-' + event.toolCallId }
                 );
               }
@@ -4685,6 +5163,12 @@
               if (event.emotion) renderEmotion(event.emotion, event.posture);
               if (typeof event.messageCount === 'number') $('info-count').textContent = String(event.messageCount);
               if (event.leafId) $('info-leaf').textContent = event.leafId;
+              // The turn just grew the context window, and `done` is the only
+              // event that carries the new reading — refreshing /api/status here
+              // would be a second round trip for numbers we already have.
+              if (typeof event.contextPercent === 'number') {
+                renderContextMeter(event.contextTokens, event.contextLimit, event.contextPercent);
+              }
               if (Notifications) {
                 // The toast cannot render markdown, and the raw text is the
                 // model's answer — flatten it rather than showing `##` and URLs.
@@ -4723,7 +5207,11 @@
 
           if (!response.ok) {
             const payload = await response.json().catch(() => ({}));
-            throw new Error(payload.error || response.status + ' ' + response.statusText);
+            // Same rule as `api()`: a server `error` is already a sentence; a
+            // bare status line is not, so it stays in the console.
+            if (payload.error) throw new Error(payload.error);
+            console.error(`[api] /api/chat failed: ${response.status} ${response.statusText}`);
+            throw new Error(tr('toast.requestFailed'));
           }
 
           const reader = response.body.getReader();
@@ -4846,24 +5334,32 @@
           try {
             const payload = await api('/api/status');
             renderStatus(payload);
+            // Every label carries its own padding in the dictionary, because the
+            // values have to line up as a column in both languages and a CJK
+            // glyph is not an integral number of monospace cells wide — the
+            // padding cannot be computed from a column count. Same reasoning as
+            // the CLI's `cli.status.*` keys.
             const lines = [
-              'state:      ' + payload.status,
-              'session:    ' + payload.sessionId,
-              'leaf:       ' + (payload.leafId || '(root)'),
-              'messages:   ' + payload.messageCount,
+              tr('status.card.state') + statusLabel(payload.status),
+              tr('status.card.session') + payload.sessionId,
+              tr('status.card.leaf') + (payload.leafId || tr('status.card.root')),
+              tr('status.card.messages') + payload.messageCount,
               // Same honesty rule as the status panel: a draft has a planned path
               // but nothing on disk yet, so do not present it as an existing log.
-              'file:       ' + (payload.sessionFile || tr('session.file.inMemory')) +
+              // Only the file's own name is shown — never the absolute path.
+              tr('status.card.file') + (sessionFileName(payload.sessionFile) || tr('session.file.inMemory')) +
                 (payload.sessionFile && payload.sessionPersisted === false
                   ? tr('session.file.notWritten', { path: '' })
                   : ''),
-              'main model: ' + payload.model,
-              'tool model: ' + payload.reviewModel + (payload.autoReview ? '' : ' (autoReview off)'),
-              'effort:     ' + ((payload.modelRoutes && payload.modelRoutes.main && payload.modelRoutes.main.reasoningEffort) || '(none sent)'),
-              'valence:    ' + Number(payload.emotion.valence).toFixed(3) +
-                '   arousal: ' + Number(payload.emotion.arousal).toFixed(3) +
-                '   fatigue: ' + Number(payload.emotion.fatigue).toFixed(3),
-              'posture:    ' + (payload.posture.key ? postureLabel(payload.posture.key) : payload.posture.label)
+              tr('status.card.mainModel') + payload.model,
+              tr('status.card.toolModel') + payload.reviewModel + (payload.autoReview ? '' : tr('status.card.autoReviewOff')),
+              tr('status.card.effort') + (payload.modelRoutes && payload.modelRoutes.main && payload.modelRoutes.main.reasoningEffort
+                ? effortLevelLabel(payload.modelRoutes.main.reasoningEffort)
+                : tr('status.card.noEffort')),
+              tr('status.card.valence') + Number(payload.emotion.valence).toFixed(3) +
+                tr('status.card.arousal') + Number(payload.emotion.arousal).toFixed(3) +
+                tr('status.card.fatigue') + Number(payload.emotion.fatigue).toFixed(3),
+              tr('status.card.posture') + (payload.posture.key ? postureLabel(payload.posture.key) : payload.posture.label)
             ];
             const card = el('div', 'siu-turn ' + enterClass());
             card.dataset.role = 'content';
@@ -4881,12 +5377,19 @@
 
         if (cmd === '/sessions') {
           const sessions = await refreshSessions();
+          // The 8-hex id stays. It is the shell's established session handle —
+          // the sidebar list and the `<select>` option both lead with it — and
+          // it is the only field that survives a collision, since an unnamed
+          // session carries no title at all while shortTime is only
+          // minute-resolution. A per-row `title=` tooltip is not available
+          // here: the card is one <pre> of text, with no per-row DOM to hang it
+          // on. The leading `*`/`  ` marks the active session.
           const body = sessions.length
             ? sessions
                 .map(
                   (s) =>
                     (s.active ? '* ' : '  ') + s.id.slice(0, 8) + '  ' +
-                    shortTime(s.timestamp) + '  ' + (s.title || '')
+                    shortTime(s.timestamp) + '  ' + sessionLabel(s)
                 )
                 .join('\n')
             : tr('session.select.none');
@@ -5022,6 +5525,21 @@
         $('set-notifications').setAttribute('aria-checked', String(enabled));
       }
 
+      /**
+       * The permission result is a Web API enum ('granted' | 'denied' |
+       * 'default', plus 'unsupported' from the local shim). It is a token, not a
+       * sentence, so map it to copy before it reaches a toast.
+       */
+      function notificationPermissionMessage(permission) {
+        const keys = {
+          granted: 'toast.notifyPermission.granted',
+          denied: 'toast.notifyPermission.denied',
+          default: 'toast.notifyPermission.default',
+          unsupported: 'toast.notifyPermission.unsupported'
+        };
+        return tr(keys[permission] ?? 'toast.notifyPermission');
+      }
+
       async function enableNotifications() {
         if (!Notifications) return toast(tr('toast.notifyUnavailable'), 'error');
         const permission = await Notifications.requestPermission();
@@ -5031,7 +5549,7 @@
           Notifications.notifyTaskComplete(tr('notify.alertsEnabled'), tr('notify.alertsEnabledBody'));
           toast(tr('toast.notifyEnabled'), 'ok');
         } else {
-          toast(tr('toast.notifyPermission', { permission }), 'error');
+          toast(notificationPermissionMessage(permission), 'error');
         }
       }
 
@@ -5335,6 +5853,10 @@
         }
         state.draftMainModel = view.modelName || '';
         state.draftReviewModel = view.reviewModelName || '';
+        // The composer toolbar mirrors the same view. Seeded here rather than in
+        // the settings modal's own paths so boot, openSettings and Save all land
+        // in one place — and so a saved model/effort is reflected immediately.
+        applyComposerSettings(view);
 
         // `#set-api-key` / `#set-base-url` are bound by renderProviderDetail()
         // (via renderSettingsDynamic() below), which owns the per-provider
@@ -5355,13 +5877,6 @@
         state.theme = view.theme || 'system';
         $('set-theme').value = state.theme;
         renderReasoningHint(view);
-        $('settings-file-label').textContent = view.settingsFile;
-        $('set-env-info').innerHTML =
-          'OPENAI_API_KEY: ' + escapeHtml(view.env.OPENAI_API_KEY) +
-          '<br />OPENAI_BASE_URL: ' + escapeHtml(view.env.OPENAI_BASE_URL || '(unset)') +
-          '<br />OPENAI_MODEL_NAME: ' + escapeHtml(view.env.OPENAI_MODEL_NAME || '(unset)') +
-          '<br />OPENAI_REVIEW_MODEL_NAME: ' + escapeHtml(view.env.OPENAI_REVIEW_MODEL_NAME || '(unset)') +
-          '<br />OPENAI_REASONING_EFFORT: ' + escapeHtml(view.env.OPENAI_REASONING_EFFORT || '(unset)');
         $('settings-msg').textContent = '';
         delete $('settings-msg').dataset.tone;
 
@@ -5402,7 +5917,7 @@
         if (supported) {
           parts.push(
             effective
-              ? tr('settings.effort.active', { level: escapeHtml(effective) })
+              ? tr('settings.effort.active', { level: escapeHtml(effortLevelLabel(effective)) })
               : tr('settings.effort.none')
           );
         } else {
@@ -5785,12 +6300,588 @@
         }
         try {
           await postJson('/api/model', { role: 'main', model: modelName });
+          // The composer toolbar reads its own slice of the settings view, and
+          // `/api/model` writes the model without going through it — status
+          // alone would leave the pill's pending state, its tooltip and the
+          // popover's checked row describing the model that was just replaced.
+          await refreshComposerSettings();
           await refreshStatus();
           toast(tr('toast.modelChanged', { model: modelName }), 'ok');
         } catch (err) {
           toast(err.message, 'error');
+          // Same resync as the success path: a rejected write is not proof the
+          // runner kept the old route (the response can be lost after the
+          // server applied it), so both slices are re-read rather than trusted.
+          await refreshComposerSettings();
           await refreshStatus();
         }
+      });
+
+      // =======================================================================
+      // Composer toolbar (effort · model · context)
+      //
+      // The composer's own controls, deliberately independent of the secondary
+      // menu's `#model-select` / `#set-reasoning-effort`: those live in the
+      // settings form, whose drafts must not be re-seeded by a pick made here.
+      // This section therefore keeps its own slice of the settings view
+      // (`state.composer`) rather than writing into `state.settings`.
+      // =======================================================================
+
+      const FAVORITE_MODELS_KEY = 'superiu.favoriteModels';
+      /** r=7.5 in the 20×20 ring viewBox — the dash length for a full circle. */
+      const RING_CIRCUMFERENCE = 2 * Math.PI * 7.5;
+
+      const VISION_GLYPH =
+        '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/></svg>';
+      const TOOLS_GLYPH =
+        '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z"/></svg>';
+      const CHECK_GLYPH =
+        '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>';
+      const STAR_PATH = 'm12 3.6 2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z';
+      const STAR_GLYPH =
+        '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="' +
+        STAR_PATH +
+        '"/></svg>';
+      const STAR_ON_GLYPH =
+        '<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="' +
+        STAR_PATH +
+        '"/></svg>';
+
+      /** `12450` → `12,450`. Locale-independent on purpose: the reading sits in
+       *  a monospace pill and must not change width with the OS locale. */
+      function groupDigits(value) {
+        return String(Math.max(0, Math.round(Number(value) || 0))).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      }
+
+      /** Corrupt JSON is not worth a toast — the list is a convenience. */
+      function readFavoriteModels() {
+        try {
+          const parsed = JSON.parse(localStorage.getItem(FAVORITE_MODELS_KEY) || '[]');
+          return Array.isArray(parsed) ? [...new Set(parsed.filter((id) => typeof id === 'string' && id))] : [];
+        } catch {
+          return [];
+        }
+      }
+
+      function writeFavoriteModels(models) {
+        try {
+          localStorage.setItem(FAVORITE_MODELS_KEY, JSON.stringify(models));
+        } catch {
+          /* private mode / quota: favorites stay session-only */
+        }
+      }
+
+      function toggleFavoriteModel(model) {
+        const favorites = readFavoriteModels();
+        const index = favorites.indexOf(model);
+        if (index === -1) favorites.push(model);
+        else favorites.splice(index, 1);
+        writeFavoriteModels(favorites);
+      }
+
+      /**
+       * The settings view carries BOTH halves of the effort story: what the user
+       * chose and what the active model will actually receive. They differ while
+       * the model cannot reason — the same pending state the settings pane
+       * spells out — so the pill shows the choice and names the deferral in its
+       * title rather than silently reading "Off".
+       */
+      function applyComposerSettings(view) {
+        state.composer = {
+          modelName: view.modelName || '',
+          providers: Array.isArray(view.providers) ? view.providers : [],
+          // Needed to name the empty active provider in the picker: the list is
+          // filtered down to providers that HAVE models, so the active one is
+          // often absent from it.
+          activeProviderId: view.activeProviderId || '',
+          reasoningEffort: view.reasoningEffort || '',
+          reasoningEffortEffective: view.reasoningEffortEffective || '',
+          reasoningSupported: view.reasoningSupported !== false,
+          modelMetadata: view.modelMetadata || {}
+        };
+        // No repaint here on purpose. The three controls are driven by the
+        // status payload, and this view can arrive while `state.lastStatus` is
+        // older than it is (a pick made here, or a Save) — repainting then would
+        // briefly show the previous model. Every caller already repaints against
+        // a fresh status: boot and a language switch via
+        // `rerenderLocalizedRegions()`, a pick or a Save via `refreshStatus()`.
+      }
+
+      async function refreshComposerSettings() {
+        applyComposerSettings(await api('/api/settings'));
+      }
+
+      /** The three levels the reasoning-effort enum can take today; each maps to
+       *  a `composer.effort.*` key. The unset case is deliberately absent:
+       *  every surface words "no effort" differently, so the caller owns it. */
+      const EFFORT_LEVELS = ['low', 'medium', 'high'];
+
+      /**
+       * The shared display mapping for an effort enum value. A known level
+       * renders its translation; anything else passes through raw so a level
+       * added by a newer server stays legible rather than blank or
+       * `undefined`. Same shape as `statusLabel`. The result is
+       * server-controlled when unknown, so a caller feeding `innerHTML` must
+       * escape it.
+       */
+      function effortLevelLabel(level) {
+        return EFFORT_LEVELS.includes(level) ? tr('composer.effort.' + level) : String(level);
+      }
+
+      /**
+       * The pill's reading of the level actually in force. `''` here means no
+       * effort parameter is being sent at all — the model cannot take one — so
+       * "Off" describes the wire, not a preference.
+       */
+      function effortPillLabel(level) {
+        return EFFORT_LEVELS.includes(level) ? effortLevelLabel(level) : tr('composer.effort.off');
+      }
+
+      /**
+       * The popover row's reading of a STORED option, which is a different
+       * question: `''` there is the server's explicit "derive" value, and the
+       * provider resolves it to the model's own default (`medium` for the
+       * models that take a parameter). Labelling that row "Off" promised
+       * nothing where it delivered the default — the panel contradicted the
+       * pill directly above it. It reuses the settings pane's wording for the
+       * same value rather than inventing a second name for one concept.
+       */
+      function effortOptionLabel(level) {
+        return level === '' ? tr('composer.effort.unset') : effortPillLabel(level);
+      }
+
+      /** The ring, its tooltip and the colour threshold, from one reading. */
+      function renderContextMeter(tokens, limit, percent) {
+        const pill = $('btn-context');
+        if (!pill) return;
+        const safeTokens = Number.isFinite(tokens) ? tokens : 0;
+        const safeLimit = Number.isFinite(limit) ? limit : 0;
+        const safePercent = Math.min(100, Math.max(0, Math.round(Number(percent) || 0)));
+        const filled = (RING_CIRCUMFERENCE * safePercent) / 100;
+        $('context-ring').setAttribute(
+          'stroke-dasharray',
+          `${filled.toFixed(2)} ${(RING_CIRCUMFERENCE - filled).toFixed(2)}`
+        );
+        $('context-percent').textContent = safePercent + '%';
+        const params = { tokens: groupDigits(safeTokens), limit: groupDigits(safeLimit), percent: safePercent };
+        pill.title = tr('composer.context.title', params);
+        pill.setAttribute('aria-label', tr('composer.context.aria', params));
+        // 60 / 85 are the points where a long turn starts compacting and where
+        // the next step is likely to overflow — the reader needs them before the
+        // numbers are legible at 10px.
+        pill.dataset.level = safePercent >= 85 ? 'danger' : safePercent >= 60 ? 'warn' : 'ok';
+      }
+
+      /** Single writer for the three controls, so a status render, a language
+       *  switch and a local change can never disagree. */
+      function renderComposerControls(payload) {
+        const view = state.composer;
+        // Two different questions, two different sources.
+        //
+        // The PILL reads `status.reasoningEffort`: it is the level actually in
+        // force on the main route, so it is '' whenever the active model does
+        // not accept a reasoning parameter. The stored preference would lie
+        // there — `POST /api/settings` returns 200 and persists a value the
+        // model cannot use — so a 2xx is never evidence the pill should move.
+        // `reasoningEffortEffective` is the same reading on the settings view,
+        // and it is only a stand-in for the window before the first status
+        // arrives. Once a status is in hand its `reasoningEffort` is the
+        // authority — including when it is '', which is the honest reading for
+        // a model that takes no parameter. A truthiness test cannot tell that
+        // '' from an absent field, so it fell through to the cached value and
+        // kept showing the level of the model that had just been replaced;
+        // presence is the question, not truth.
+        const hasStatus = Boolean(payload) && 'reasoningEffort' in payload;
+        const effective = hasStatus ? payload.reasoningEffort || '' : view.reasoningEffortEffective || '';
+        const effortButton = $('btn-effort');
+        effortButton.dataset.level = effective || 'off';
+        $('effort-label').textContent = effortPillLabel(effective);
+        // The stored preference is what the popover shows checked (it is what
+        // the user picked and what will apply once a capable model is active),
+        // and it is what makes the deferral worth spelling out.
+        const pending = Boolean(view.reasoningEffort) && !view.reasoningSupported;
+        const effortTitle = tr('composer.effort.title') + ' · ' + effortPillLabel(effective);
+        effortButton.title = pending ? effortTitle + ' · ' + tr('composer.effort.pending') : effortTitle;
+
+        // The status payload is the freshest authority on which model is in
+        // force — it is what the secondary menu's own selector drives — so it
+        // wins over the settings view, which is only re-read on open and after a
+        // pick made here. Reversed, a model changed from the menu left this pill
+        // showing the previous one until the next settings fetch.
+        const model = (payload && payload.model) || view.modelName || '';
+        state.currentModel = model;
+        $('model-label').textContent = model || '—';
+        $('btn-model').title = tr('composer.model.title') + (model ? ' · ' + model : '');
+
+        renderContextMeter(
+          payload ? payload.contextTokens : 0,
+          payload ? payload.contextLimit : 0,
+          payload ? payload.contextPercent : 0
+        );
+      }
+
+      // ---- popovers ------------------------------------------------------
+
+      /** True while either composer popover is showing. Read by the window
+       *  keydown handler so Esc dismisses the panel instead of aborting a turn. */
+      function composerPopoverOpen() {
+        return !$('model-popover').hidden || !$('effort-popover').hidden;
+      }
+
+      /**
+       * Hide both panels and reset their triggers.
+       *
+       * `refocus` is opt-in because the callers differ: Escape and a pick hide a
+       * panel the caret is sitting inside, so the trigger is the only sensible
+       * place left; an outside click is the user moving focus deliberately, so
+       * stealing it back would fight them.
+       */
+      function hideComposerPopovers(refocus) {
+        for (const [id, trigger] of [['model-popover', 'btn-model'], ['effort-popover', 'btn-effort']]) {
+          const hadFocus = $(id).contains(document.activeElement);
+          $(id).hidden = true;
+          $(trigger).setAttribute('aria-expanded', 'false');
+          if (refocus && hadFocus) $(trigger).focus();
+        }
+      }
+
+      /** Only one panel at a time: two overlapping lists above the composer would
+       *  hide the very control the user is comparing against. */
+      function openComposerPopover(id, trigger) {
+        hideComposerPopovers(false);
+        $(id).hidden = false;
+        $(trigger).setAttribute('aria-expanded', 'true');
+      }
+
+      /** Toggling the trigger needs no refocus: the browser has already put focus
+       *  on the button the user clicked. */
+      function toggleComposerPopover(id, trigger) {
+        if ($(id).hidden) openComposerPopover(id, trigger);
+        else hideComposerPopovers(false);
+      }
+
+      /**
+       * Move focus within an open popover's rows. `delta` of 0 focuses the
+       * current selection, so opening the panel can hand the keyboard to the row
+       * the user is already on.
+       */
+      function focusPopoverRow(container, delta) {
+        const rows = [...container.querySelectorAll('.siu-popover-row')];
+        if (!rows.length) return false;
+        const index = rows.indexOf(document.activeElement);
+        const next = index === -1 ? 0 : (index + delta + rows.length) % rows.length;
+        rows[next].focus();
+        return true;
+      }
+
+      /**
+       * A row was activated. On the model list, Enter is the only way to select
+       * while the caret is in the search box, so the event is consumed; the
+       * effort list has no text field and the window handler closes the panel on
+       * Enter, so `preventDefault` there is what keeps it open.
+       */
+      function activatePopoverRow(event, row) {
+        if (!row) return;
+        event.preventDefault();
+        event.stopPropagation();
+        if (row.dataset.model) void selectModel(row.dataset.model, row.dataset.provider || '');
+        else void selectEffort(row.dataset.level === 'off' ? '' : row.dataset.level);
+      }
+
+      function popoverGroupHead(label, glyph) {
+        const head = el('div', 'siu-popover-group-head');
+        // The head is appended straight into the `role="listbox"`, whose owned
+        // elements must be `option` or `group`. It is a label and an optional
+        // glyph — presentational text, not a control — so `presentation` drops
+        // its generic-div role and leaves the text readable to assistive tech.
+        head.setAttribute('role', 'presentation');
+        if (glyph) {
+          const icon = el('span', 'siu-popover-badge');
+          icon.innerHTML = glyph;
+          head.appendChild(icon);
+        }
+        head.appendChild(el('span', '', label));
+        return head;
+      }
+
+      function modelBadges(model) {
+        const meta = state.composer.modelMetadata[model];
+        const box = el('span', 'siu-popover-meta');
+        if (!meta) return box;
+        if (meta.vision) {
+          const badge = el('span', 'siu-popover-badge');
+          badge.innerHTML = VISION_GLYPH;
+          badge.title = tr('composer.model.vision');
+          box.appendChild(badge);
+        }
+        if (meta.tools) {
+          const badge = el('span', 'siu-popover-badge');
+          badge.innerHTML = TOOLS_GLYPH;
+          badge.title = tr('composer.model.tools');
+          box.appendChild(badge);
+        }
+        if (meta.formattedContext) box.appendChild(el('span', '', meta.formattedContext));
+        return box;
+      }
+
+      /** One row. `providerId` is '' for a favorite that no provider lists —
+       *  the selection still works, it just cannot re-point the active provider. */
+      function modelRow(model, providerId) {
+        const row = el('div', 'siu-popover-row');
+        row.setAttribute('role', 'option');
+        // Roving tabindex: the rows really are reachable by keyboard, which is
+        // what `role="option"` promises. `-1` keeps them out of the page's tab
+        // order; the panel's keydown handler drives focus instead, so Tab still
+        // leaves the composer rather than stepping through every model.
+        row.tabIndex = -1;
+        row.dataset.model = model;
+        // Stamped so the row's Enter/Space activation can re-point the active
+        // provider without re-deriving ownership from the filtered list.
+        row.dataset.provider = providerId;
+        const current = model === state.currentModel;
+        row.dataset.current = String(current);
+        row.setAttribute('aria-selected', String(current));
+
+        const check = el('span', 'siu-popover-check');
+        if (current) check.innerHTML = CHECK_GLYPH;
+        row.appendChild(check);
+        row.appendChild(el('span', 'siu-popover-name', model));
+        row.appendChild(modelBadges(model));
+
+        const favorite = readFavoriteModels().includes(model);
+        const star = el('button', 'siu-popover-star');
+        star.type = 'button';
+        star.dataset.on = String(favorite);
+        star.innerHTML = favorite ? STAR_ON_GLYPH : STAR_GLYPH;
+        star.title = tr(favorite ? 'composer.model.favorite.remove' : 'composer.model.favorite.add', { model });
+        star.setAttribute('aria-label', star.title);
+        star.addEventListener('click', (event) => {
+          // The row selects; the star only stars. Without this the click would
+          // bubble up and switch the model the user was merely bookmarking.
+          event.stopPropagation();
+          toggleFavoriteModel(model);
+          renderModelPopover();
+        });
+        row.appendChild(star);
+
+        row.addEventListener('click', () => void selectModel(model, providerId));
+        return row;
+      }
+
+      function renderModelPopover() {
+        const body = $('model-popover-list');
+        body.innerHTML = '';
+        const needle = $('model-search').value.trim().toLowerCase();
+        const providers = state.composer.providers.filter((provider) => (provider.models || []).length > 0);
+        // Prefer the provider already in force when it carries the model. Taking
+        // the first listing provider would move a user whose own gateway serves
+        // the same id as a stock preset onto that preset — the same silent
+        // detach the pick guard prevents, reached from the other direction.
+        const activeId = state.composer.activeProviderId;
+        const ownerOf = (model) => {
+          const active = providers.find((provider) => provider.id === activeId);
+          if (active && active.models.includes(model)) return active.id;
+          return (providers.find((provider) => provider.models.includes(model)) || {}).id || '';
+        };
+
+        // The model in force is pinned FIRST and unconditionally. It is not
+        // necessarily listed by any provider — a hand-edited settings file can
+        // name a model no `models[]` carries, and a model added to a provider
+        // after it was chosen leaves the same gap. Without this the picker omits
+        // the model the user is actually running, so picking anything else would
+        // strand it beyond reach.
+        const current = state.currentModel;
+        const currentListed = providers.some((provider) => provider.models.includes(current));
+        const currentMatches = Boolean(current) && (!needle || current.toLowerCase().includes(needle));
+        if (current && !currentListed && currentMatches) {
+          body.appendChild(popoverGroupHead(tr('composer.model.current'), CHECK_GLYPH));
+          body.appendChild(modelRow(current, ownerOf(current)));
+        }
+
+        // Favorites next and pinned: they are the models the user reaches for,
+        // and they stay reachable even after the owning provider was removed.
+        const favorites = readFavoriteModels().filter(
+          (model) => model !== current && (!needle || model.toLowerCase().includes(needle))
+        );
+        if (favorites.length) {
+          body.appendChild(popoverGroupHead(tr('composer.model.favorites'), STAR_ON_GLYPH));
+          for (const model of favorites) body.appendChild(modelRow(model, ownerOf(model)));
+        }
+
+        let matched = 0;
+        for (const provider of providers) {
+          const label = providerDisplayName(provider);
+          const providerMatches = Boolean(needle) && label.toLowerCase().includes(needle);
+          const models = provider.models.filter(
+            (model) => providerMatches || !needle || model.toLowerCase().includes(needle)
+          );
+          if (!models.length) continue;
+          matched += models.length;
+          body.appendChild(popoverGroupHead(label, ''));
+          for (const model of models) body.appendChild(modelRow(model, provider.id));
+        }
+        // The pinned rows count too: otherwise a filter that matches only the
+        // current model shows that row AND "no matching model" beside it.
+        const visible = matched + favorites.length + (current && !currentListed && currentMatches ? 1 : 0);
+        if (!visible) {
+          const empty = el('div', 'siu-popover-empty', tr('composer.model.empty'));
+          // A listbox may own only `option` or `group`; this is a message, so
+          // `presentation` drops the generic-div role like the group head does.
+          empty.setAttribute('role', 'presentation');
+          body.appendChild(empty);
+        }
+
+        // Say WHY the active provider is missing rather than omitting it in
+        // silence. An empty `models[]` is a legitimate configuration — a custom
+        // gateway the user has not populated yet — but a picker that silently
+        // drops the very provider in force reads as broken, and the user has no
+        // way to tell the difference from the panel alone.
+        const active = state.composer.providers.find((provider) => provider.id === state.composer.activeProviderId);
+        if (active && !(active.models || []).length) {
+          const hint = el('div', 'siu-popover-hint', tr('composer.model.noModels', { provider: providerDisplayName(active) }));
+          // Same contract as the empty state above: presentational text, not an
+          // owned option.
+          hint.setAttribute('role', 'presentation');
+          body.appendChild(hint);
+        }
+      }
+
+      /** Four fixed levels, rebuilt per open because the labels are dictionary
+       *  lookups a language switch has to re-resolve. */
+      function renderEffortPopover() {
+        const box = $('effort-popover-list');
+        const panel = $('effort-popover');
+        box.innerHTML = '';
+        // The hint is a status message, not an option, so it stays a child of
+        // the dialog: the listbox then owns nothing but its options. It is
+        // outside the listbox's `innerHTML` reset, hence the removal here.
+        panel.querySelector('.siu-popover-hint')?.remove();
+        const chosen = state.composer.reasoningEffort || '';
+        for (const level of ['', 'low', 'medium', 'high']) {
+          const row = el('div', 'siu-popover-row');
+          row.setAttribute('role', 'option');
+          // Same roving-tabindex contract as the model rows.
+          row.tabIndex = -1;
+          row.dataset.level = level || 'off';
+          row.dataset.current = String(level === chosen);
+          row.setAttribute('aria-selected', String(level === chosen));
+          const check = el('span', 'siu-popover-check');
+          if (level === chosen) check.innerHTML = CHECK_GLYPH;
+          row.appendChild(check);
+          row.appendChild(el('span', 'siu-popover-name', effortOptionLabel(level)));
+          row.addEventListener('click', () => void selectEffort(level));
+          box.appendChild(row);
+        }
+        // The level is still stored, so say so rather than let the pick look lost.
+        if (chosen && !state.composer.reasoningSupported) {
+          panel.appendChild(el('div', 'siu-popover-hint', tr('composer.effort.pending')));
+        }
+        // Hand the keyboard to the checked row: this panel has no text field, so
+        // there is nothing else for Tab/arrows to start from.
+        box.querySelector('[data-current="true"]')?.focus();
+      }
+
+      async function selectModel(model, providerId) {
+        // A pick is a dismissal from inside the panel, so the caret returns to
+        // the trigger rather than being left on a hidden row.
+        hideComposerPopovers(true);
+        if (state.running) {
+          toast(tr('toast.abortFirst'), 'error');
+          return;
+        }
+        try {
+          // One POST carries the pair, because the provider projection (which
+          // credential and endpoint are in force) is computed from
+          // `modelName` + `activeProviderId` together — sending the model alone
+          // would leave the two disagreeing. The server rebuilds the runner from
+          // this patch, so `/api/model` would be a second, narrower write path
+          // for the same value.
+          // The provider only moves when the model actually changes. A row for
+          // the model already in force must not carry `activeProviderId`: the
+          // provider in force is by definition the right one for it, and a
+          // provider resolved from `providers[].models` is frequently a DIFFERENT
+          // one — a stock preset that happens to list the same id. Sending it
+          // silently detaches the app from the gateway and credential the user
+          // configured (observed: custom → deepseek, baseURL and key both lost).
+          const patch = { modelName: model };
+          if (providerId && model !== state.currentModel) patch.activeProviderId = providerId;
+          await postJson('/api/settings', patch);
+          await refreshComposerSettings();
+          await refreshStatus();
+          toast(tr('toast.modelChanged', { model }), 'ok');
+        } catch (err) {
+          // A 400 here is a real rejection (e.g. an unknown provider id), so the
+          // message goes to the user rather than being swallowed.
+          toast(err.message, 'error');
+          await refreshStatus();
+        }
+      }
+
+      async function selectEffort(level) {
+        hideComposerPopovers(true);
+        if (state.running) {
+          toast(tr('toast.abortFirst'), 'error');
+          return;
+        }
+        try {
+          await postJson('/api/settings', { reasoningEffort: level });
+          await refreshComposerSettings();
+          await refreshStatus();
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      }
+
+      // One handler per trigger: opening and populating are the same act, and
+      // two listeners on the same button would let the open/close decision be
+      // made twice (once here, once on the repaint).
+      $('btn-model').addEventListener('click', () => {
+        toggleComposerPopover('model-popover', 'btn-model');
+        if ($('model-popover').hidden) return;
+        // The search box is the panel's entry point, so opening it clears any
+        // previous filter and takes focus — otherwise the user must click again
+        // before they can type.
+        $('model-search').value = '';
+        renderModelPopover();
+        $('model-search').focus();
+      });
+      $('btn-effort').addEventListener('click', () => {
+        toggleComposerPopover('effort-popover', 'btn-effort');
+        if (!$('effort-popover').hidden) renderEffortPopover();
+      });
+      $('model-search').addEventListener('input', () => renderModelPopover());
+      // ArrowDown from the search box steps into the list; the panel's own
+      // keydown handler then owns the arrows, Enter and Space.
+      $('model-search').addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          focusPopoverRow($('model-popover-list'), event.key === 'ArrowDown' ? 0 : -1);
+        }
+      });
+      // The composer popovers are reached by click, so they also need the
+      // keyboard path their `role="listbox"`/`role="option"` markup promises.
+      $('model-popover-list').addEventListener('keydown', (event) => {
+        const row = event.target.closest('.siu-popover-row');
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          focusPopoverRow($('model-popover-list'), event.key === 'ArrowDown' ? 1 : -1);
+          return;
+        }
+        if (event.key === 'Enter' || event.key === ' ') activatePopoverRow(event, row);
+      });
+      $('effort-popover').addEventListener('keydown', (event) => {
+        const row = event.target.closest('.siu-popover-row');
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          focusPopoverRow($('effort-popover'), event.key === 'ArrowDown' ? 1 : -1);
+          return;
+        }
+        if (event.key === 'Enter' || event.key === ' ') activatePopoverRow(event, row);
+      });
+      // Dismiss on any click outside the composer. `#complete` keeps its own
+      // listener; this one only owns the two panels.
+      document.addEventListener('mousedown', (event) => {
+        if (!event.target.closest('.siu-composer-inner')) hideComposerPopovers(false);
       });
 
       // =======================================================================
@@ -6060,6 +7151,10 @@
         // The descriptions are dictionary lookups, so an open menu has to be
         // redrawn or it keeps the language it was opened in.
         if (completionOpen()) renderCompletions();
+        // Same for the composer popovers: both are dictionary-built, and the
+        // effort panel is rebuilt from scratch every time for exactly this.
+        if (!$('model-popover').hidden) renderModelPopover();
+        if (!$('effort-popover').hidden) renderEffortPopover();
         // Re-render the JS-built settings surfaces from the DRAFT, not from a
         // re-fetch: `fillSettingsForm()` would re-seed the provider drafts and
         // throw away edits the user has not saved yet.

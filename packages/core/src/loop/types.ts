@@ -13,6 +13,14 @@ export interface StepCallParams {
   onToolCall?: (name: string, args: unknown) => void;
 }
 
+/**
+ * Provider-reported token accounting for one step.
+ *
+ * `promptTokens` is the whole request as the provider saw it (system prompt +
+ * assembled branch), which is what makes it the honest numerator for a context
+ * meter: it already includes the tool schemas and the history the caller did not
+ * enumerate. It is absent when a provider does not report usage at all.
+ */
 export interface StepUsage {
   promptTokens?: number;
   completionTokens?: number;

@@ -23,7 +23,7 @@ import {
   type NotificationPayload,
   type ThemePayload
 } from './ipc.js';
-import { buildMenuTemplate, createMenuDispatcher } from './menu.js';
+import { ABOUT_LABELS, buildMenuTemplate, createMenuDispatcher } from './menu.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP_NAME = 'SuperIU';
@@ -131,6 +131,30 @@ function installApplicationMenu(): void {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+/**
+ * Configure the native About panel for the current {@link uiLanguage}.
+ *
+ * Called at module scope (before `ready`, like {@link installApplicationMenu})
+ * so the panel is never unconfigured, again from `bootstrap` once the settings
+ * file has supplied the real language, and again from the `setLanguage` IPC
+ * handler — AppKit keeps whatever was set last, and the language CAN change at
+ * runtime, so a one-shot call at startup would leave the panel in the previous
+ * language.
+ *
+ * `credits` is the only localized field: `applicationName` is the product name
+ * (fixed by the bundle identity) and `copyright` is a year plus that same name.
+ * The line repeats the SPA's `settings.about.product` string so the native and
+ * in-app About surfaces cannot describe the product in two vocabularies.
+ */
+function installAboutPanel(): void {
+  app.setAboutPanelOptions({
+    applicationName: APP_NAME,
+    applicationVersion: app.getVersion(),
+    copyright: `© ${new Date().getFullYear()} SuperIU`,
+    credits: (ABOUT_LABELS[uiLanguage] ?? ABOUT_LABELS.zh).credits
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Window
 // ---------------------------------------------------------------------------
@@ -215,10 +239,15 @@ function installIpcHandlers(): void {
 
   // Only the two known ids rebuild the menu; anything else (a stale renderer,
   // a hand-crafted message) leaves the current menu untouched.
+  //
+  // The native About panel is rebuilt too: its `credits` line is localized, and
+  // a language switch must not leave it describing the product in the language
+  // the user just left.
   ipcMain.handle(INVOKE.setLanguage, (_event, language: string) => {
     if (language !== 'zh' && language !== 'en') return;
     uiLanguage = language;
     installApplicationMenu();
+    installAboutPanel();
   });
 
   // Same allow-list discipline as the language handler: an unknown value is
@@ -274,12 +303,7 @@ app.on('before-quit', (event) => {
   void closeServer().finally(() => app.exit(0));
 });
 
-app.setAboutPanelOptions({
-  applicationName: APP_NAME,
-  applicationVersion: app.getVersion(),
-  copyright: `© ${new Date().getFullYear()} SuperIU`,
-  credits: 'Native desktop shell for the SuperIU agent console.'
-});
+installAboutPanel();
 
 // ESM caveat (verified against Electron 44): the `ready` event is emitted only
 // AFTER the entry module has finished evaluating. A top-level
@@ -310,6 +334,7 @@ async function bootstrap(): Promise<void> {
   // paint matches it instead of the module-scope default.
   uiLanguage = serverHandle.language;
   installApplicationMenu();
+  installAboutPanel();
 
   // Mirror the persisted appearance onto the native side BEFORE the window
   // exists: `nativeTheme.themeSource` is what makes `prefers-color-scheme`

@@ -14,6 +14,11 @@ export interface AiSdkStepAdapterOptions {
   reasoningEffort?: 'low' | 'medium' | 'high';
 }
 
+/** `NaN`/`Infinity` are "the provider did not count this", not a token count. */
+function finiteOrUndefined(value: number | undefined): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
 export class AiSdkStepAdapter implements StepModelCaller {
   private model: LanguageModelV1;
   private options: AiSdkStepAdapterOptions;
@@ -95,11 +100,18 @@ export class AiSdkStepAdapter implements StepModelCaller {
       finishReason = await stream.finishReason;
       const rawUsage = await stream.usage;
       if (rawUsage) {
-        usage = {
-          promptTokens: rawUsage.promptTokens,
-          completionTokens: rawUsage.completionTokens,
-          totalTokens: rawUsage.totalTokens
-        };
+        // A provider that does not report usage (a stream without
+        // `stream_options.include_usage`, which the OpenAI-compatible provider
+        // omits by default) answers `NaN`, not `undefined`. Dropping those keeps
+        // `StepUsage` meaning "the provider counted this" — a caller that trusts
+        // `promptTokens` for a context meter must never receive a NaN, which
+        // serializes to `null` and renders as an empty reading.
+        const promptTokens = finiteOrUndefined(rawUsage.promptTokens);
+        const completionTokens = finiteOrUndefined(rawUsage.completionTokens);
+        const totalTokens = finiteOrUndefined(rawUsage.totalTokens);
+        if (promptTokens !== undefined || completionTokens !== undefined || totalTokens !== undefined) {
+          usage = { promptTokens, completionTokens, totalTokens };
+        }
       }
     } catch {
       // Ignored if stream was aborted or usage not supported

@@ -8,11 +8,13 @@ import {
   DEFAULT_REVIEW_MODEL,
   MODEL_ROLES,
   getEmotionPromptModifier,
+  modelMetadataFor,
   parseReasoningEffort,
   resolveMemoryDir,
   supportsReasoningEffort,
   type ContextMessage,
   type EmotionState,
+  type ModelMetadata,
   type ModelRole,
   type ReasoningEffort,
   type RunnerCallbacks,
@@ -64,17 +66,30 @@ export interface ServerHandle {
 let PUBLIC_DIR = path.resolve(HERE, '..', 'public');
 let SETTINGS_FILE = path.join(process.cwd(), '.myagent', 'ui-settings.json');
 
-/** Models offered in the secondary menu's model selector; free-text entry is also accepted. */
+/**
+ * Models offered in the secondary menu's model selector; free-text entry is also
+ * accepted.
+ *
+ * Every id here is one its vendor's own model list currently serves, because a
+ * retired id is not merely stale copy: picking one sends a request the provider
+ * answers with an error, and the metadata table has no window for it. One
+ * current tier per vendor, plus the reasoning tiers the effort allowlist covers
+ * (`gemini-3.8-flash`, `deepseek-flash`), so the composer's effort pill is
+ * exercised by a model the user can actually select.
+ */
 const MODEL_CHOICES: string[] = [
+  'gpt-6-astra',
+  'gpt-5.6-terra',
   'gpt-4o',
-  'gpt-4o-mini',
-  'gpt-4.1',
-  'claude-3-5-sonnet',
-  'claude-3-7-sonnet',
-  'deepseek-chat',
-  'deepseek-reasoner',
-  'qwen-max',
-  'moonshot-v1-128k'
+  'claude-sonnet-5',
+  'claude-opus-5-5',
+  'claude-haiku-4-5',
+  'gemini-3.8-flash',
+  'gemini-2.5-flash',
+  'deepseek-flash',
+  'deepseek-v4-pro',
+  'qwen3.8-max',
+  'kimi-k3'
 ];
 
 /**
@@ -138,6 +153,11 @@ export interface ProviderConfig {
  * gateway must NOT be baked in: it would ship someone's personal hostname in the
  * product source and rot the moment they change it. Unmatched endpoints land in
  * the `custom` slot instead.
+ *
+ * `models` is a short, representative slice of what each vendor currently
+ * serves — not an exhaustive catalog — so every entry must still be a live id
+ * from that vendor's own model list. A retired id here is worse than a missing
+ * one: it is offered in the model grid and cannot succeed when picked.
  */
 const PROVIDER_PRESETS: ReadonlyArray<{
   id: string;
@@ -154,7 +174,7 @@ const PROVIDER_PRESETS: ReadonlyArray<{
     match: 'api.openai.com',
     baseURL: 'https://api.openai.com/v1',
     helpUrl: 'https://platform.openai.com/api-keys',
-    models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'o3-mini', 'o1'],
+    models: ['gpt-6-astra', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-4o', 'gpt-4.1'],
     custom: false
   },
   {
@@ -163,7 +183,7 @@ const PROVIDER_PRESETS: ReadonlyArray<{
     match: 'api.anthropic.com',
     baseURL: 'https://api.anthropic.com/v1',
     helpUrl: 'https://console.anthropic.com/settings/keys',
-    models: ['claude-3-7-sonnet-20250219', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022'],
+    models: ['claude-sonnet-5', 'claude-opus-5-5', 'claude-haiku-4-5'],
     custom: false
   },
   {
@@ -172,7 +192,7 @@ const PROVIDER_PRESETS: ReadonlyArray<{
     match: 'generativelanguage.googleapis.com',
     baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
     helpUrl: 'https://aistudio.google.com/app/apikey',
-    models: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
+    models: ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'],
     custom: false
   },
   {
@@ -181,13 +201,65 @@ const PROVIDER_PRESETS: ReadonlyArray<{
     match: 'api.deepseek.com',
     baseURL: 'https://api.deepseek.com/v1',
     helpUrl: 'https://platform.deepseek.com/api_keys',
-    models: ['deepseek-chat', 'deepseek-reasoner'],
+    models: ['deepseek-flash', 'deepseek-v4-pro'],
     custom: false
   }
 ];
 
 /** The custom slot's id; it has no preset row and is the user's to name. */
 const CUSTOM_PROVIDER_ID = 'custom';
+
+/**
+ * One-time migration key: the `models[]` list each preset shipped BEFORE the
+ * current catalog, keyed by provider id.
+ *
+ * `loadSettings()` only calls `createDefaultProviders()` when a file has no
+ * `providers` at all, so an existing `ui-settings.json` keeps whatever lists it
+ * was written with — the refreshed catalog above is invisible to it, and the
+ * model picker keeps offering ids the vendor has since retired. This table
+ * lets a stored list be recognized as "the old shipped default" and moved
+ * forward.
+ *
+ * Entries are removed once no shipped version can have written them (i.e. once
+ * a build old enough to write this list is no longer in the wild). Do not add
+ * a list here speculatively: a wrong entry would silently overwrite a user's
+ * own edit.
+ */
+const LEGACY_PRESET_MODELS: Readonly<Record<string, readonly string[][]>> = {
+  openai: [['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'o3-mini', 'o1']],
+  anthropic: [['claude-3-7-sonnet-20250219', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022']],
+  gemini: [['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash']],
+  deepseek: [['deepseek-chat', 'deepseek-reasoner']]
+};
+
+/**
+ * Move a stored preset's model list forward, but ONLY when it is still exactly
+ * the list an earlier build shipped.
+ *
+ * The safety property is the exact match: same length AND same order. A stored
+ * list that differs by even one id — added, removed, or reordered — is a user
+ * edit, and any looser test (substring, subset, set equality) would silently
+ * discard it. When the list is not a known shipped list the provider is left
+ * completely untouched, including every field other than `models`.
+ *
+ * The returned value is in memory only; the caller's next `persistSettings()`
+ * writes it. Migrating here must never write to disk on its own, or merely
+ * reading settings would mutate the user's file.
+ */
+function migratePresetModels(provider: ProviderConfig): ProviderConfig {
+  const preset = PROVIDER_PRESETS.find((candidate) => candidate.id === provider.id);
+  const legacyLists = LEGACY_PRESET_MODELS[provider.id];
+  if (!preset || !legacyLists) return provider;
+
+  const isShippedList = legacyLists.some(
+    (legacy) => legacy.length === provider.models.length && legacy.every((id, i) => id === provider.models[i])
+  );
+  if (!isShippedList) return provider;
+
+  // A fresh array, never the preset's own: assigning the constant would let a
+  // later in-place edit of one provider's models corrupt the preset itself.
+  return { ...provider, models: [...preset.models] };
+}
 
 /** Default label of a preset, or '' when the id has no preset (e.g. `custom`). */
 function presetNameFor(id: string): string {
@@ -345,6 +417,11 @@ function loadSettings(): UiSettings {
     }
     providers = providers.filter((p) => p.id);
 
+    // Move a preset still carrying an earlier build's model list onto the
+    // current catalog. Exact-match only, so a user's own edit survives; see
+    // `migratePresetModels`. In memory only — the next persist writes it.
+    providers = providers.map(migratePresetModels);
+
     if (providers.length === 0) {
       providers = createDefaultProviders(effectiveKey, effectiveBaseURL);
     }
@@ -494,8 +571,32 @@ function publicRoutes(): Record<string, PublicModelRoute> {
   );
 }
 
+/**
+ * Capability metadata for every model the console can offer, keyed by id.
+ *
+ * The union of the preset list, every provider's own model list, and the two
+ * models currently configured — a provider's `models[]` is where a hand-typed
+ * id lands, so covering only `MODEL_CHOICES` would leave the user's own model
+ * without a context window and the usage meter dividing by the default.
+ */
+function modelMetadataView(): Record<string, ModelMetadata> {
+  const ids = new Set<string>(MODEL_CHOICES);
+  for (const provider of settings.providers ?? []) {
+    for (const model of provider.models ?? []) ids.add(model);
+  }
+  ids.add(settings.modelName);
+  ids.add(settings.reviewModelName);
+  return Object.fromEntries(
+    [...ids]
+      .map((id) => id.trim())
+      .filter(Boolean)
+      .map((id) => [id, modelMetadataFor(id)])
+  );
+}
+
 function buildStatus() {
   const sessionFile = runner.getSessionFile();
+  const contextUsage = runner.getContextUsage();
   return {
     status: runner.status,
     sessionId: runner.getSessionId(),
@@ -514,8 +615,11 @@ function buildStatus() {
     autoReview: settings.autoReview,
     modelChoices: MODEL_CHOICES,
     modelRoutes: publicRoutes(),
+    contextTokens: contextUsage.tokens,
+    contextLimit: contextUsage.limit,
+    contextPercent: contextUsage.percent,
+    reasoningEffort: runner.getModelRoutes().main.reasoningEffort ?? '',
     memoryDir,
-    settingsFile: SETTINGS_FILE,
     workstation: runner.getWorkstation(),
     emotion: runner.emotion,
     posture: describePosture(runner.emotion)
@@ -574,6 +678,25 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+/**
+ * Upstream text reaches a browser surface and the server log, so anything that
+ * could carry a credential is blanked first: a provider's error envelope echoes
+ * the rejected key back (`Invalid key supplied: Bearer sk-live-…`), and V8's
+ * `JSON.parse` message embeds a prefix of the offending body.
+ */
+const SECRET_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\b(Bearer|Basic)\s+\S+/gi, '$1 [redacted]'],
+  [/\bsk-[A-Za-z0-9_-]{6,}/gi, '[redacted]'],
+  [/\bgh[pousr]_[A-Za-z0-9]{16,}/gi, '[redacted]'],
+  [/("(?:api[_-]?key|token|secret|password)"\s*:\s*")[^"]*(")/gi, '$1[redacted]$2']
+];
+
+function redactSecrets(text: string, maxChars = 500): string {
+  let out = text;
+  for (const [pattern, replacement] of SECRET_PATTERNS) out = out.replace(pattern, replacement);
+  return out.slice(0, maxChars);
+}
+
 // ---------------------------------------------------------------------------
 // Settings
 // ---------------------------------------------------------------------------
@@ -611,19 +734,18 @@ function settingsView() {
     language: settings.language,
     theme: settings.theme,
     reasoningEffort: settings.reasoningEffort,
-    reasoningEffortEffective: runner.getModelRoutes().main.reasoningEffort,
+    reasoningEffortEffective: runner.getModelRoutes().main.reasoningEffort ?? '',
     reasoningSupported: supportsReasoningEffort(settings.modelName),
     modelChoices: MODEL_CHOICES,
-    settingsFile: SETTINGS_FILE,
+    /**
+     * Capability metadata (vision / tools / context window) per model id. The
+     * renderer needs the window to label a model picker and the usage meter to
+     * divide by the right number, and neither can compute it: the numbers are
+     * per-provider facts, not derivable from the id.
+     */
+    modelMetadata: modelMetadataView(),
     activeProviderId: settings.activeProviderId || (providersList[0]?.id ?? 'openai'),
-    providers: providersList,
-    env: {
-      OPENAI_API_KEY: process.env.OPENAI_API_KEY ? 'set' : 'unset',
-      OPENAI_BASE_URL: process.env.OPENAI_BASE_URL ?? '',
-      OPENAI_MODEL_NAME: process.env.OPENAI_MODEL_NAME ?? '',
-      OPENAI_REVIEW_MODEL_NAME: process.env.OPENAI_REVIEW_MODEL_NAME ?? '',
-      OPENAI_REASONING_EFFORT: process.env.OPENAI_REASONING_EFFORT ?? ''
-    }
+    providers: providersList
   };
 }
 
@@ -874,8 +996,8 @@ async function handleApi(
         signal: AbortSignal.timeout(10000)
       });
       if (!resp.ok) {
-        const text = await resp.text();
-        sendJson(res, 200, { ok: false, error: `HTTP ${resp.status}: ${text.slice(0, 150)}`, models: [] });
+        console.error(`[models/fetch] ${modelsUrl} -> HTTP ${resp.status}: ${redactSecrets(await resp.text())}`);
+        sendJson(res, 200, { ok: false, error: `HTTP ${resp.status}`, models: [] });
         return true;
       }
       const data = (await resp.json()) as { data?: Array<{ id?: string }> };
@@ -886,7 +1008,10 @@ async function handleApi(
       sendJson(res, 200, { ok: true, models });
       return true;
     } catch (err) {
-      sendJson(res, 200, { ok: false, error: errorMessage(err), models: [] });
+      // A non-JSON 200 body surfaces here as a `JSON.parse` error whose message
+      // quotes the raw body, so the detail is logged redacted and never returned.
+      console.error(`[models/fetch] ${modelsUrl} failed: ${redactSecrets(errorMessage(err), 300)}`);
+      sendJson(res, 200, { ok: false, error: 'Fetch failed', models: [] });
       return true;
     }
   }
@@ -1009,7 +1134,12 @@ async function handleApi(
     try {
       runner.loadSession(reference);
     } catch (err) {
-      sendError(res, 404, errorMessage(err));
+      // The client gets a sentence built from the reference it supplied, never
+      // the core message, so no host-filesystem detail can leak. The core error
+      // is operator detail that may change (as of runner.ts:501 it no longer
+      // names the workspace), so it is logged redacted rather than relayed.
+      console.error(`[server] session load failed: ${redactSecrets(errorMessage(err), 300)}`);
+      sendError(res, 404, `Session '${reference}' not found.`);
       return true;
     }
 
@@ -1199,12 +1329,19 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
   };
 
   const finish = (finalText: string): void => {
+    // Read the meter at the end of the turn rather than reusing a value from
+    // `buildStatus()`: the last step's usage is what the turn's final context
+    // size is, and it only exists once the step has reported it.
+    const contextUsage = runner.getContextUsage();
     write({
       type: 'done',
       finalText,
       sessionId: runner.getSessionId(),
       leafId: runner.getLeafId(),
       messageCount: runner.getMessages().length,
+      contextTokens: contextUsage.tokens,
+      contextLimit: contextUsage.limit,
+      contextPercent: contextUsage.percent,
       emotion: runner.emotion,
       posture: describePosture(runner.emotion)
     });
@@ -1327,8 +1464,13 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
         }
         sendError(res, 405, `Method not allowed: ${req.method} ${pathname}`);
       } catch (err) {
+        // The detail is diagnostic, not copy: it can carry an absolute path and
+        // an errno straight from the filesystem. Log it (redacted) and hand the
+        // client a stable sentence instead, so the toast cannot read like a
+        // stack trace.
+        console.error(`[server] unhandled request error: ${redactSecrets(errorMessage(err), 300)}`);
         if (!res.headersSent) {
-          sendError(res, 500, errorMessage(err));
+          sendError(res, 500, 'Internal server error. Check the server log for details.');
         } else {
           res.end();
         }

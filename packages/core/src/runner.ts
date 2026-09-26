@@ -33,6 +33,7 @@ import {
   type ModelRoute,
   type ReasoningEffort
 } from './model/router.js';
+import { estimateContextTokens, modelMetadataFor } from './model/metadata.js';
 import {
   createInitialEmotion,
   decayEmotion,
@@ -90,6 +91,21 @@ export interface AgentRunnerStatus {
   leafId: string | null;
   messageCount: number;
   state: AgentStatus;
+}
+
+/**
+ * How full the main model's context window is, for a usage meter.
+ *
+ * `tokens` is provider-reported whenever a step has run, because that is the
+ * only figure that includes the system prompt and tool schemas the caller never
+ * enumerated; a resumed session with no step yet falls back to an estimate of
+ * the branch, which is coarse but moves the meter off an empty reading.
+ */
+export interface ContextUsage {
+  tokens: number;
+  limit: number;
+  /** `tokens / limit` as a 0-100 integer. */
+  percent: number;
 }
 
 export class AgentRunner {
@@ -358,6 +374,40 @@ export class AgentRunner {
   }
 
   /**
+   * How full the main model's context window is.
+   *
+   * The provider's `promptTokens` is preferred over any local estimate: it is
+   * the count the provider itself billed, so it already covers the system prompt
+   * and the tool schemas the branch does not contain. Only when no step has run
+   * yet — a freshly loaded session, or a draft — does this fall back to a
+   * character-based estimate of the branch, which is what keeps the meter from
+   * reading zero for a conversation that is plainly not empty.
+   *
+   * `latestUsage` describes the session the engine is currently bound to, and
+   * every path that rebinds or truncates that session discards it (`bindSession`).
+   * There is deliberately NO session-identity guard here comparing
+   * `engine.session` with `this.session`: that invariant is precisely what
+   * `bindSession` maintains, so the comparison could never be false, and it would
+   * not catch the case it appears to cover — `/clear` truncates the branch while
+   * the session object (and therefore its identity) is unchanged, which is why
+   * `reset()` has to drop the measurement itself rather than rely on a mismatch.
+   */
+  public getContextUsage(): ContextUsage {
+    const limit = modelMetadataFor(this.models.resolveBase('main').model).contextLimit;
+    const reported = this.engine.latestUsage?.promptTokens;
+    // A provider that does not report usage answers `NaN` rather than
+    // `undefined`; `NaN` survives arithmetic and JSON-serializes to `null`, so it
+    // is discarded here rather than rendered as an empty reading.
+    const measured = typeof reported === 'number' && Number.isFinite(reported) ? reported : undefined;
+    const tokens = measured ?? estimateContextTokens(this.getMessages());
+    // A provider may report more than the table's window (a model the table does
+    // not know, or a window extended after this release). Clamping keeps the
+    // percentage inside the 0-100 range a progress bar assumes.
+    const percent = limit > 0 ? Math.min(100, Math.round((tokens / limit) * 100)) : 0;
+    return { tokens, limit, percent };
+  }
+
+  /**
    * Skills discoverable for this workspace (`.agents/skills/<name>/SKILL.md`),
    * with user-global skills merged in and shadowed by same-name workspace skills.
    */
@@ -422,27 +472,44 @@ export class AgentRunner {
     return this.models.listRoutes();
   }
 
+  /**
+   * Point the assembler and the loop engine at `session` and forget the
+   * measurement that belonged to the previous one.
+   *
+   * `latestUsage` is the provider's own `promptTokens` for the last step the
+   * engine ran, and the engine instance outlives any single session — the web
+   * console and the CLI both switch sessions and `/clear` in place. Rebinding
+   * without discarding it leaves `getContextUsage()` preferring a count that
+   * belongs to a different conversation (or to the pre-`/clear` branch), which
+   * is the meter's headline reading showing a number from the wrong session.
+   *
+   * The three fields move together or the meter goes wrong, so this is one
+   * method rather than three copies of the same two assignments plus a reset.
+   */
+  private bindSession(session: SessionManager): void {
+    this.session = session;
+    this.assembler.session = session;
+    this.engine.session = session;
+    this.engine.latestUsage = undefined;
+  }
+
   /** Switch to another session by file path, file name, session id, or id prefix. */
   public loadSession(reference: string): SessionManager {
     const workspaceDir = this.config.workspaceDir ?? process.cwd();
     const resolved = resolveSessionFile(reference, workspaceDir, workspaceDir);
     if (!resolved) {
-      throw new Error(`Session '${reference}' not found in workspace ${workspaceDir}`);
+      throw new Error(`Session '${reference}' not found`);
     }
 
     this.session.close();
-    this.session = SessionManager.open(resolved);
-    this.assembler.session = this.session;
-    this.engine.session = this.session;
+    this.bindSession(SessionManager.open(resolved));
     return this.session;
   }
 
   public createSession(title?: string): SessionManager {
     const workspaceDir = this.config.workspaceDir ?? process.cwd();
     this.session.close();
-    this.session = SessionManager.create({ workspaceDir, cwd: workspaceDir, title });
-    this.assembler.session = this.session;
-    this.engine.session = this.session;
+    this.bindSession(SessionManager.create({ workspaceDir, cwd: workspaceDir, title }));
     return this.session;
   }
 
@@ -488,6 +555,11 @@ export class AgentRunner {
   public reset(): void {
     this.abort();
     this.session.clear();
+    // `/clear` truncates the branch in place, so the session object — and
+    // therefore its identity — is unchanged, but the provider count describes
+    // the messages that were just dropped. Rebinding here is what discards it;
+    // a session-identity check in `getContextUsage()` could not see this case.
+    this.bindSession(this.session);
     this.emotion = createInitialEmotion();
     this.status = 'idle';
   }

@@ -43,9 +43,7 @@ export type MenuAction =
   | 'abort'
   | 'focus-input'
   | 'more'
-  | 'toggle-sidebar'
-  | 'about'
-  | 'docs';
+  | 'toggle-sidebar';
 
 export interface MenuPayload {
   action: MenuAction;

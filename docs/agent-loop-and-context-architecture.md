@@ -78,10 +78,11 @@
   "id": "f4f339772fc9ba4f",
   "timestamp": "2026-09-21T13:45:33.098Z",
   "cwd": "/private/tmp/superiu-cli-proof",
-  "title": "Initial Session",
   "titleSource": "auto"
 }
 ```
+
+`title` 是**可选**字段：无人命名的会话**根本不带这个键**（不是空串），由各外壳渲染自己的本地化"未命名"标签（Web `session.untitled`、CLI `cli.sessions.untitled`）；调用方传入的非空标题原样读回，而空串/纯空白与旧版英文占位一样读作"无标题"。`titleSource` 两条创建路径（`create()` / `createAt()`）都写 `'auto'`。读取侧（`readHeader()` / `listSessions()`，规范化逻辑在 `packages/core/src/session/title.ts`）把旧版本落盘的英文占位标题归一为"无标题"，**磁盘文件永不重写**。
 
 第 2 行起为 `SessionEntry`，每行共享 `id` / `parentId` / `timestamp` 三元组：
 
@@ -721,12 +722,12 @@ runner.close();  // 关闭会话与 history 数据库
 | `/history [query]` | 打印 Prompt 检索历史，可带子串过滤 |
 | `/sessions` | 列出本工作区全部 JSONL 会话，`*` 标记当前会话；尚未落盘的草稿不在列表中，故此时无 `*` |
 | `/load <ref>` | 按 id / id 前缀 / 文件名 / 路径切换会话 |
-| `/new [title]` | 新建会话并切换；文件在首条消息前不落盘，此前打印的是规划路径 |
+| `/new [title]` | 新建会话并切换；文件在首条消息前不落盘，命令只打印新会话 id |
 | `/help` `/exit` | 帮助 / 退出 |
 
 ### 6.7 冒烟测试覆盖矩阵
 
-`node scripts/smoke-test.ts` 全量验证（22 项）：
+`node scripts/smoke-test.ts` 全量验证（73 项）：
 
 | 分组 | 覆盖点 |
 |---|---|
@@ -740,6 +741,8 @@ runner.close();  // 关闭会话与 history 数据库
 | Prompt 历史 | 写入、去重、空白丢弃、子串检索、cwd 作用域 |
 | 循环引擎 | **工具单次执行**（计数器断言 `executions === 1`）；异常自愈回填；缺失工具提示；Spillover 熔断；中断路径 |
 | 上下文装配 | `<workstation>` 注入；reset 截断作用于模型上下文 |
+| 推理强度与模型路由 | `ModelRouter` 未路由角色回落默认路由（显式路由不泄漏到其他角色）；`setRoute` 按字段合并、后续默认路由变更仍透传到未覆盖字段；`resolve()` 返回副本（改副本不污染注册表）；effort 线性放大预算（low 1x / medium 2x / high 4x）并钳位 `MAX_TOKENS_CAP`；**能力白名单外模型不派发 effort**（`supportsReasoningEffort` 剥 vendor 前缀；显式 per-role effort 不被二次猜测）；默认 effort 解析顺序 option > env > `DEFAULT_REASONING_EFFORT`，非法值回落；per-turn override 只放大一次预算（不叠加 4096→8192）；`setModel` 只影响下一轮、不打断在飞轮；per-turn override 不写回路由；审查模型独立于主模型（`setModel` 后 caller 对象不变）；审查模型解析优先级 config > `OPENAI_REVIEW_MODEL_NAME` > `DEFAULT_REVIEW_MODEL`，**绝不继承 `OPENAI_MODEL_NAME`** |
+| 上下文用量与模型元数据 | **分子优先取 provider `prompt_tokens`**（`engine.latestUsage` 同步到 run result），无 provider 计数时回落分支估算；`NaN` 被丢弃（回落到估算而非渲染空读数）；`percent` 由 provider 计数除以 `modelMetadataFor().contextLimit` 得出（500K/1M → 50）；`createSession()`/`reset()`/`loadSession()` 均丢弃上一会话的计数、重新按当前分支估算；恢复的会话无 step 时按分支估算；元数据表逐模型映射 window（1M/2M/256K/200K/128K，未知模型不继承邻居窗口）与 `formattedContext`（`1.1M` 保留一位小数）、`tools`/`vision` 旗标；`estimateContextTokens` 计入 content、tool call 与 tool result 长度 |
 | 端到端 | `AgentRunner` 落盘 5 行 JSONL、写文件副作用、Prompt 历史入库；`/clear`；**会话恢复**（默认重开最新会话） |
 
 ---
@@ -756,8 +759,9 @@ runner.close();  // 关闭会话与 history 数据库
 | `packages/core/src/context/assembler.ts` | 每轮动态装配：workstation + 记忆 + 分支消息 |
 | `packages/core/src/context/builder.ts` | 系统提示词合成 |
 | `packages/core/src/context/compactor.ts` | 2000 字符熔断 + 历史窗口裁剪 |
-| `packages/core/src/loop/engine.ts` | 无界循环 + 独占工具执行器 + AutoReview 审批闸门 |
-| `packages/core/src/loop/adapter.ts` | AI SDK 声明侧（剥离 `execute`）+ Mock 替身 |
+| `packages/core/src/loop/engine.ts` | 无界循环 + 独占工具执行器 + AutoReview 审批闸门；每步的 `StepUsage` 记入 `engine.latestUsage` 并随 `AgentLoopRunResult.usage` 返回 |
+| `packages/core/src/loop/adapter.ts` | AI SDK 声明侧（剥离 `execute`）+ Mock 替身；usage 里非有限的 `promptTokens` 归为 `undefined`（未请求 `include_usage` 的流回的是 `NaN`） |
+| `packages/core/src/model/metadata.ts` | 模型能力表：`vision` / `tools` / `contextLimit` / `formattedContext`（1M、256K、2M…）。`modelMetadataFor()` 先剥掉路由前缀（`openai/gpt-4o` → `gpt-4o`）再按正则**首个命中**取胜，未命中回落 128K/tools/无视觉；`formatContextLimit()` 负责短形式；`estimateContextTokens` 按字符数（约 3.5 字符/token，工具调用与结果按 JSON 长度计）估算分支，仅在尚无 provider 计数时使用 |
 | `packages/core/src/review/types.ts` | `ReviewDecision` / `RiskLevel` / `IAutoReviewer` 契约 |
 | `packages/core/src/review/rules.ts` | 零延迟规则引擎：安全快车道 + 破坏性黑名单 + 越界路径检测 |
 | `packages/core/src/review/reviewer.ts` | `AutoReviewer`：规则优先，未命中时交由审查模型仲裁 |
@@ -765,5 +769,5 @@ runner.close();  // 关闭会话与 history 数据库
 | `packages/core/src/skills/loader.ts` | `.agents/skills` 发现/合并、frontmatter 解析、`<skills>` 渲染、`readSkill` |
 | `packages/core/src/tools/bash.ts` | `executeBashCommand` 执行内核 + `createBashTool` 声明 |
 | `packages/core/src/tools/fs.ts` | `read_file` / `write_file`（支持 `then_run` 写后即执行） |
-| `packages/core/src/runner.ts` | 顶层外观：会话生命周期、Prompt 历史、情绪、状态机、主/审查双模型装配 |
+| `packages/core/src/runner.ts` | 顶层外观：会话生命周期、Prompt 历史、情绪、状态机、主/审查双模型装配；`getContextUsage()` 返回 `{ tokens, limit, percent }` —— 分子优先取 `engine.latestUsage.promptTokens`（provider 自报，已含系统提示词与工具 schema），仅在该引擎尚未跑过任何 step 时回落到 `estimateContextTokens(分支)`；`bindSession()` 重绑 `this.session`/`assembler.session`/`engine.session` 并清空 `engine.latestUsage`（`loadSession()`/`createSession()`/`reset()` 均经此），故切换会话或 `/clear` 后回落到当前分支估算；分母取 `modelMetadataFor(resolveBase('main').model).contextLimit`（用 base 而非 finalize，窗口与推理强度无关）；`percent` 为 0-100 整数并钳位 |
 | `packages/cli/src/index.ts` | 终端 REPL、斜杠命令、流式输出 |
