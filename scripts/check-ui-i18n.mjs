@@ -669,10 +669,16 @@ function splitArguments(body) {
 }
 
 /**
- * Every literal in `code` that reaches the screen but that `looksLikeCopy()`
- * declines. Returns `{ value, line, sink }` records, deduplicated.
+ * Every display-sink window in `code`, as `{ sink, text, line }` records.
+ *
+ * A window is the source text that a sink renders, so a literal inside it can
+ * reach the screen. Both consumers read this ONE enumeration: the position axis
+ * below (which reports a literal `looksLikeCopy()` declines) and the
+ * implementation-detail scan (which reports a literal carrying a path, a mode,
+ * an env-var name or an endpoint). Two enumerations would drift, and a sink one
+ * of them knew about would become a hole in the other.
  */
-function displayPositionLiterals(code) {
+function displaySinkWindows(code) {
   const masked = maskTrCalls(code);
   const lineAt = (index) => masked.slice(0, index).split('\n').length;
   const windows = [];
@@ -703,11 +709,40 @@ function displayPositionLiterals(code) {
     if (args.length >= 3) windows.push({ sink: 'el', text: args[2], line: lineAt(match.index) });
   }
 
+  return windows;
+}
+
+/**
+ * A permission mode written as a bare literal: `0600`, `0755`, `(0600)`.
+ *
+ * The leading zero is REQUIRED and the token must be DELIMITED, which is what
+ * keeps `200`, `4096` and `20000` out. The ticket's suggested shape
+ * `^0?[0-7]{3,4}$` — an optional leading zero — would admit `200`, which the
+ * same ticket requires to stay silent, so the stricter delimited form is used
+ * instead; it satisfies both halves (`0600`/`0755` in, `200`/`4096` out).
+ * The delimiters are also what keep a CSS hex colour out: `#06070b` carries
+ * `0607` followed by `0`, which is not a delimiter.
+ */
+const PERMISSION_MODE_LITERAL = /(?:^|[\s(（])0[0-7]{3}(?:[\s)）.。]|$)/;
+
+/**
+ * Every literal in `code` that reaches the screen but that `looksLikeCopy()`
+ * declines. Returns `{ value, line, sink }` records, deduplicated.
+ */
+function displayPositionLiterals(code) {
   const found = new Map();
-  for (const window of windows) {
+  for (const window of displaySinkWindows(code)) {
     for (const literal of window.text.matchAll(/'([^'\\\n]*)'|"([^"\\\n]*)"/g)) {
       const value = literal[1] ?? literal[2];
-      if (!/[A-Za-z]/.test(value)) continue;
+      // A letter-free literal is normally a number, a unit or a duration, and
+      // is not copy — EXCEPT a permission mode, which is letter-free BY SHAPE
+      // (`0600`) and therefore declined by `looksLikeCopy()` for the same
+      // reason. With the plain letter gate the two axes LOST it: the value axis
+      // declined it (`looksLikeCopy('0600')` is false) and this gate dropped it
+      // before the position axis could report it, so a mode hardcoded into a
+      // display sink was reported by neither. The gate admits the mode shape
+      // and nothing else, so `4096`, `200` and `20000` stay silent.
+      if (!/[A-Za-z]/.test(value) && !PERMISSION_MODE_LITERAL.test(value)) continue;
       if (MARKUP_SYNTAX.test(value)) continue;
       if (CONCATENATION_FRAGMENT.test(value.trim())) continue;
       if (COMPARISON_OPERAND.test(window.text.slice(0, literal.index))) continue;
@@ -1231,6 +1266,245 @@ check(
   unlistedAttributes.length === 0,
   unlistedAttributes.map((f) => `${f.id ? `#${f.id}` : `<${f.tag}>`} ${f.attr} line ${f.line}`).join(', ') || `${attributeFindings.length} known, all allowed`
 );
+
+// --- implementation detail in user-visible copy ------------------------------
+//
+// The defect this section exists for is not a MISSING translation. It is a
+// translation that is present, resolves in both tables, and still leaks the
+// implementation: the settings hint that read
+//
+//   Stored locally in /Users/kayphoon/.myagent/ui-settings.json (0600),
+//   using OPENAI_API_KEY to call /models.
+//
+// That string is a dictionary VALUE, so the value axis (`looksLikeCopy`) sees a
+// sentence and passes it; the key resolves, so every `tr()` check passes it;
+// and `check-dict-parity.mjs` only compares the two tables to each other, so a
+// defect present in both languages passes it too. FOUR guards were green on the
+// verbatim defect, which is why the class needs its own check rather than one
+// more key assertion.
+//
+// Three shapes of "implementation detail" are reported, all position-
+// independent — a path is a path whether it sits in a dictionary value, a
+// display sink or the text under a `data-i18n` annotation:
+//
+//   1. an absolute filesystem path (`/Users/…`, `C:\…`);
+//   2. a permission mode (`0600`, `0755`) — letter-free, which is exactly why
+//      both existing axes declined it (see `PERMISSION_MODE_LITERAL`);
+//   3. an ALL_CAPS environment-variable name (`OPENAI_API_KEY`);
+//   4. a bare endpoint (`/models`) — a slash + lowercase at a word boundary,
+//      MINUS the slash commands the product legitimately documents.
+//
+// The last exclusion is derived, not listed. `/clear`, `/status` and the other
+// slash commands are user-facing syntax: `'清除当前上下文 (/clear)'` is copy, not
+// a leak, and an allowlist of six strings would have to be re-edited every time
+// a command is added. So the command set is read from the code that implements
+// the commands — the `case '/x':` arms in the CLI dispatch and the `name: '/x'`
+// entries in the SPA's completion list — and the endpoint rule subtracts it. A
+// command added tomorrow is excluded the moment it is implemented, and a real
+// endpoint (`/models`, `/api/chat`) is never in the set.
+
+/**
+ * The four implementation-detail shapes. Each pattern is anchored to a word
+ * boundary so it does not fire inside a larger token:
+ *
+ *   - `and/or` is one word, not an endpoint;
+ *   - `README.md` and `v1.2.3` are dotted names, not paths — the path rule
+ *     requires a slash followed by a NON-lowercase character (`/Users`), which
+ *     a lowercase endpoint (`/models`) never matches;
+ *   - `apiKey` / `baseURL` / `Authorization` are camelCase identifiers, not
+ *     env-var names — the env rule requires ≥2 underscore-separated segments.
+ */
+const IMPLEMENTATION_DETAIL_SHAPES = [
+  {
+    id: 'filesystem path',
+    why: 'a filesystem path leaks the machine layout',
+    // A Windows drive (`C:\`) or a POSIX path whose first segment is NOT
+    // lowercase. The lowercase exclusion is what separates `/Users/…` (a path)
+    // from `/models` (an endpoint), which the endpoint rule owns.
+    //
+    // The second half covers the RELATIVE forms an absolute-only rule is blind
+    // to: a home-relative `~/…`, a dot-directory `.myagent/…`, and an explicit
+    // `./` / `../` prefix. This is not hypothetical — the defect's own token,
+    // `.myagent/ui-settings.json`, has NO leading slash, so the original
+    // absolute-only pattern did not fire on it. The relative branch requires a
+    // leading `.` or `~` segment, so a bare dotted name (`README.md`,
+    // `v1.2.3`) and a dot-free in-repo path (`packages/ui/public/i18n.js`) are
+    // deliberately NOT reported.
+    pattern: /(?:^|[\s(（"'`=:;,])[A-Za-z]:\\|(?:^|[\s(（"'`=:;,])[/](?![a-z\s])[\w.~-]|(?:^|[\s(（"'`=:;,])(?:~\/[\w.-]+(?:\/[\w.-]+)*\/?|\.{1,2}\/[\w.-]+(?:\/[\w.-]+)*\/?|\.[\w-]+\/[\w.-]+(?:\/[\w.-]+)*\/?|\.[\w-]+\/)/
+  },
+  {
+    id: 'file mode',
+    why: 'a permission mode is an implementation detail, not copy',
+    // Delimited four-digit octal with a leading zero: `0600`, `0755`. The
+    // leading zero is REQUIRED, so `600` and `4096` do not match, and the
+    // delimiters keep a CSS hex colour (`#06070b`) out — its `0607` is followed
+    // by `0`, not by a delimiter. A three-digit form is admitted ONLY next to
+    // permission wording, which is the one context where `600` means a mode.
+    pattern: /(?:^|[\s(（])0[0-7]{3}(?:[\s)）.。]|$)|(?:权限|permission|chmod|mode bits)[^\n]{0,16}?(?<![\d])[0-7]{3,4}(?![\d])/i
+  },
+  {
+    id: 'environment variable',
+    why: 'an env-var name leaks configuration internals',
+    // ≥2 underscore-separated ALL_CAPS segments, so `OPENAI_API_KEY` matches
+    // and `ID` / `URL` do not. The boundaries stop a match inside a longer
+    // identifier (`MY_OPENAI_API_KEY_BACKUP` is reported whole, not in part).
+    pattern: /(?:^|[^A-Za-z0-9_])([A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)+)(?![A-Za-z0-9_])/
+  },
+  {
+    id: 'bare endpoint',
+    why: 'a bare API endpoint leaks the wire protocol',
+    // A slash + lowercase at a word boundary. The preceding-character class is
+    // deliberate: it matches ` /models` and `(/api/chat` but NOT `and/or`.
+    // The slash token is CAPTURED, so the slash-command exclusion below
+    // compares the command (`/clear`) rather than the delimiter (`(/clear`).
+    pattern: /(?:^|[\s(（"'`])(\/[a-z][\w./-]*)/
+  }
+];
+
+/**
+ * The slash commands the product implements, read from the code that
+ * implements them rather than listed here.
+ *
+ * `case '/clear':` is the CLI dispatch (`packages/cli/src/index.ts`) and
+ * `name: '/status'` is the SPA completion entry (`packages/ui/public/
+ * index.html`). Both are the definition of "this slash-prefixed token is
+ * product syntax a user types", so the endpoint rule can tell a documented
+ * command from a leaked route without a hand-maintained list.
+ */
+function slashCommands() {
+  const commands = new Set();
+  for (const source of [html, cliSource]) {
+    for (const match of source.matchAll(/case\s+'(\/[a-z][\w-]*)'/g)) commands.add(match[1]);
+    for (const match of source.matchAll(/name:\s*'(\/[a-z][\w-]*)'/g)) commands.add(match[1]);
+  }
+  return commands;
+}
+
+/** Every implementation-detail shape a single piece of text carries. */
+function implementationDetailHits(text, commands) {
+  const hits = [];
+  for (const { id, pattern } of IMPLEMENTATION_DETAIL_SHAPES) {
+    const match = pattern.exec(text);
+    if (!match) continue;
+    if (id === 'bare endpoint' && commands.has(match[1] ?? match[0])) continue;
+    hits.push(`${id}: ${JSON.stringify(match[1] ?? match[0])}`);
+  }
+  return hits;
+}
+
+const CLI_INDEX_PATH = path.join(REPO, 'packages/cli/src/index.ts');
+const cliSource = fs.readFileSync(CLI_INDEX_PATH, 'utf-8');
+const slashCommandSet = slashCommands();
+
+// Non-vacuous floor: a command set that came back empty would silently disable
+// the endpoint exclusion's *purpose* (every documented command would be
+// reported), and a scan over zero sinks would make the sink half of the check
+// trivially green. Both are pinned.
+check('slash-command set was derived from the implementing code', slashCommandSet.size >= 8, `${slashCommandSet.size} commands: ${[...slashCommandSet].sort().join(', ')}`);
+
+/**
+ * The dictionary value for a key, from the zh table.
+ *
+ * The annotated-element check below compares each annotated element's text to
+ * this, because `apply()` sets `textContent` from the table: a text node under
+ * `data-i18n` that does NOT equal the zh value is either a hardcoded string
+ * (the defect) or a stale copy of the value. Both are worth reporting, and the
+ * equality is a tighter rule than "contains a path" — it catches a hardcoded
+ * string that carries NO implementation-detail shape at all.
+ */
+const zhValue = new Map([...zhBlock.matchAll(/^\s*'([^']+)':\s*(?:'([^']*)'|"([^"]*)")/gm)].map((m) => [m[1], m[2] ?? m[3]]));
+
+/**
+ * The implementation-detail findings for a source's display sinks.
+ *
+ * Reuses `displaySinkWindows`, the SAME enumeration the position axis reads, so
+ * a sink added to one is a sink the other reads. The windows are masked against
+ * `tr()` calls (inside `displaySinkWindows`), so a value that correctly comes
+ * from the table is not reported here — only a literal written into the sink.
+ */
+function sinkImplementationDetails(source, commands) {
+  const findings = [];
+  for (const window of displaySinkWindows(source)) {
+    for (const literal of window.text.matchAll(/'([^'\\\n]*)'|"([^"\\\n]*)"/g)) {
+      const value = literal[1] ?? literal[2];
+      const hits = implementationDetailHits(value, commands);
+      if (hits.length) findings.push({ sink: window.sink, line: window.line, value, hits });
+    }
+  }
+  return findings;
+}
+
+const moduleSinkDetails = sinkImplementationDetails(stripComments(moduleBody), slashCommandSet);
+const notificationsSinkDetails = sinkImplementationDetails(notifications.code, slashCommandSet);
+check(
+  'no implementation detail in a display sink (index.html module)',
+  moduleSinkDetails.length === 0,
+  moduleSinkDetails.map((f) => `${JSON.stringify(f.value)} (${f.sink}, line ${f.line}) → ${f.hits.join(' | ')}`).join(' | ') || 'clean'
+);
+check(
+  'no implementation detail in a display sink (notifications.js)',
+  notificationsSinkDetails.length === 0,
+  notificationsSinkDetails.map((f) => `${JSON.stringify(f.value)} (${f.sink}, line ${f.line}) → ${f.hits.join(' | ')}`).join(' | ') || 'clean'
+);
+
+// The floor for the sink half: `displaySinkWindows` must have found real sinks,
+// or the two checks above pass over nothing.
+check(
+  'the display-sink scan found windows to inspect',
+  displaySinkWindows(stripComments(moduleBody)).length > 100,
+  `${displaySinkWindows(stripComments(moduleBody)).length} windows in the module, ${displaySinkWindows(notifications.code).length} in notifications.js (floors 100 / 1)`
+);
+
+/**
+ * The annotated elements whose text is neither empty nor the zh value for their
+ * key, plus the counts the floors need.
+ *
+ * A `data-i18n` element is one `apply()` rewrites from the table. Its text
+ * therefore has exactly two legal states: whitespace (a placeholder `apply()`
+ * fills) or the zh value (what the last `apply()` wrote). Anything else is a
+ * hardcoded string sitting where a `tr()` value belongs — the original defect's
+ * shape, where the annotation exists and the text beneath it is English prose
+ * that happens to be what the dictionary would have said.
+ *
+ * The function is named so the self-test drives THIS code rather than a copy.
+ */
+function annotatedElementTextFindings(source, values) {
+  const findings = [];
+  let annotated = 0;
+  walkMarkup(source, {
+    text: ({ text, line, parent }) => {
+      if (!parent || !I18N_ATTRIBUTE.test(parent.attrs)) return;
+      annotated += 1;
+      const key = attributeOf(parent.attrs, 'data-i18n');
+      const expected = values.get(key);
+      if (text === '') return;
+      if (expected !== undefined && text === expected) return;
+      findings.push({ line, tag: parent.name, key, text, expected });
+    },
+    tag: () => {}
+  });
+  return { findings, annotated };
+}
+
+const annotatedText = annotatedElementTextFindings(html, zhValue);
+check(
+  'the annotated-element scan found annotated text nodes',
+  annotatedText.annotated > 40,
+  `${annotatedText.annotated} annotated text nodes (floor > 40)`
+);
+check(
+  'every data-i18n element text is empty or its own dictionary value',
+  annotatedText.findings.length === 0,
+  annotatedText.findings
+    .map((f) => `<${f.tag}> line ${f.line} data-i18n=${JSON.stringify(f.key)} text=${JSON.stringify(f.text)}${f.expected === undefined ? ' (key not in zh table)' : ` ≠ ${JSON.stringify(f.expected)}`}`)
+    .join(' | ') || 'clean'
+);
+
+// The dictionary VALUES themselves are checked by `check-dict-parity.mjs`,
+// which already slices both tables of all four dictionaries and therefore owns
+// the value-side half of this rule set. Splitting it that way keeps ONE table
+// slicer per guard and means the CLI table (`language.ts`), which this file
+// never reads, is covered by the same rules without a second parser here.
 
 // --- whole-file key resolution: the two blind spots the region scan leaves ---
 //
@@ -2377,6 +2651,158 @@ function syntheticBody(names) {
     'self-test: every real dynamic family expansion resolves in both tables',
     realCounts.every(({ family, values }) => values.every((v) => zhKeys.has(family.prefix + v) && enKeys.has(family.prefix + v))),
     realCounts.map(({ family, values }) => `${family.prefix}${values.length}/${values.length}`).join(' ')
+  );
+}
+
+// --- self-test: the implementation-detail rules ------------------------------
+//
+// One positive and one negative case per rule, driven through the SAME helpers
+// the real checks call (`implementationDetailHits`, `sinkImplementationDetails`,
+// `annotatedElementTextFindings`, `displayPositionLiterals`). A positive half
+// proves the rule fires; a negative half proves it does not fire on the benign
+// near-miss that would make it a false-positive generator.
+
+{
+  const commands = slashCommandSet;
+
+  // (1) filesystem path — POSITIVE both flavours (absolute AND the relative
+  // dot-directory form the defect actually used), NEGATIVE the endpoint shape
+  // it must leave to the endpoint rule, plus the dotted names that are not paths.
+  check(
+    'self-test: a filesystem path is reported in copy',
+    implementationDetailHits('Stored in /Users/kayphoon/.myagent/ui-settings.json', commands).some((hit) => hit.startsWith('filesystem path')) &&
+      implementationDetailHits('Saved to C:\\Users\\kay\\.myagent', commands).some((hit) => hit.startsWith('filesystem path')) &&
+      implementationDetailHits('本地保存在 .myagent/ui-settings.json', commands).some((hit) => hit.startsWith('filesystem path')) &&
+      implementationDetailHits('Stored in ~/.myagent/ui-settings.json', commands).some((hit) => hit.startsWith('filesystem path')),
+    JSON.stringify(implementationDetailHits('本地保存在 .myagent/ui-settings.json', commands))
+  );
+  check(
+    'self-test: a lowercase endpoint and a dotted name are not reported as a path',
+    !implementationDetailHits('/models', commands).some((hit) => hit.startsWith('filesystem path')) &&
+      !implementationDetailHits('See README.md or v1.2.3 for details', commands).some((hit) => hit.startsWith('filesystem path')) &&
+      implementationDetailHits('See README.md or v1.2.3 for details', commands).length === 0,
+    JSON.stringify([...implementationDetailHits('/models', commands), ...implementationDetailHits('See README.md or v1.2.3 for details', commands)])
+  );
+
+  // (2) file mode — POSITIVE delimited and permission-adjacent forms, NEGATIVE
+  // the bare numbers and the CSS hex colour that a loose `0[0-7]{3}` matches.
+  check(
+    'self-test: a permission mode is reported in copy',
+    implementationDetailHits('Stored with permissions 0600', commands).some((hit) => hit.startsWith('file mode')) &&
+      implementationDetailHits('权限 600，仅本人可读', commands).some((hit) => hit.startsWith('file mode')),
+    JSON.stringify(implementationDetailHits('Stored with permissions 0600', commands))
+  );
+  check(
+    'self-test: bare numbers and a CSS hex colour are not reported as a mode',
+    implementationDetailHits('Set the limit to 4096 and retry 200 times', commands).length === 0 &&
+      implementationDetailHits('--siu-accent: #0071e3; --siu-text-inverse: #06070b;', commands).length === 0,
+    JSON.stringify([...implementationDetailHits('Set the limit to 4096 and retry 200 times', commands), ...implementationDetailHits('--siu-accent: #0071e3; --siu-text-inverse: #06070b;', commands)])
+  );
+
+  // (3) environment variable — POSITIVE the defect token, NEGATIVE the
+  // camelCase identifiers that are dictionary keys rather than env vars.
+  check(
+    'self-test: an environment variable name is reported in copy',
+    implementationDetailHits('using OPENAI_API_KEY to call the provider', commands).some((hit) => hit.startsWith('environment variable')),
+    JSON.stringify(implementationDetailHits('using OPENAI_API_KEY to call the provider', commands))
+  );
+  check(
+    'self-test: camelCase identifiers are not reported as env-var names',
+    implementationDetailHits('apiKey, baseURL, Authorization and activeProviderId', commands).length === 0,
+    JSON.stringify(implementationDetailHits('apiKey, baseURL, Authorization and activeProviderId', commands))
+  );
+
+  // (4) bare endpoint — POSITIVE the defect token, NEGATIVE the slash commands
+  // the product documents and the `a/b` pair inside a word.
+  check(
+    'self-test: a bare endpoint is reported in copy',
+    implementationDetailHits('calls the /models route', commands).some((hit) => hit.startsWith('bare endpoint')) &&
+      implementationDetailHits('POST (/api/chat', commands).some((hit) => hit.startsWith('bare endpoint')),
+    JSON.stringify(implementationDetailHits('calls the /models route', commands))
+  );
+  check(
+    'self-test: documented slash commands and in-word slashes are not reported as endpoints',
+    implementationDetailHits('清除当前上下文 (/clear)', commands).length === 0 &&
+      implementationDetailHits('Show Status (/status)', commands).length === 0 &&
+      implementationDetailHits('either/or and/or both', commands).length === 0,
+    JSON.stringify([...implementationDetailHits('清除当前上下文 (/clear)', commands), ...implementationDetailHits('either/or and/or both', commands)])
+  );
+
+  // The seam closure itself: a BARE permission-mode literal in a DISPLAY SINK
+  // must reach the position axis. Before the letter gate admitted
+  // `PERMISSION_MODE_LITERAL`, this was reported by NEITHER axis — the value
+  // axis declines it (no letter) and the position axis dropped it at the gate —
+  // so it was the one literal class the partition could not see. The literal is
+  // bare on purpose: a whole sentence carrying `0600` is accepted by
+  // `looksLikeCopy()` and is therefore already the value axis's job.
+  const modeInSink = scanRegion(
+    `function probe() { $('x').textContent = mode || '0600'; }`,
+    { label: 'mode in sink', names: ['probe'] }
+  );
+  check(
+    'self-test: a permission mode in a display sink is reported by the position axis',
+    !looksLikeCopy('0600') &&
+      modeInSink.unlocalized.length === 0 &&
+      modeInSink.displayPosition.some((hit) => hit.includes('0600')),
+    `copy=${modeInSink.unlocalized.join(' | ') || 'none'} display=${modeInSink.displayPosition.join(' | ') || 'no hit'}`
+  );
+  // ...and the gate is a mode gate, not a numbers gate: a bare count in the same
+  // sink must stay silent, or every timeout and limit in the module is reported.
+  const numberInSink = scanRegion(
+    `function probe() { $('x').textContent = mode || '4096'; $('y').textContent = mode || '200'; }`,
+    { label: 'numbers in sink', names: ['probe'] }
+  );
+  check(
+    'self-test: a bare number in a display sink is still not reported by the position axis',
+    numberInSink.displayPosition.length === 0,
+    numberInSink.displayPosition.join(' | ') || 'silent'
+  );
+
+  // The sink scan must find a planted detail through the SAME enumeration the
+  // position axis reads.
+  const sinkFinding = sinkImplementationDetails(
+    `function probe() { $('x').textContent = 'Key stored in /Users/kay/.myagent/ui-settings.json (0600)'; }`,
+    commands
+  );
+  check(
+    'self-test: the sink scan reports a path and a mode planted in one sink',
+    sinkFinding.length === 1 && sinkFinding[0].hits.some((h) => h.startsWith('filesystem path')) && sinkFinding[0].hits.some((h) => h.startsWith('file mode')),
+    sinkFinding.map((f) => `${JSON.stringify(f.value)} → ${f.hits.join(' | ')}`).join(', ') || 'no finding'
+  );
+
+  // The annotated-element rule: a hardcoded English string under a `data-i18n`
+  // annotation is reported, and the same text when it IS the dictionary value is
+  // not. Driven through the shared walker, so a change to the walker shows here.
+  const annotatedFixture = `<div><p data-i18n="settings.apiKey.hint">Stored in .myagent/ui-settings.json (0600). OPENAI_API_KEY</p><p data-i18n="settings.baseURL">API 地址</p></div>`;
+  const annotatedScan = annotatedElementTextFindings(annotatedFixture, new Map([['settings.baseURL', 'API 地址']]));
+  check(
+    'self-test: a hardcoded string under data-i18n is reported and the matching value is not',
+    annotatedScan.annotated === 2 &&
+      annotatedScan.findings.length === 1 &&
+      annotatedScan.findings[0].key === 'settings.apiKey.hint',
+    `annotated=${annotatedScan.annotated} findings=${annotatedScan.findings.map((f) => f.key).join(', ') || 'none'}`
+  );
+
+  // The negative half of the same rule: an annotated element whose text IS the
+  // dictionary value stays silent — the rule is equality, not "contains a path",
+  // so legitimate copy that happens to mention a path-shaped word is not a hit.
+  const cleanAnnotated = annotatedElementTextFindings(
+    `<p data-i18n="settings.baseURL.hint">服务商 API 基础地址（Base URL），留空使用默认地址。</p>`,
+    new Map([['settings.baseURL.hint', '服务商 API 基础地址（Base URL），留空使用默认地址。']])
+  );
+  check(
+    'self-test: an annotated element whose text is its dictionary value is not reported',
+    cleanAnnotated.findings.length === 0,
+    cleanAnnotated.findings.map((f) => JSON.stringify(f.text)).join(', ') || 'silent'
+  );
+
+  // The rules must be clean on the REAL tree through the real helpers — the
+  // statement the baseline run makes, asserted here so a future edit that makes
+  // the rules noisy fails in the self-test as well as in the run above.
+  check(
+    'self-test: the implementation-detail rules are clean on the real tree',
+    moduleSinkDetails.length === 0 && notificationsSinkDetails.length === 0 && annotatedText.findings.length === 0,
+    `sinks=${moduleSinkDetails.length + notificationsSinkDetails.length} annotated=${annotatedText.findings.length}`
   );
 }
 
