@@ -1840,8 +1840,8 @@ for (const entry of sources) {
 // divergence in one file fails its own suite.
 const VALUE_DETAIL_SHAPES = [
   {
-    id: 'absolute path',
-    pattern: /(?:^|[\s(（"'`=:;,])[A-Za-z]:\\|(?:^|[\s(（"'`=:;,])[/](?![a-z\s])[\w.~-]/
+    id: 'filesystem path',
+    pattern: /(?:^|[\s(（"'`=:;,])[A-Za-z]:\\|(?:^|[\s(（"'`=:;,])[/](?![a-z\s])[\w.~-]|(?:^|[\s(（"'`=:;,])(?:~\/[\w.-]+(?:\/[\w.-]+)*\/?|\.{1,2}\/[\w.-]+(?:\/[\w.-]+)*\/?|\.[\w-]+\/[\w.-]+(?:\/[\w.-]+)*\/?|\.[\w-]+\/)/
   },
   {
     id: 'file mode',
@@ -3618,16 +3618,17 @@ const FIXTURE_CONCEPT = {
   const defectHits = defectTables.defectDict.zh.entries.flatMap((record) => valueDetailHits(record.value, commands));
   check(
     'self-test: all four implementation-detail shapes are reported in one value',
-    ['absolute path', 'file mode', 'environment variable', 'bare endpoint'].every((id) => defectHits.some((hit) => hit.startsWith(id))),
+    ['filesystem path', 'file mode', 'environment variable', 'bare endpoint'].every((id) => defectHits.some((hit) => hit.startsWith(id))),
     defectHits.join(' | ') || 'no hit'
   );
 
   check(
-    'self-test: an absolute path is reported and an endpoint-shaped word is not',
-    valueDetailHits('Stored in /Users/kayphoon/.myagent/ui-settings.json', commands).some((hit) => hit.startsWith('absolute path')) &&
-      valueDetailHits('Saved to C:\\Users\\kay\\.myagent', commands).some((hit) => hit.startsWith('absolute path')) &&
+    'self-test: a filesystem path is reported and an endpoint-shaped word is not',
+    valueDetailHits('Stored in /Users/kayphoon/.myagent/ui-settings.json', commands).some((hit) => hit.startsWith('filesystem path')) &&
+      valueDetailHits('本地保存在 .myagent/ui-settings.json', commands).some((hit) => hit.startsWith('filesystem path')) &&
+      valueDetailHits('Saved to C:\\Users\\kay\\.myagent', commands).some((hit) => hit.startsWith('filesystem path')) &&
       !valueDetailHits('See README.md or v1.2.3 for details', commands).length,
-    JSON.stringify([...valueDetailHits('Stored in /Users/kayphoon/.myagent/ui-settings.json', commands), ...valueDetailHits('See README.md or v1.2.3 for details', commands)])
+    JSON.stringify([...valueDetailHits('Stored in /Users/kayphoon/.myagent/ui-settings.json', commands), ...valueDetailHits('本地保存在 .myagent/ui-settings.json', commands), ...valueDetailHits('See README.md or v1.2.3 for details', commands)])
   );
 
   check(
