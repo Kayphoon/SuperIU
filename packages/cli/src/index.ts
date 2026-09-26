@@ -3,6 +3,7 @@ import { stdin as input, stdout as output } from 'node:process';
 import pc from 'picocolors';
 import { AgentRunner, resolveMemoryDir, type PermissionGate } from '@agent/core';
 import { resolveLanguage, t } from './language.js';
+import { redactSecrets } from './redact.js';
 
 export async function startCli() {
   // Async setup must complete BEFORE the readline interface exists (see the
@@ -317,7 +318,7 @@ export async function startCli() {
           }
         },
         onError: (err) => {
-          output.write(`\n${pc.red(`${tr('cli.error')} ${err.message}`)}\n`);
+          output.write(`\n${pc.red(`${tr('cli.error')} ${redactSecrets(err.message, runner)}`)}\n`);
         }
       });
 
@@ -325,9 +326,10 @@ export async function startCli() {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       // Machine-readable sentinel thrown by @agent/core on user abort — not UI
-      // text, so it must never be translated or it will stop matching.
+      // text, so it must never be translated or it will stop matching. The
+      // comparison stays on the RAW message; only the displayed copy is redacted.
       if (message !== '[Task aborted by user]') {
-        output.write(`\n${pc.red(tr('cli.execFailed', { message }))}\n\n`);
+        output.write(`\n${pc.red(tr('cli.execFailed', { message: redactSecrets(message, runner) }))}\n\n`);
       }
     }
 
@@ -343,7 +345,10 @@ if (process.argv[1] && process.argv[1].endsWith('index.js')) {
     // The language is re-resolved here: a failure can happen before startCli's
     // own `language` binding exists.
     const message = err instanceof Error ? err.message : String(err);
-    console.error(pc.red(t(resolveLanguage(), 'cli.fatal', { message })));
+    // No runner is in scope on this path — it is a failure of `startCli` itself,
+    // so `getModelRoutes()` has no source here. The pattern pass stands alone;
+    // see `redactSecrets` for why that is the whole story for this site.
+    console.error(pc.red(t(resolveLanguage(), 'cli.fatal', { message: redactSecrets(message) })));
     process.exit(1);
   });
 }
