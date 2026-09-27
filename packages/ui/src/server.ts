@@ -65,6 +65,18 @@ export interface ServerHandle {
 // Resolved by startServer so the module can be imported without side effects.
 let PUBLIC_DIR = path.resolve(HERE, '..', 'public');
 let SETTINGS_FILE = path.join(process.cwd(), '.superiu', 'ui-settings.json');
+/**
+ * The workspace root owning `.superiu/`.
+ *
+ * Kept as module state, not threaded through every call site, because
+ * `applySettings` rebuilds the runner from a request handler that has no
+ * access to `startServer`'s options. Every reader that wants the workspace must
+ * consult this instead of `process.cwd()`: a host that passes `workspaceDir`
+ * (the Electron shell does) otherwise gets its settings file from one directory
+ * and its sessions, history and memory from another, silently splitting one
+ * workspace across two.
+ */
+let WORKSPACE_DIR = process.cwd();
 
 /**
  * Models offered in the secondary menu's model selector; free-text entry is also
@@ -555,6 +567,12 @@ function runnerOptions(sessionReference?: string, historyDbPath?: string, newSes
     // over `OPENAI_REASONING_EFFORT`, matching how the other settings resolve.
     defaultReasoningEffort: settings.reasoningEffort || undefined,
     sessionId: sessionReference,
+    // The runner derives the session bucket, its `.superiu/sessions` lookup and
+    // the skill search root from this one field. Omitting it makes all three
+    // follow `process.cwd()` instead, so `startServer({ workspaceDir })` would
+    // write settings under the requested root while reading sessions from
+    // wherever the host happened to be launched.
+    workspaceDir: WORKSPACE_DIR,
     // A draft has no file to reopen, so a rebuild must skip the resume path
     // rather than be handed a path that does not exist yet.
     newSession,
@@ -1609,6 +1627,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
   const port = options.port ?? Number.parseInt(process.env.PORT ?? '3000', 10);
   const host = options.host ?? process.env.HOST ?? '127.0.0.1';
   const workspaceDir = path.resolve(options.workspaceDir ?? process.cwd());
+  WORKSPACE_DIR = workspaceDir;
 
   PUBLIC_DIR = options.publicDir ? path.resolve(options.publicDir) : path.resolve(HERE, '..', 'public');
   SETTINGS_FILE = options.settingsFile
@@ -1616,7 +1635,12 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
     : path.join(workspaceDir, '.superiu', 'ui-settings.json');
 
   settings = loadSettings();
-  memoryDir = await resolveMemoryDir();
+  // Anchored to the workspace, not to `process.cwd()`: `resolveMemoryDir()` with
+  // no argument walks the cwd and falls back to `~/.superiu`, so a host that
+  // names a workspace would keep its sessions there but its SOUL/USER/MEMORY
+  // somewhere else. The explicit argument also makes a read-only workspace fail
+  // loudly at boot instead of silently relocating memory to the home directory.
+  memoryDir = await resolveMemoryDir(path.join(workspaceDir, '.superiu'));
   runner = new AgentRunner(runnerOptions());
 
   const server = http.createServer((req, res) => {

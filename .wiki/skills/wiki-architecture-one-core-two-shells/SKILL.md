@@ -136,6 +136,7 @@ description: |
 
 #### 9.1 `@agent/ui` — 本地 Web 控制台
 - **形态**: 纯 `node:http` 服务 + 静态 SPA，无框架服务端；`startServer()` 返回 `ServerHandle`（`url` / `port` / `close()`），可被桌面外壳**进程内**复用。
+- **工作区根**: `startServer({ workspaceDir })` 解析结果存入模块级 `WORKSPACE_DIR`，`runnerOptions()` 把它作为 `workspaceDir` 传给 `AgentRunner`。**绝不能用 `process.cwd()` 顶替**：runner 由该字段派生会话桶、`.superiu/sessions` 查找与 skill 搜索根，而桌面外壳启动的 cwd 与用户选定的工作区**不是**同一个目录——漏传会让设置写进工作区、会话与历史却落在启动目录，一个工作区被静默劈成两半。`runnerOptions()` 还需被 `applySettings()` 的**请求处理路径**调用，那里拿不到 `startServer` 的局部变量，故它必须是模块状态。记忆目录同理显式传 `<workspaceDir>/.superiu`（不传则 `resolveMemoryDir()` 走 cwd 并回落到 `~/.superiu`）。
 - **端口**: 默认 `3000`（`PORT` 环境变量可覆盖，`0` 取临时端口）。
 - **`POST /api/chat`**: 一轮对话以 **SSE** 流式返回（`Content-Type: text/event-stream`）。`EventSource` 不能 POST，故前端用 `fetch` + `ReadableStream` 自行解析 `data:` 帧；15s `: ping` 心跳保活，`X-Accel-Buffering: no` 禁代理缓冲。客户端断开即 `resolvePendingApprovals(false)` + `runner.abort()`，轮次绝不悬挂。
 - **路由面**: `/api/status`（状态轮询）、`/api/chat`、`/api/approve`（交互审批卡片回执）、`/api/abort`、`/api/settings`（GET/POST 设置管理，含 `activeProviderId` 与 `providers[]`）、`/api/models/fetch`（POST 实时探查端点的 `GET /models`）、`/api/model`、`/api/models`、`/api/sessions`、`/api/sessions/new|load`、`/api/messages`、`/api/history`、`/api/clear`、`/api/shutdown`；未知 `/api/*` 一律 404。
