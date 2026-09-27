@@ -689,6 +689,18 @@
         color: var(--siu-accent-text);
         font-weight: 600;
       }
+      .siu-session-item-summary {
+        font-size: 11.5px;
+        color: var(--siu-text-muted);
+        line-height: 1.45;
+        /* The clamp is what keeps a long model-written sentence from growing
+           every sidebar row: the summary is unbounded text, so without a fixed
+           two-line box one verbose turn would make its row taller than the rest. */
+        display: -webkit-box;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+        overflow: hidden;
+      }
       .siu-session-item-meta {
         display: flex;
         align-items: center;
@@ -4872,6 +4884,12 @@
               metaEl.appendChild(idSpan);
 
               item.appendChild(titleEl);
+              // `session.summary` is model/user DATA, not UI copy: it is the
+              // generated sentence itself, so it must never be localized or
+              // passed through tr() — there is no key for it by design.
+              // A session without a summary renders this row one line shorter,
+              // which is why the element is appended only when text is present.
+              if (session.summary) item.appendChild(el('div', 'siu-session-item-summary', session.summary));
               item.appendChild(metaEl);
 
               item.addEventListener('click', () => void switchSession(session.id));
@@ -5265,6 +5283,16 @@
             // The first turn is what persists a draft session, so the select, the
             // sidebar, and the Log file qualifier all change here — not at /api/chat.
             await refreshSessions();
+            // The background title/summary job finishes AFTER the `done` frame,
+            // because it must not delay the turn, so the refresh above
+            // legitimately races it and often reads the pre-title row. One
+            // delayed re-read closes that race; it is a bounded tail, not a
+            // poll. The `state.running` guard keeps it from clobbering a turn
+            // the user started in the meantime, and a miss is harmless — the
+            // next turn or refresh picks the title/summary up anyway.
+            setTimeout(() => {
+              if (!state.running) void refreshSessions();
+            }, 1500);
             await refreshHistory();
             // The turn drew its DOM by streaming, which the cache never saw.
             // Re-read the committed branch so the cache is valid again and a
@@ -5384,13 +5412,19 @@
           // minute-resolution. A per-row `title=` tooltip is not available
           // here: the card is one <pre> of text, with no per-row DOM to hang it
           // on. The leading `*`/`  ` marks the active session.
+          // The summary is rendered on its own indented line, the same shape the
+          // CLI's `/sessions` uses: this card is one <pre>, so a per-row subtitle
+          // element does not exist here and the line break is the only way to
+          // show it. It stays a VALUE (never wrapped in copy) because it is the
+          // session's own generated text, which must not be translated.
           const body = sessions.length
             ? sessions
-                .map(
-                  (s) =>
+                .map((s) => {
+                  const row =
                     (s.active ? '* ' : '  ') + s.id.slice(0, 8) + '  ' +
-                    shortTime(s.timestamp) + '  ' + sessionLabel(s)
-                )
+                    shortTime(s.timestamp) + '  ' + sessionLabel(s);
+                  return s.summary ? row + '\n' + `   ${s.summary}` : row;
+                })
                 .join('\n')
             : tr('session.select.none');
           const card = el('div', 'siu-turn ' + enterClass());

@@ -11,6 +11,11 @@
  * Normalization happens on READ; the file is never rewritten. Sessions already
  * on disk are fixed without touching user data, and a title the user supplied
  * round-trips verbatim.
+ *
+ * A session SUMMARY (`summary`) is data too. It is a model- or user-supplied
+ * string stored on the same header, and it is normalized on read for the same
+ * reason: the shell owns rendering, so a blank or non-string value reads as
+ * "no summary" rather than being passed on to leak an empty row into the UI.
  */
 
 /**
@@ -33,4 +38,31 @@ export function sessionTitle(header: { title?: string }): string | undefined {
   if (typeof title !== 'string') return undefined;
   if (title.trim() === '' || title === LEGACY_DEFAULT_TITLE) return undefined;
   return title;
+}
+
+/**
+ * Upper bound on a stored session summary, in characters.
+ *
+ * The metadata generator clamps a model reply to this length before it can
+ * reach a header, so a runaway reply cannot bloat the session file or push the
+ * list row past a readable width. Read-side normalization does not clamp:
+ * anything narrower than the original would corrupt a value that was already
+ * stored legitimately.
+ */
+export const SESSION_SUMMARY_MAX_CHARS = 240;
+
+/**
+ * The session's rolling summary, or `undefined` when it has none.
+ *
+ * Unlike `sessionTitle` there is no legacy placeholder to filter: `summary` is
+ * a new field, so any value present was written by this code and must not be
+ * second-guessed. A summary that is absent, non-string, or blank reads as "no
+ * summary"; anything else is returned unchanged, byte for byte, because the
+ * shell owns the rendering.
+ */
+export function sessionSummary(header: { summary?: string }): string | undefined {
+  const summary = header.summary;
+  if (typeof summary !== 'string') return undefined;
+  if (summary.trim() === '') return undefined;
+  return summary;
 }

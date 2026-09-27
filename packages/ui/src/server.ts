@@ -1244,6 +1244,10 @@ async function handleApi(
     const sessions = runner.listSessions().map((session: SessionDescriptor) => ({
       id: session.id,
       title: session.title ?? '',
+      // Same `?? ''` convention as `title`: the renderer always receives a
+      // string, so its presence check is a plain truthiness test and never
+      // has to distinguish `undefined` from an empty summary.
+      summary: session.summary ?? '',
       timestamp: session.timestamp,
       cwd: session.cwd,
       filePath: session.filePath,

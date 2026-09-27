@@ -78,11 +78,14 @@
   "id": "f4f339772fc9ba4f",
   "timestamp": "2026-09-21T13:45:33.098Z",
   "cwd": "/private/tmp/superiu-cli-proof",
-  "titleSource": "auto"
+  "titleSource": "auto",
+  "summary": "为 CLI 冒烟测试写入一份证明文件并确认无界循环自然收敛"
 }
 ```
 
 `title` 是**可选**字段：无人命名的会话**根本不带这个键**（不是空串），由各外壳渲染自己的本地化"未命名"标签（Web `session.untitled`、CLI `cli.sessions.untitled`）；调用方传入的非空标题原样读回，而空串/纯空白与旧版英文占位一样读作"无标题"。`titleSource` 两条创建路径（`create()` / `createAt()`）都写 `'auto'`。读取侧（`readHeader()` / `listSessions()`，规范化逻辑在 `packages/core/src/session/title.ts`）把旧版本落盘的英文占位标题归一为"无标题"，**磁盘文件永不重写**。
+
+`summary` 同样是**可选**字段：尚无摘要的会话**根本不带这个键**（不是空串），空串/纯空白也一律读作"无摘要"（规范化逻辑 `sessionSummary()` 在 `packages/core/src/session/title.ts`）。它与 `title` 一样由后台任务生成（见 §2.7），而该任务只在回合完成、消息已落盘后才启动，故 header 里的这两个值**不是**创建时写入的静态常量。header 版本**保持 `version: 3`**：`summary` 可选，旧读取方忽略它、新读取方把缺失读作"无摘要"，因此无需协议升级。
 
 第 2 行起为 `SessionEntry`，每行共享 `id` / `parentId` / `timestamp` 三元组：
 
@@ -188,6 +191,47 @@ flowchart TD
 | `resolveSessionFile(ref, cwd, workspaceDir)` | 按绝对路径 / 文件名 / session id / **id 前缀**解析 |
 
 > **为什么按 mtime 而不是 header.timestamp 排序**：同一毫秒内创建的多个会话，`header.timestamp` 会打平，排序结果不确定。mtime 反映的是"最后被写入的文件"，语义更准确。`SessionDescriptor` 因此额外携带 `mtimeMs`。这也正是未使用的新会话必须保持草稿、不落盘的原因：一个只写了 header 的幽灵文件会带着最新 mtime 赢得排序，在下次启动时顶替掉真正的当前会话。
+
+### 2.7 会话元数据生成：标题与滚动摘要
+
+`SessionHeader` 的 `title` / `summary` 不是创建时一次性算好的静态值：两者都由 `SessionMetadataGenerator`（`packages/core/src/session/metadata.ts`）在**回合结束后**后台生成，再经 `SessionManager.updateTitle()` / `updateSummary()` 写回；写回沿用草稿延迟语义与 header 落盘规则（草稿期只改 `this.header`，header 行落盘时一并写出，`rewriteHeader()` 对未落盘的草稿是 no-op）。`titleSource` 则是创建时即写 `'auto'` 的标记，不参与生成。
+
+#### 标题：每个会话恰好生成一次
+
+| 规则 | 细节 | 防止的失败 |
+|---|---|---|
+| 触发时机 | **首个「完成」的回合**结束后；一次会话只生成一次 | 每个回合都换标题，会话身份在列表里不停跳动 |
+| 模型路由 | `title` 路由（`OPENAI_TITLE_MODEL_NAME`，未设时由路由器回落到默认/主路由）；无论哪条路由，都用**独立**于主循环的 `StepModelCaller` | 标题生成占用主循环的步数序列——测试替身被它消耗后，按调用次数计数的断言会看到预期之外的辅助流量 |
+| 落盘标记 | 写入时**显式**传 `titleSource: 'auto'` | `updateTitle()` 的参数默认是 `'user'`；漏传即把模型生成的标题标成人类命名，此后所有回合都拒绝再生成，header 被第一次尝试的结果永久钉死 |
+| 不重生成 | 已有标题即不再生成 | 覆盖用户已经认可的名字 |
+| 不覆盖用户命名 | `titleSource === 'user'` 时绝不覆盖 | 用户显式命名被后台任务悄悄改掉 |
+| 调用失败 | 回落 `deriveTitleFromPrompt()`：取**首个非空用户消息**的**首个非空行**、空白折叠、按 `SESSION_TITLE_MAX_CHARS`（60）截断（超出时才附 `…`，且尽量落在词边界） | 标题路由故障导致会话永远显示"未命名" |
+| 中断回合 | **不生成**，留待下一个完成回合 | 半截回合生成出误导性标题 |
+
+`deriveTitleFromPrompt(prompt: string): string | undefined` 是**确定性**回退，不依赖模型，因此标题路由失败只影响"好不好看"，不影响"有没有"。`SESSION_TITLE_MAX_CHARS` 由 `packages/core/src/session/metadata.ts` 导出。
+
+#### 摘要：每个完成回合后重算
+
+| 规则 | 细节 | 防止的失败 |
+|---|---|---|
+| 触发时机 | **每一个完成的回合**结束后重算（不是只算一次） | 摘要停留在首轮，无法描述"这个会话现在在做什么" |
+| 输出契约 | 一句话，≤ `SESSION_SUMMARY_MAX_CHARS`（240） | 长摘要把会话列表挤成一堵墙 |
+| 语言 | 与对话语言一致（中文会话出中文摘要） | 中文会话配英文副标题 |
+| 输入 | 活跃分支 + **上一版摘要** | 只看最新一轮会丢掉前文脉络，只剩一句没头没尾的话 |
+| 调用失败 | **保留上一版摘要不动** | 失败的调用把已有摘要擦成空白 |
+
+`SESSION_SUMMARY_MAX_CHARS` 与读取侧归一化函数 `sessionSummary(header)` 都由 `packages/core/src/session/title.ts` 导出——读取侧只做"缺失键 / 空串 / 纯空白 = 无摘要"的判定，不参与生成。
+
+#### 后台执行、作废与生命周期
+
+- **生成是后台的**：它**绝不**延迟回合完成，也**绝不**延迟外壳的 `done` 帧。宿主通过 `AgentRunner.pendingSessionMetadata(): Promise<void>` 观察后台任务是否收敛，而不是等它在回合内返回。
+- **只有完成的回合才触发**：`scheduleSessionMetadata()` 只挂在 `run()` 的成功返回路径上。abort 或异常抛出的回合**标题与摘要都不写**——半截回合的摘要会描述从未完成的工作，而且上一版摘要仍然真实地描述着这个会话，把它换成一句假话是净损失。
+- **在途结果作废**：回包到达时若会话已切换（`loadSession()` / `createSession()`）或分支已重置（`/clear` 会自增一个内部序号计数器），该回包直接丢弃——否则刚切走的新会话会凭空继承上一段对话的标题与摘要。
+- **`/clear` 的取舍**：`reset()` 清除 `summary`（它所描述的那条分支已经不存在了），但**保留 `title`**——/clear 清的是上下文，不是会话身份，标题理应跟着会话走。
+- **测试接缝下的惰性**：注入 `stepCaller` / `stepCallerFactory` 而未显式提供 `metadataCaller` 时，生成**整体不启用**。原因是该任务在每个回合后都会跑，若默认启用就会消耗测试替身的步数序列，把按调用次数计数的断言全部打乱。
+- **凭据不做脱敏**：标题与摘要里的密钥/敏感串**有意不擦除**。它们写入的是同一个 JSONL 文件，而同一个文件的 transcript 本就是逐字原样落盘的——只擦摘要不擦正文是自欺欺人，且会让"文件里没有明文"这个判断产生虚假的安全感。
+
+后台任务的模型调用走 `AgentRunnerOptions.metadataCaller`（一个独立的 `StepModelCaller`）。
 
 ---
 
@@ -734,7 +778,7 @@ runner.close();  // 关闭会话与 history 数据库
 | Spillover / 沙箱 | 2000 字符熔断落盘；bash echo；直接子进程中断；**嵌套进程组树杀** |
 | 情绪 / 记忆 | 半衰期衰减；三层记忆加载 |
 | 路径规范 | `encodeCwd` 对齐 omp；`.superiu/sessions/<encoded-cwd>/<ts>_<id>.jsonl` 布局 |
-| JSONL 规范 | Header 的 `type/version/id/timestamp/cwd/titleSource`；`parentId` 链；8 位 entry id；`toolResult` 落盘命名 |
+| JSONL 规范 | Header 的 `type/version/id/timestamp/cwd/titleSource`（+ 可选 `summary`）；首个完成回合生成标题（失败回落 `deriveTitleFromPrompt`）、此后每回合重算摘要；`parentId` 链；8 位 entry id；`toolResult` 落盘命名 |
 | 树状态机 | `leafId` 追踪；`branch()` 只移动指针（append-only 断言）；`open()` 重建 |
 | `/clear` | `reset_boundary` 落盘；`buildSessionContext` 截断；历史行数不减 |
 | 发现 | `listSessions` / `findMostRecentSession` / id 与前缀解析 |
@@ -754,7 +798,9 @@ runner.close();  // 关闭会话与 history 数据库
 | `packages/core/src/session/types.ts` | `SessionHeader` / `SessionEntry` 联合类型契约、`CURRENT_SESSION_VERSION` |
 | `packages/core/src/session/paths.ts` | `encodeCwd`、`getSessionDir`、`createSessionFilePath`、`createSessionId` |
 | `packages/core/src/session/manager.ts` | JSONL 追加写、树/叶子索引、`buildSessionContext`、悬空清理 |
-| `packages/core/src/session/discovery.ts` | 会话列举、最新会话查找、引用解析 |
+| `packages/core/src/session/discovery.ts` | 会话列举、最新会话查找、引用解析；`SessionDescriptor` 是 header 全部字段 + `filePath` / `mtimeMs`，故一并携带已归一化的可选 `summary` |
+| `packages/core/src/session/title.ts` | 标题/摘要读取侧归一化：`sessionTitle()` 过滤旧版占位标题、`sessionSummary()` 把缺失/空白读作"无摘要"；`SESSION_SUMMARY_MAX_CHARS`(240) |
+| `packages/core/src/session/metadata.ts` | `SessionMetadataGenerator`：一次性的标题生成与每回合重算的滚动摘要，全部走 `title` 路由；`deriveTitleFromPrompt()` 为标题调用失败时的确定性回落；`SESSION_TITLE_MAX_CHARS`(60) |
 | `packages/core/src/storage/history.ts` | `node:sqlite` Prompt 检索库 |
 | `packages/core/src/context/assembler.ts` | 每轮动态装配：workstation + 记忆 + 分支消息 |
 | `packages/core/src/context/builder.ts` | 系统提示词合成 |

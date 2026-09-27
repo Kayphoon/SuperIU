@@ -12,7 +12,7 @@ import {
   type SessionMessageEntry
 } from './types.js';
 import { createSessionFilePath, createSessionId } from './paths.js';
-import { sessionTitle } from './title.js';
+import { sessionSummary, sessionTitle } from './title.js';
 
 export interface SessionManagerOptions {
   /** Workspace root that owns the `.superiu/sessions` bucket. Defaults to the session cwd. */
@@ -67,7 +67,7 @@ export class SessionManager {
    * Whether `filePath` already holds this session's header on disk.
    *
    * False for a draft: it owns its planned path but has written nothing, so
-   * anything that reads the file (`updateTitle`) branches on this instead of
+   * anything that reads the file (`rewriteHeader`) branches on this instead of
    * assuming the header exists. Public so a shell can tell a human that the
    * log path it is displaying is planned rather than real.
    */
@@ -165,6 +165,11 @@ export class SessionManager {
       const title = sessionTitle(parsed);
       if (title === undefined) delete parsed.title;
       else parsed.title = title;
+      // Same normalization for the rolling summary: the file is never rewritten
+      // on read, so this only fixes the in-memory header a caller receives.
+      const summary = sessionSummary(parsed);
+      if (summary === undefined) delete parsed.summary;
+      else parsed.summary = summary;
       return parsed;
     } catch {
       return null;
@@ -401,9 +406,35 @@ export class SessionManager {
   public updateTitle(title: string, titleSource: 'auto' | 'user' = 'user'): void {
     this.header.title = title;
     this.header.titleSource = titleSource;
+    this.rewriteHeader();
+  }
+
+  /**
+   * Set or clear the rolling summary shown under the title in the session list.
+   *
+   * Same draft semantics as `updateTitle`: a draft keeps the value in
+   * `this.header`, which `persist` serializes when the draft materializes, so
+   * nothing is written early. Clearing deletes the member instead of storing an
+   * empty string, because absence is the honest encoding of "no summary" — an
+   * empty string would read back as a blank row rather than "none".
+   */
+  public updateSummary(summary: string | undefined): void {
+    if (summary === undefined) delete this.header.summary;
+    else this.header.summary = summary;
+    this.rewriteHeader();
+  }
+
+  /**
+   * Rewrite line 1 of the session file from `this.header`, leaving the entries
+   * below it untouched.
+   *
+   * No-op for a draft: it has no header on disk yet, and the caller's mutation
+   * is already in `this.header`, which `persist` serializes on materialization.
+   */
+  private rewriteHeader(): void {
     if (!this.filePath) return;
 
-    // A draft has no header on disk yet; the title is already in `this.header`,
+    // A draft has no header on disk yet; the value is already in `this.header`,
     // which `persist` serializes when the draft materializes.
     if (!this.materialized) return;
 

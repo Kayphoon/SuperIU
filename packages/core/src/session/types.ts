@@ -12,6 +12,7 @@ export interface SessionHeader {
   cwd: string;
   title?: string;
   titleSource?: 'auto' | 'user';
+  summary?: string;
 }
 
 /** Fields shared by every non-header entry. */

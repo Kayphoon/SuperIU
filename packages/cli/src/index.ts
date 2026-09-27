@@ -218,6 +218,11 @@ export async function startCli() {
             console.log(
               `${active}${pc.cyan(session.id)}  ${pc.dim(stamp)}  ${session.title ?? tr('cli.sessions.untitled')}`
             );
+            // The summary is model/user data, not UI copy: interpolate it as a
+            // VALUE. Wrapping it in a literal would make scripts/check-cli-i18n.mjs
+            // demand a dictionary key that must not exist, since translating it
+            // would corrupt the conversation's own text.
+            if (session.summary) console.log(`   ${pc.dim(session.summary)}`);
           }
           console.log();
           break;

@@ -11,6 +11,8 @@ import {
   formatSkillsXml,
   readSkill,
   SKILL_DESCRIPTION_MAX_CHARS,
+  SESSION_TITLE_MAX_CHARS,
+  SESSION_SUMMARY_MAX_CHARS,
   SystemPromptBuilder,
   createInitialEmotion,
   decayEmotion,
@@ -19,6 +21,10 @@ import {
   ensureMemoryFiles,
   MemorySynthesizer,
   SessionManager,
+  sessionTitle,
+  sessionSummary,
+  SessionMetadataGenerator,
+  deriveTitleFromPrompt,
   encodeCwd,
   getSessionDir,
   createSessionFilePath,
@@ -45,7 +51,8 @@ import {
   CURRENT_SESSION_VERSION,
   DEFAULT_MAIN_MODEL,
   DEFAULT_REVIEW_MODEL,
-  type SessionEntry
+  type SessionEntry,
+  type ContextMessage
 } from '../packages/core/dist/index.js';
 
 let failures = 0;
@@ -76,6 +83,7 @@ interface SessionHeaderLine {
   cwd: string;
   title?: string;
   titleSource?: string;
+  summary?: string;
 }
 
 type JsonlLine = SessionHeaderLine | SessionEntry;
@@ -2770,6 +2778,494 @@ async function runSmokeTests() {
     } finally {
       await new Promise<void>((resolve) => provider.close(() => resolve()));
     }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Session title + rolling summary metadata
+  // ---------------------------------------------------------------------------
+  // One-turn branch fixture for the generator-level tests. Only user/assistant
+  // text reaches the transcript, so a single user message is a complete branch,
+  // and the generator keeps no state — every call needs its messages passed in.
+  const metadataMessages = (prompt: string): ContextMessage[] => [
+    { id: 'meta-user', role: 'user', content: prompt, createdAt: Date.now() }
+  ];
+
+  // Distinct word lengths make a mid-word cut detectable: a hard slice through
+  // the tail would leave a fragment that is not one of these words.
+  const clampWords = [
+    'alpha',
+    'bravo',
+    'charlie',
+    'delta',
+    'echo',
+    'foxtrot',
+    'golf',
+    'hotel',
+    'india',
+    'juliett',
+    'kilo',
+    'lima',
+    'mike',
+    'november'
+  ];
+
+  await test('Metadata replies are normalized to one bare clamped line', async () => {
+    const messages = metadataMessages('fix the login bug in the auth middleware');
+
+    // A model that answers with a fenced, labelled, quoted reply is the common
+    // case. Every wrapper must be gone before the string reaches a header, or the
+    // sessions list renders ``` or `Title:` as part of the name the user reads.
+    const decorated = new SessionMetadataGenerator({
+      modelCaller: new MockStepAdapter([{ text: '```\nTitle: "Fix the login bug"\n```' }])
+    });
+    const decoratedTitle = await decorated.generateTitle(messages);
+    assert(
+      decoratedTitle === 'Fix the login bug',
+      `fence/label/quote wrapper survived cleanup: ${JSON.stringify(decoratedTitle)}`
+    );
+
+    const multiline = new SessionMetadataGenerator({
+      modelCaller: new MockStepAdapter([{ text: 'Fix\nthe   login bug\n' }])
+    });
+    const multilineTitle = await multiline.generateTitle(messages);
+    // The header and the list row are single-line: a surviving newline would render
+    // the rest of the reply as a second, unlabelled row.
+    assert(
+      multilineTitle === 'Fix the login bug',
+      `newlines survived into the title: ${JSON.stringify(multilineTitle)}`
+    );
+
+    const blank = new SessionMetadataGenerator({
+      modelCaller: new MockStepAdapter([{ text: '  \n\t ' }])
+    });
+    const blankTitle = await blank.generateTitle(messages);
+    // `undefined`, never '': an empty string would be a row that renders blank
+    // while claiming the session has a title.
+    assert(blankTitle === undefined, `a blank reply produced ${JSON.stringify(blankTitle)}`);
+
+    const longTitleSource = clampWords.join(' ');
+    assert(longTitleSource.length > SESSION_TITLE_MAX_CHARS, 'fixture must exceed the title cap');
+    const longTitleGenerator = new SessionMetadataGenerator({
+      modelCaller: new MockStepAdapter([{ text: longTitleSource }])
+    });
+    const clampedTitle = await longTitleGenerator.generateTitle(messages);
+    assert(clampedTitle !== undefined, 'an over-long reply must still yield a title');
+    assert(SESSION_TITLE_MAX_CHARS === 60, `title cap changed to ${SESSION_TITLE_MAX_CHARS}`);
+    assert(
+      clampedTitle.length <= SESSION_TITLE_MAX_CHARS,
+      `clamped title is ${clampedTitle.length} chars`
+    );
+    assert(clampedTitle.endsWith('…'), `truncation marker missing: ${JSON.stringify(clampedTitle)}`);
+    const keptTitleWords = clampedTitle.slice(0, -1).split(' ');
+    assert(keptTitleWords.length < clampWords.length, 'the clamp dropped nothing');
+    // Regression: a hard `slice` at the cap would cut 'juliett' in half and render
+    // a word fragment in the list row.
+    assert(
+      keptTitleWords.every((word, index) => word === clampWords[index]),
+      `the clamp cut through a word: ${JSON.stringify(keptTitleWords)}`
+    );
+
+    const summaryWords = Array.from({ length: 5 }, () => clampWords).flat();
+    const longSummarySource = summaryWords.join(' ');
+    assert(longSummarySource.length > SESSION_SUMMARY_MAX_CHARS, 'fixture must exceed the summary cap');
+    const longSummaryGenerator = new SessionMetadataGenerator({
+      modelCaller: new MockStepAdapter([{ text: `Summary: "${longSummarySource}"` }])
+    });
+    const clampedSummary = await longSummaryGenerator.generateSummary(messages);
+    assert(clampedSummary !== undefined, 'an over-long reply must still yield a summary');
+    assert(
+      clampedSummary.length <= SESSION_SUMMARY_MAX_CHARS,
+      `clamped summary is ${clampedSummary.length} chars`
+    );
+    assert(
+      clampedSummary.length > SESSION_TITLE_MAX_CHARS,
+      `the summary was clamped to the title cap (${SESSION_TITLE_MAX_CHARS}), not the summary cap`
+    );
+    assert(
+      clampedSummary.endsWith('…'),
+      `truncation marker missing: ${JSON.stringify(clampedSummary.slice(-12))}`
+    );
+    const keptSummaryWords = clampedSummary.slice(0, -1).split(' ');
+    assert(keptSummaryWords.length < summaryWords.length, 'the clamp dropped nothing');
+    assert(
+      keptSummaryWords.every((word, index) => word === summaryWords[index]),
+      `the summary clamp cut through a word: ${JSON.stringify(keptSummaryWords.slice(-3))}`
+    );
+  });
+
+  await test('deriveTitleFromPrompt takes the first non-empty line, collapsed and clamped', async () => {
+    const firstLine = deriveTitleFromPrompt('\n   \n  fix   the login bug \nand the logout path too');
+    // A pasted multi-line request must not carry its second paragraph into the
+    // session list, and leading blank lines must not win over the real request.
+    assert(
+      firstLine === 'fix the login bug',
+      `first-line extraction produced ${JSON.stringify(firstLine)}`
+    );
+
+    const longSource = clampWords.join(' ');
+    const clamped = deriveTitleFromPrompt(`\n${longSource}\n`);
+    assert(clamped !== undefined, 'an over-long prompt must still yield a title');
+    assert(clamped.length <= SESSION_TITLE_MAX_CHARS, `clamped title is ${clamped.length} chars`);
+    assert(clamped.endsWith('…'), `truncation marker missing: ${JSON.stringify(clamped.slice(-8))}`);
+    const keptWords = clamped.slice(0, -1).split(' ');
+    assert(keptWords.length < clampWords.length, 'the clamp dropped nothing');
+    assert(
+      keptWords.every((word, index) => word === clampWords[index]),
+      `the clamp cut through a word: ${JSON.stringify(keptWords)}`
+    );
+
+    assert(deriveTitleFromPrompt('   \n\t\n') === undefined, 'a blank prompt produced a title');
+    assert(deriveTitleFromPrompt('') === undefined, 'an empty prompt produced a title');
+  });
+
+  await test('A completed turn publishes an auto title and a rolling summary, and only the summary rolls', async () => {
+    const cwd = path.join(workspace, 'metadata-e2e');
+    await fs.mkdir(cwd, { recursive: true });
+
+    const runner = new AgentRunner({
+      workspaceDir: cwd,
+      memoryDir: path.join(sandbox, 'metadata-e2e-memory'),
+      spilloverDir: path.join(sandbox, 'metadata-e2e-spill'),
+      stepCaller: new MockStepAdapter([{ text: 'on it' }, { text: 'still on it' }]),
+      // Call order is title (first completed turn only), then one summary per
+      // completed turn, so the three steps line up with three metadata calls.
+      metadataCaller: new MockStepAdapter([
+        { text: '```\nTitle: "Fix the login bug"\n```' },
+        { text: 'Summary: "The user is fixing the login bug."' },
+        { text: 'Summary: "The user is fixing the login bug and adding a regression test."' }
+      ])
+    });
+
+    await runner.run('please fix the login bug');
+    // Generation is fire-and-forget, so reading the file without awaiting this is
+    // a race rather than a proof that the write landed.
+    await runner.pendingSessionMetadata();
+
+    const sessionFile = requireFilePath(runner.session);
+    const first = await readHeader(sessionFile);
+    assert(first.title === 'Fix the login bug', `turn 1 title ${JSON.stringify(first.title)}`);
+    assert(first.titleSource === 'auto', `turn 1 titleSource ${String(first.titleSource)}`);
+    assert(
+      first.summary === 'The user is fixing the login bug.',
+      `turn 1 summary ${JSON.stringify(first.summary)}`
+    );
+
+    await runner.run('now add a regression test');
+    await runner.pendingSessionMetadata();
+
+    const second = await readHeader(sessionFile);
+    assert(
+      second.summary === 'The user is fixing the login bug and adding a regression test.',
+      `turn 2 did not republish the summary: ${JSON.stringify(second.summary)}`
+    );
+    // Once-only rule, and the negative case is two-fold: retitling every turn would
+    // both spend a model call and consume the summary step above, landing
+    // 'The user is fixing the login bug.' in the title.
+    assert(
+      second.title === 'Fix the login bug',
+      `turn 2 retitled the session: ${JSON.stringify(second.title)}`
+    );
+
+    // The listing is a second read path: a summary that reached the file but not
+    // the descriptor would leave the subtitle missing from the sessions list.
+    const descriptor = listSessions(cwd, cwd).find((entry) => entry.id === runner.getSessionId());
+    assert(descriptor, 'the session is missing from the listing');
+    assert(descriptor.title === 'Fix the login bug', `listed title ${JSON.stringify(descriptor.title)}`);
+    assert(
+      descriptor.summary === second.summary,
+      `listed summary ${JSON.stringify(descriptor.summary)}`
+    );
+    runner.close();
+  });
+
+  await test('A failing metadata caller degrades to the prompt-derived title and never blanks a stored summary', async () => {
+    const fallbackCwd = path.join(workspace, 'metadata-fallback');
+    await fs.mkdir(fallbackCwd, { recursive: true });
+
+    const prompt = 'fix the login bug please';
+    const failingRunner = new AgentRunner({
+      workspaceDir: fallbackCwd,
+      memoryDir: path.join(sandbox, 'metadata-fallback-memory'),
+      spilloverDir: path.join(sandbox, 'metadata-fallback-spill'),
+      stepCaller: new MockStepAdapter([{ text: 'ok' }]),
+      metadataCaller: {
+        async callStep() {
+          throw new Error('metadata provider down');
+        }
+      }
+    });
+
+    await failingRunner.run(prompt);
+    await failingRunner.pendingSessionMetadata();
+
+    const failedHeader = await readHeader(requireFilePath(failingRunner.session));
+    // A provider outage must not leave a brand-new session nameless while the
+    // user's own words are right there: the deterministic fallback is what keeps
+    // it from appearing in the list as an empty row.
+    assert(
+      failedHeader.title === deriveTitleFromPrompt(prompt),
+      `failed generation produced title ${JSON.stringify(failedHeader.title)}`
+    );
+    assert(
+      typeof failedHeader.title === 'string' && failedHeader.title.includes('login'),
+      `the fallback did not come from the prompt: ${JSON.stringify(failedHeader.title)}`
+    );
+    // 'auto' must be explicit: the updateTitle default is 'user', and a
+    // user-sourced fallback would make every later turn refuse to regenerate.
+    assert(failedHeader.titleSource === 'auto', `titleSource ${String(failedHeader.titleSource)}`);
+    assert(
+      failedHeader.summary === undefined,
+      `a failed first summary wrote ${JSON.stringify(failedHeader.summary)}`
+    );
+    failingRunner.close();
+
+    const preserveCwd = path.join(workspace, 'metadata-preserve');
+    await fs.mkdir(preserveCwd, { recursive: true });
+
+    const replies = [
+      { text: '```\nTitle: "Fix the login bug"\n```' },
+      { text: 'Summary: "The user is fixing the login bug."' }
+    ];
+    let callIndex = 0;
+    let metadataDown = false;
+    const flakyRunner = new AgentRunner({
+      workspaceDir: preserveCwd,
+      memoryDir: path.join(sandbox, 'metadata-preserve-memory'),
+      spilloverDir: path.join(sandbox, 'metadata-preserve-spill'),
+      stepCaller: new MockStepAdapter([{ text: 'one' }, { text: 'two' }]),
+      metadataCaller: {
+        async callStep() {
+          if (metadataDown) throw new Error('metadata provider down');
+          const reply = replies[callIndex] ?? { text: '' };
+          callIndex++;
+          return { text: reply.text, toolCalls: [] };
+        }
+      }
+    });
+
+    await flakyRunner.run('fix the login bug');
+    await flakyRunner.pendingSessionMetadata();
+    const healthy = await readHeader(requireFilePath(flakyRunner.session));
+    assert(
+      healthy.summary === 'The user is fixing the login bug.',
+      `the healthy turn stored ${JSON.stringify(healthy.summary)}`
+    );
+
+    metadataDown = true;
+    await flakyRunner.run('now add a regression test');
+    await flakyRunner.pendingSessionMetadata();
+
+    const afterFailure = await readHeader(requireFilePath(flakyRunner.session));
+    // Absent must mean "keep what is there": a transient 500 that blanked the
+    // subtitle would silently strip the sessions list of a sentence the user could
+    // read one moment earlier.
+    assert(
+      afterFailure.summary === 'The user is fixing the login bug.',
+      `a transient failure rewrote the summary to ${JSON.stringify(afterFailure.summary)}`
+    );
+    assert(
+      afterFailure.title === 'Fix the login bug',
+      `a transient failure rewrote the title to ${JSON.stringify(afterFailure.title)}`
+    );
+    flakyRunner.close();
+  });
+
+  await test('A user-named session is never retitled but still gets a summary', async () => {
+    const cwd = path.join(workspace, 'metadata-user-title');
+    await fs.mkdir(cwd, { recursive: true });
+
+    const replies = [
+      { text: 'Summary: "The user is naming a session."' },
+      { text: 'Summary: "The user renamed the session and asked for a fix."' }
+    ];
+    let callIndex = 0;
+    const runner = new AgentRunner({
+      workspaceDir: cwd,
+      memoryDir: path.join(sandbox, 'metadata-user-title-memory'),
+      spilloverDir: path.join(sandbox, 'metadata-user-title-spill'),
+      stepCaller: new MockStepAdapter([{ text: 'one' }, { text: 'two' }]),
+      // Indexed so every reply is accounted for: a job that wrongly retitled would
+      // consume the reply meant for the summary and store a title where the
+      // subtitle belongs.
+      metadataCaller: {
+        async callStep() {
+          const reply = replies[callIndex] ?? { text: '' };
+          callIndex++;
+          return { text: reply.text, toolCalls: [] };
+        }
+      }
+    });
+
+    runner.session.updateTitle('Mine', 'user');
+    await runner.run('fix the login bug');
+    await runner.pendingSessionMetadata();
+
+    const header = await readHeader(requireFilePath(runner.session));
+    assert(
+      header.title === 'Mine',
+      `the auto job overwrote a user title with ${JSON.stringify(header.title)}`
+    );
+    assert(header.titleSource === 'user', `titleSource became ${String(header.titleSource)}`);
+    assert(
+      header.summary === 'The user is naming a session.',
+      `the summary was skipped along with the title: ${JSON.stringify(header.summary)}`
+    );
+
+    // Phase two pins the OTHER half of the guard. A user who deliberately clears
+    // the name leaves a header that has no readable title but is still
+    // user-sourced, which is the one state where only `titleSource` can tell the
+    // job to stay away — without that check the model renames a session its owner
+    // just emptied.
+    runner.session.updateTitle('', 'user');
+    await runner.run('now add a regression test');
+    await runner.pendingSessionMetadata();
+
+    const cleared = await readHeader(requireFilePath(runner.session));
+    assert(
+      sessionTitle(cleared) === undefined,
+      `an emptied user title was auto-filled with ${JSON.stringify(cleared.title)}`
+    );
+    assert(cleared.titleSource === 'user', `titleSource became ${String(cleared.titleSource)}`);
+    assert(
+      cleared.summary === 'The user renamed the session and asked for a fix.',
+      `the summary stopped rolling after the title was cleared: ${JSON.stringify(cleared.summary)}`
+    );
+    runner.close();
+  });
+
+  await test('The metadata job stays inert when only a step seam is injected', async () => {
+    const cwd = path.join(workspace, 'metadata-inert');
+    await fs.mkdir(cwd, { recursive: true });
+
+    const runner = new AgentRunner({
+      workspaceDir: cwd,
+      memoryDir: path.join(sandbox, 'metadata-inert-memory'),
+      spilloverDir: path.join(sandbox, 'metadata-inert-spill'),
+      // No metadataCaller: an injected step seam must never make the runner reach a
+      // real provider for a cosmetic side channel, so the job has nothing to run on
+      // and must write nothing rather than borrow the main loop's caller.
+      stepCaller: new MockStepAdapter([{ text: 'ok' }])
+    });
+
+    const finalText = await runner.run('fix the login bug');
+    await runner.pendingSessionMetadata();
+
+    assert(finalText === 'ok', `the turn itself did not complete: ${finalText}`);
+    const header = await readHeader(requireFilePath(runner.session));
+    assert(header.title === undefined, `an inert job wrote title ${JSON.stringify(header.title)}`);
+    assert(header.summary === undefined, `an inert job wrote summary ${JSON.stringify(header.summary)}`);
+    runner.close();
+  });
+
+  await test('/clear drops the rolling summary but keeps the title', async () => {
+    const cwd = path.join(workspace, 'metadata-clear');
+    await fs.mkdir(cwd, { recursive: true });
+
+    const runner = new AgentRunner({
+      workspaceDir: cwd,
+      memoryDir: path.join(sandbox, 'metadata-clear-memory'),
+      spilloverDir: path.join(sandbox, 'metadata-clear-spill'),
+      stepCaller: new MockStepAdapter([{ text: 'ok' }]),
+      metadataCaller: new MockStepAdapter([
+        { text: '```\nTitle: "Fix the login bug"\n```' },
+        { text: 'Summary: "The user is fixing the login bug."' }
+      ])
+    });
+
+    await runner.run('fix the login bug');
+    await runner.pendingSessionMetadata();
+    const sessionFile = requireFilePath(runner.session);
+    assert(
+      (await readHeader(sessionFile)).summary === 'The user is fixing the login bug.',
+      'the pre-clear summary is missing from disk'
+    );
+
+    // `/clear` empties the branch, not the session: a summary describing the
+    // discarded turns is a lie about the row the user still has open, while
+    // re-deriving a title would rename a conversation they are still in.
+    runner.reset();
+    const cleared = await readHeader(sessionFile);
+    assert(
+      sessionSummary(cleared) === undefined,
+      `the cleared session kept summary ${JSON.stringify(cleared.summary)}`
+    );
+    assert(!('summary' in cleared), 'the cleared header still carries a summary member');
+    assert(
+      sessionTitle(cleared) === 'Fix the login bug',
+      `the cleared session lost its title: ${JSON.stringify(cleared.title)}`
+    );
+    runner.close();
+  });
+
+  await test('updateSummary on a draft is deferred to materialization', async () => {
+    const cwd = path.join(workspace, 'draft-summary');
+    const session = SessionManager.create({ workspaceDir: workspace, cwd });
+    const filePath = session.getFilePath();
+    assert(filePath, 'expected a planned session file path');
+
+    session.updateSummary('Deferred summary');
+    // Regression: a draft must not materialize early. An unused session would then
+    // leave a phantom file behind that shadows a real conversation in the list.
+    assert(!(await fileExists(filePath)), 'updateSummary on a draft wrote to disk');
+
+    session.appendMessage({ role: 'user', content: 'hello' });
+    const header = await readHeader(filePath);
+    assert(
+      header.summary === 'Deferred summary',
+      `materialized summary ${JSON.stringify(header.summary)}`
+    );
+  });
+
+  await test('A blank stored summary reads as no summary through the API and the listing', async () => {
+    const cwd = path.join(workspace, 'summary-blank');
+    const blankId = 'feedfacefeedface';
+    const filePath = createSessionFilePath(blankId, Date.now(), cwd, workspace);
+
+    // Byte-for-byte a header a buggy or third-party writer could leave behind: the
+    // member is present but holds only whitespace.
+    const header = {
+      type: 'session',
+      version: CURRENT_SESSION_VERSION,
+      id: blankId,
+      timestamp: new Date().toISOString(),
+      cwd,
+      title: 'Named by hand',
+      titleSource: 'user',
+      summary: '   '
+    };
+    const entry = {
+      id: 'blank-entry',
+      parentId: null,
+      timestamp: new Date().toISOString(),
+      type: 'message',
+      message: { id: 'blank-entry', role: 'user', content: 'hi', createdAt: Date.now() }
+    };
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
+    await fs.writeFile(filePath, `${JSON.stringify(header)}\n${JSON.stringify(entry)}\n`, 'utf-8');
+
+    // The raw line still carries the whitespace: normalization is a read-side
+    // concern and must not rewrite a file the user owns.
+    const raw = await readHeader(filePath);
+    assert(raw.summary === '   ', `the raw header was rewritten: ${JSON.stringify(raw.summary)}`);
+    assert(
+      sessionSummary(raw) === undefined,
+      `sessionSummary passed a blank value through: ${JSON.stringify(sessionSummary(raw))}`
+    );
+
+    const opened = SessionManager.open(filePath);
+    assert(
+      sessionSummary(opened.header) === undefined,
+      `the reopened session exposed a blank summary: ${JSON.stringify(opened.header.summary)}`
+    );
+    assert(!('summary' in opened.header), 'the reopened header still carries a summary member');
+
+    const descriptor = listSessions(cwd, workspace).find((entry) => entry.id === blankId);
+    assert(descriptor, 'the session is missing from the listing');
+    assert(
+      !('summary' in descriptor),
+      `the listing leaked a blank summary member: ${JSON.stringify(descriptor.summary)}`
+    );
+    assert(descriptor.title === 'Named by hand', `the listing lost the title: ${descriptor.title}`);
   });
 
   // ---------------------------------------------------------------------------

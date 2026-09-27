@@ -18,9 +18,13 @@ import type { PermissionGate } from './review/types.js';
 import { discoverSkills, type AgentSkill } from './skills/index.js';
 import {
   SessionManager,
+  SessionMetadataGenerator,
+  deriveTitleFromPrompt,
   findMostRecentSession,
   listSessions,
   resolveSessionFile,
+  sessionSummary,
+  sessionTitle,
   type SessionDescriptor
 } from './session/index.js';
 import { PromptHistoryStorage, type PromptHistoryEntry } from './storage/index.js';
@@ -49,6 +53,18 @@ export const DEFAULT_REVIEW_MODEL = 'gpt-4o-mini';
 
 export interface AgentRunnerOptions extends RunnerConfig {
   stepCaller?: StepModelCaller;
+  /**
+   * Caller for the background title/summary job — the same kind of test seam as
+   * `stepCaller`, but for the auxiliary job that (re)writes the session's title
+   * and rolling one-sentence summary after every completed turn.
+   *
+   * Because that job runs after EVERY turn, any injected seam (`stepCaller` or
+   * `stepCallerFactory`) replaces the built-in caller chain and leaves the job
+   * inert; this option is the only way to make it run under test. Without that
+   * separation a call-counting fixture would also record this job's calls and
+   * shift the indices its scripted main-loop steps are matched against.
+   */
+  metadataCaller?: StepModelCaller;
   /**
    * Reasoning effort applied to routes that name none — the console-level
    * counterpart of `OPENAI_REASONING_EFFORT`, and the same shape as
@@ -136,6 +152,20 @@ export class AgentRunner {
    * test seam), in which case that injected caller stands in for every route.
    */
   private callerFactory?: (route: ModelRoute) => StepModelCaller;
+  /**
+   * The built-in adapter factory, present only when neither `stepCaller` nor
+   * `stepCallerFactory` was injected. Kept apart from `callerFactory`, which
+   * also holds an injected factory when a test supplies one: the background
+   * metadata job must never route through a test seam (see
+   * `scheduleSessionMetadata`).
+   */
+  private builtinCallerFactory?: (route: ModelRoute) => StepModelCaller;
+  /** Opt-in test seam for the background metadata job (see `AgentRunnerOptions`). */
+  private metadataCaller?: StepModelCaller;
+  /** Monotonic id of the newest metadata job; an older job's replies fail the write guard. */
+  private metadataSeq = 0;
+  /** The in-flight background metadata job, or `null` when none is running. */
+  private metadataInFlight: Promise<void> | null = null;
 
   constructor(options: AgentRunnerOptions = {}) {
     dotenv.config();
@@ -253,6 +283,13 @@ export class AgentRunner {
     // An injected `stepCaller` is the test seam: it stands in for every route
     // and `setModel` cannot swap it for a real provider.
     this.callerFactory = options.stepCallerFactory ?? (options.stepCaller ? undefined : callerFor);
+    // `callerFactory` above is the injected factory whenever a test supplies
+    // one, so the built-in adapter is remembered separately for the background
+    // metadata job, which must never reach a test seam. Absent means "a seam was
+    // injected": the job then stays inert unless `metadataCaller` opts it in.
+    this.builtinCallerFactory =
+      options.stepCaller || options.stepCallerFactory ? undefined : callerFor;
+    this.metadataCaller = options.metadataCaller;
 
     this.stepCaller = options.stepCaller ?? this.buildCaller(this.models.resolve('main'));
 
@@ -487,6 +524,10 @@ export class AgentRunner {
    * method rather than three copies of the same two assignments plus a reset.
    */
   private bindSession(session: SessionManager): void {
+    // A metadata job in flight was scheduled against the session being left
+    // behind, so bumping the sequence retires it: its replies fail the write
+    // guard in `scheduleSessionMetadata` instead of landing on this session.
+    this.metadataSeq++;
     this.session = session;
     this.assembler.session = session;
     this.engine.session = session;
@@ -551,14 +592,125 @@ export class AgentRunner {
     this.status = 'idle';
   }
 
+  /**
+   * Settles when the background title/summary job finishes; already resolved
+   * when none is running.
+   *
+   * Generation is deliberately NOT awaited by `run()`: the shell's `done` frame
+   * and the user's next keystroke must not be gated on an auxiliary model call,
+   * so the job is fired and forgotten. This exists only for hosts that own a
+   * session file and want to read the title/summary after the write landed, and
+   * for tests that need deterministic observation instead of a sleep.
+   */
+  public pendingSessionMetadata(): Promise<void> {
+    return this.metadataInFlight ?? Promise.resolve();
+  }
+
+  /**
+   * Refresh the session's title (once) and rolling summary (every completed
+   * turn) in the background, against the `title` route.
+   *
+   * The caller is resolved HERE rather than at construction so the job always
+   * runs on the route the user has currently selected, and it comes from
+   * `builtinCallerFactory` rather than `buildCaller`: `buildCaller` falls back to
+   * an injected `stepCaller`, which would consume the main loop's scripted steps
+   * and make a fixture observe auxiliary traffic where it expected the turn's
+   * own. When a seam was injected and no `metadataCaller` was given there is no
+   * built-in caller, so the job stays inert.
+   *
+   * Nothing is awaited: the job is a side channel whose replies are written only
+   * if the session is still the one that scheduled it.
+   */
+  private scheduleSessionMetadata(): void {
+    const caller = this.metadataCaller ?? this.builtinCallerFactory?.(this.models.resolve('title'));
+    if (!caller) return;
+
+    // Both are write guards for everything below. `session` pins the identity the
+    // snapshot belongs to, and `seq` is bumped by every bind/reset, so a reply
+    // that arrives after the user switched sessions or ran `/clear` is dropped
+    // instead of stamping one conversation's title and summary onto another (or
+    // onto a branch the summary no longer describes).
+    const session = this.session;
+    const seq = ++this.metadataSeq;
+
+    // Snapshotted synchronously, before the first await: the branch, title and
+    // summary the job reasons about are exactly the ones the completed turn left
+    // behind, not whatever a later turn appends while the caller is in flight.
+    const messages = session.buildSessionContext();
+    const currentTitle = sessionTitle(session.header);
+    const previousSummary = sessionSummary(session.header);
+    // The deterministic fallback for a title call that fails or answers nothing.
+    // A blank first message is skipped: it would derive no title anyway and would
+    // hide the first message that actually carries the request.
+    const firstUserText = messages.find(
+      (message) => message.role === 'user' && message.content?.trim()
+    )?.content;
+    const generator = new SessionMetadataGenerator({ modelCaller: caller });
+
+    const job = (async () => {
+      // `titleSource === 'user'` means a human named this session; an auto title
+      // must never overwrite that, and a title-less header only ever carries
+      // `'auto'`.
+      if (currentTitle === undefined && session.header.titleSource !== 'user') {
+        const generated = await generator.generateTitle(messages);
+        // Both halves of the guard re-checked after the await: `session` pins the
+        // identity the snapshot belongs to and `seq` proves no bind/reset happened
+        // meanwhile, so a reply that arrives after the user switched sessions or
+        // ran `/clear` is dropped instead of stamping one conversation's title and
+        // summary onto another (or onto a branch the summary no longer describes).
+        if (this.session !== session || this.metadataSeq !== seq) return;
+        // A model reply is not required: the user's first message is always
+        // available, so a failed or empty title call still gets a usable title.
+        const title = generated ?? deriveTitleFromPrompt(firstUserText ?? '');
+        if (title !== undefined) {
+          // `'auto'` must be explicit: the parameter defaults to `'user'`, and a
+          // user-sourced title would make every later turn refuse to regenerate
+          // after a failure, pinning the header to whatever the first attempt
+          // produced.
+          session.updateTitle(title, 'auto');
+        }
+      }
+
+      // Runs on EVERY completed turn — an existing title (or one a human set)
+      // only skips the section above, never the refresh: the summary tracks the
+      // conversation, which keeps growing after the title has settled.
+      const summary = await generator.generateSummary(messages, previousSummary);
+      // Absent means the call failed or returned nothing. A transient error must
+      // never blank a stored summary, so the previous one stays as it is.
+      if (summary === undefined) return;
+      if (this.session !== session || this.metadataSeq !== seq) return;
+      session.updateSummary(summary);
+    })()
+      // Swallowed by design: this is a background side channel, and an unhandled
+      // rejection here would crash the host over a cosmetic failure.
+      .catch(() => {})
+      .finally(() => {
+        // Only if the field still points here: a newer job has already replaced
+        // it, and clearing a sibling's promise would make `pendingSessionMetadata`
+        // resolve while work is still in flight.
+        if (this.metadataInFlight === job) this.metadataInFlight = null;
+      });
+
+    this.metadataInFlight = job;
+  }
+
   /** `/clear`: append a `reset_boundary` so the active branch restarts empty. */
   public reset(): void {
     this.abort();
     this.session.clear();
+    // The branch is empty again, so a summary that describes what was just
+    // discarded is a lie about the session the row now shows — dropped through
+    // the same API an auto-write uses. The TITLE is kept deliberately: `/clear`
+    // empties the branch, not the session, whose identity (and file) survives, so
+    // re-deriving a title would rename a conversation the user still has open.
+    this.session.updateSummary(undefined);
     // `/clear` truncates the branch in place, so the session object — and
     // therefore its identity — is unchanged, but the provider count describes
     // the messages that were just dropped. Rebinding here is what discards it;
     // a session-identity check in `getContextUsage()` could not see this case.
+    // The same rebind retires an in-flight metadata job, because `bindSession`
+    // bumps the sequence: a reply scheduled against the pre-`/clear` branch must
+    // not land back as that branch's summary, so no separate bump is needed here.
     this.bindSession(this.session);
     this.emotion = createInitialEmotion();
     this.status = 'idle';
@@ -645,6 +797,13 @@ export class AgentRunner {
 
       this.setStatus('completed', callbacks);
       this.setStatus('idle', callbacks);
+      // Only the completed path. An aborted turn or an exception left a half-turn
+      // behind, and a summary generated from it would describe work that never
+      // finished, while the previous summary still describes the session truthfully;
+      // the title is not lost either, because it is still absent and the next
+      // completed turn regenerates it. Fired and not awaited: see
+      // `pendingSessionMetadata` for why the turn must not wait on it.
+      this.scheduleSessionMetadata();
       return loopResult.finalText;
     } catch (err: unknown) {
       const isAbort =
