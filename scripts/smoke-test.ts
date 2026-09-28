@@ -1928,6 +1928,75 @@ async function runSmokeTests() {
     assert(forced.resolve('main').maxTokens === 8192, 'explicit effort did not scale the budget');
   });
 
+  await test('A per-model capability override widens and narrows the effort gate', () => {
+    // The per-model configuration surface (Settings → each model's own effort
+    // list) cannot be expressed by the built-in allowlist: the user's own relay
+    // serves ids the pattern list has never seen. The override is the only way
+    // an embedder can widen the gate for them — and narrow it for a model the
+    // allowlist accepts but the user knows refuses `reasoning_effort`.
+    //
+    // Control first: the id is outside the shipped allowlist, so without the
+    // override there is nothing to widen.
+    assert(
+      !supportsReasoningEffort('sensenova-6.8-flash-lite'),
+      'the fixture id is already on the allowlist, so this test would prove nothing'
+    );
+
+    const widened = new ModelRouter({
+      defaultRoute: { model: 'sensenova-6.8-flash-lite' },
+      defaultReasoningEffort: DEFAULT_REASONING_EFFORT,
+      modelReasoningCapable: (model) =>
+        model === 'sensenova-6.8-flash-lite' ? true : undefined
+    });
+    const opened = widened.resolve('main');
+    assert(
+      opened.reasoningEffort === 'medium',
+      `override did not widen the gate: effort ${opened.reasoningEffort}`
+    );
+    assert(opened.maxTokens === 4096, `widened budget ${opened.maxTokens}, expected 4096`);
+
+    // The SAME router on a model the override declines to answer for falls back
+    // to the built-in detector, so nothing is widened by accident.
+    widened.setDefaultRoute({ model: 'gpt-4o' });
+    const untouched = widened.resolve('main');
+    assert(
+      untouched.reasoningEffort === undefined,
+      `an undecided model inherited the override: effort ${untouched.reasoningEffort}`
+    );
+    assert(untouched.maxTokens === 2048, `undecided budget ${untouched.maxTokens}, expected 2048`);
+
+    // Narrowing: `o3-mini` IS on the built-in allowlist, but the user's model
+    // config says its effort list is empty. The override must win outright, and
+    // the scaled budget must leave with the effort.
+    assert(supportsReasoningEffort('o3-mini'), 'o3-mini left the allowlist, so narrowing proves nothing');
+    const narrowed = new ModelRouter({
+      defaultRoute: { model: 'o3-mini' },
+      defaultReasoningEffort: DEFAULT_REASONING_EFFORT,
+      modelReasoningCapable: (model) => (model === 'o3-mini' ? false : undefined)
+    });
+    const refused = narrowed.resolve('main');
+    assert(
+      refused.reasoningEffort === undefined,
+      `narrowing override did not suppress the effort: ${refused.reasoningEffort}`
+    );
+    assert(refused.maxTokens === 2048, `narrowed budget ${refused.maxTokens}, expected 2048`);
+
+    // An explicit per-role effort is an instruction, not a guess: it outranks
+    // the override exactly as it outranks the built-in detector.
+    const forcedByOverride = new ModelRouter({
+      defaultRoute: { model: 'o3-mini' },
+      routes: { main: { reasoningEffort: 'high' } },
+      defaultReasoningEffort: DEFAULT_REASONING_EFFORT,
+      modelReasoningCapable: () => false
+    });
+    const explicit = forcedByOverride.resolve('main');
+    assert(
+      explicit.reasoningEffort === 'high',
+      `the override second-guessed an explicit effort: ${explicit.reasoningEffort}`
+    );
+    assert(explicit.maxTokens === 8192, `explicit effort budget ${explicit.maxTokens}, expected 8192`);
+  });
+
   await test('Reasoning effort default resolves from option then env', async () => {
     const effortWorkspace = path.join(workspace, 'runner-reasoning-effort');
     await fs.mkdir(effortWorkspace, { recursive: true });

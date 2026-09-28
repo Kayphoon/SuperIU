@@ -73,6 +73,17 @@ export interface AgentRunnerOptions extends RunnerConfig {
   /** Initial per-role routes merged over the default main route. */
   modelRoutes?: Partial<Record<ModelRole, ModelRoute>>;
   /**
+   * Per-model reasoning-capability override, forwarded to the router. Returns
+   * `undefined` to defer to the built-in allowlist, `true`/`false` to widen or
+   * narrow it for models the allowlist does not know about.
+   */
+  modelReasoningCapable?: (model: string) => boolean | undefined;
+  /**
+   * Per-model context window ceiling override (in tokens). Returns `undefined`
+   * to defer to the built-in metadata table.
+   */
+  contextLimitFor?: (model: string) => number | undefined;
+  /**
    * Builds a step caller for a resolved route. Tests inject this to observe
    * which route a turn actually runs on without touching a real provider.
    */
@@ -136,9 +147,11 @@ export class AgentRunner {
    * test seam), in which case that injected caller stands in for every route.
    */
   private callerFactory?: (route: ModelRoute) => StepModelCaller;
+  private contextLimitFor?: (model: string) => number | undefined;
 
   constructor(options: AgentRunnerOptions = {}) {
     dotenv.config();
+    this.contextLimitFor = options.contextLimitFor;
 
     const workspaceDir = path.resolve(options.workspaceDir ?? process.cwd());
     this.config = {
@@ -234,7 +247,10 @@ export class AgentRunner {
       // subject to the router's capability check, so a reasoning model thinks by
       // default while a `gpt-4o`/`gpt-4o-mini` pair stays unaffected. An
       // explicit per-role `reasoningEffort` is an instruction and always wins.
-      defaultReasoningEffort: configuredEffort ?? DEFAULT_REASONING_EFFORT
+      defaultReasoningEffort: configuredEffort ?? DEFAULT_REASONING_EFFORT,
+      // Embedder-supplied per-model capability override; `undefined` per model
+      // defers to the built-in detector.
+      modelReasoningCapable: options.modelReasoningCapable
     });
     this.providerDefaults = { apiKey, baseURL };
 
@@ -393,7 +409,8 @@ export class AgentRunner {
    * `reset()` has to drop the measurement itself rather than rely on a mismatch.
    */
   public getContextUsage(): ContextUsage {
-    const limit = modelMetadataFor(this.models.resolveBase('main').model).contextLimit;
+    const mainModel = this.models.resolveBase('main').model;
+    const limit = this.contextLimitFor?.(mainModel) ?? modelMetadataFor(mainModel).contextLimit;
     const reported = this.engine.latestUsage?.promptTokens;
     // A provider that does not report usage answers `NaN` rather than
     // `undefined`; `NaN` survives arithmetic and JSON-serializes to `null`, so it

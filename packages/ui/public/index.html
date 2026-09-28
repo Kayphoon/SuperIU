@@ -120,6 +120,11 @@
         --siu-bg-app: var(--siu-bg-app-opaque);
         --siu-bg-panel: var(--siu-bg-panel-opaque);
         --siu-bg-elevated: var(--siu-bg-elevated-opaque);
+        /* A surface that floats over CONTENT (`#complete`, `#model-popover`)
+           instead of over the window material. Deliberately NOT remapped in
+           the vibrancy blocks below: a translucent panel over the transcript
+           lets the text behind it read straight through. */
+        --siu-bg-overlay: var(--siu-bg-elevated-opaque);
 
         --siu-bg-inset: rgba(0, 0, 0, 0.28);
         --siu-bg-hover: rgba(255, 255, 255, 0.055);
@@ -245,6 +250,7 @@
         --siu-bg-app: var(--siu-bg-app-opaque);
         --siu-bg-panel: var(--siu-bg-panel-opaque);
         --siu-bg-elevated: var(--siu-bg-elevated-opaque);
+        --siu-bg-overlay: var(--siu-bg-elevated-opaque);
         --siu-bg-inset: rgba(0, 0, 0, 0.045);
         --siu-bg-hover: rgba(0, 0, 0, 0.045);
         --siu-bg-active: rgba(0, 0, 0, 0.075);
@@ -1742,6 +1748,15 @@
       .siu-composer {
         position: sticky;
         bottom: 0;
+        /* An explicit level, because `position: sticky` already forms a stacking
+           context: the popovers anchored here (`#complete`, `#model-popover`)
+           inherit THIS element's level, not their own `z-index: 40/41`. Left at
+           `auto`, the empty state's `z-index: 1` hero outranks the whole
+           composer subtree — measured in the Electron shell, it is the topmost
+           hit at a point inside both it and the panel, and its glyphs render
+           over the panel at full contrast. Above the transcript, below every
+           fixed shell layer (scrim 35, menu 40, overlays 50, toasts 60). */
+        z-index: 10;
         flex: none;
         padding: 0 var(--siu-space-6) var(--siu-space-5);
         background: transparent;
@@ -1811,9 +1826,7 @@
         padding: 5px;
         border: 1px solid var(--siu-border);
         border-radius: var(--siu-radius-md);
-        background: var(--siu-bg-panel);
-        backdrop-filter: blur(36px) saturate(190%);
-        -webkit-backdrop-filter: blur(36px) saturate(190%);
+        background: var(--siu-bg-overlay);
         box-shadow: 0 16px 42px -10px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.08);
       }
       .siu-complete[hidden] {
@@ -1971,9 +1984,7 @@
         padding: 5px;
         border: 1px solid var(--siu-border);
         border-radius: var(--siu-radius-md);
-        background: var(--siu-bg-panel);
-        backdrop-filter: blur(36px) saturate(190%);
-        -webkit-backdrop-filter: blur(36px) saturate(190%);
+        background: var(--siu-bg-overlay);
         box-shadow: 0 16px 42px -10px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.08);
       }
       .siu-popover[hidden] {
@@ -2935,14 +2946,29 @@
         display: flex;
         flex-direction: column;
         gap: 2px;
-        max-height: 240px;
+        /* Rows are two lines now (id + role buttons, then the level select), so
+           the old 240px cap showed ~3.7 models where it used to show ~7. Raised
+           to hold ~5.5 at the measured 61px row. Still a cap, not a height: a
+           short list sizes to its content, and the provider pane scrolls as a
+           whole when the list outgrows it. */
+        max-height: 340px;
         overflow-y: auto;
       }
-      /* Row, not a button: it nests the two role buttons, so it cannot be one. */
+      /* Row, not a button: it nests the enable toggle, the effort select and the
+         two role buttons, so it cannot be one. Wraps because the four controls
+         do not fit one 414px line without starving the model id — measured at
+         `min-width: 0`, the name column collapsed to 0px, and at an 84px floor
+         every `sensenova-*` row still read the same truncated prefix. The effort
+         select takes the second line at full width instead. */
       .siu-model-item {
         display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: var(--siu-space-2);
+        /* After the shorthand, or `gap` would reset this row gap back to
+           space-2: the two lines are one control group and sit closer than the
+           columns inside them. */
+        row-gap: var(--siu-space-1);
         padding: var(--siu-space-1) var(--siu-space-2);
         border: 1px solid transparent;
         border-radius: var(--siu-radius-sm);
@@ -2960,7 +2986,12 @@
       }
       .siu-model-item-name {
         flex: 1;
-        min-width: 0;
+        /* Not 0: before the select was given its own line, the controls beside
+           the name filled the row and pushed this column to 0px (measured —
+           scrollWidth 159 against clientWidth 0). The floor is what keeps a
+           readable prefix if a narrower pane ever squeezes it again; `title`
+           carries the full id either way. */
+        min-width: 84px;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -2979,6 +3010,29 @@
       .siu-model-action {
         min-height: 22px;
         padding: 0 var(--siu-space-2);
+        font-size: var(--siu-text-micro);
+      }
+      /* Sized like the role buttons so the row's controls share one rhythm; the
+         glyph is status-bearing, hence a colour rather than a text label. */
+      .siu-model-toggle {
+        flex: none;
+        width: 22px;
+        min-width: 22px;
+        min-height: 22px;
+        padding: 0;
+        color: var(--siu-text-disabled);
+      }
+      .siu-model-toggle[data-on='true'] {
+        color: var(--siu-accent-text);
+      }
+      .siu-model-effort {
+        /* Full width on its own line: `100%` basis forces the wrap, and the
+           levels then read at a glance instead of inside a 116px box. */
+        flex: 1 1 100%;
+        width: auto;
+        min-width: 96px;
+        height: 24px;
+        padding: 0 var(--siu-space-1);
         font-size: var(--siu-text-micro);
       }
       .siu-provider-danger {
@@ -3460,10 +3514,12 @@
           <!-- ================= Left submenu (role=tablist) ================= -->
           <nav id="settings-nav" class="siu-prefs-nav" role="tablist" aria-orientation="vertical">
             <button type="button" class="siu-nav-item" role="tab" data-pane="general" aria-controls="settings-pane-general" aria-selected="true" data-i18n="settings.nav.general"></button>
+            <button type="button" class="siu-nav-item" role="tab" data-pane="autoreview" aria-controls="settings-pane-autoreview" aria-selected="false" data-i18n="settings.nav.autoreview"></button>
+            <button type="button" class="siu-nav-item" role="tab" data-pane="notifications" aria-controls="settings-pane-notifications" aria-selected="false" data-i18n="settings.nav.notifications"></button>
             <button type="button" class="siu-nav-item" role="tab" data-pane="providers" aria-controls="settings-pane-providers" aria-selected="false" data-i18n="settings.nav.providers"></button>
+            <button type="button" class="siu-nav-item" role="tab" data-pane="models" aria-controls="settings-pane-models" aria-selected="false" data-i18n="settings.nav.models"></button>
             <button type="button" class="siu-nav-item" role="tab" data-pane="about" aria-controls="settings-pane-about" aria-selected="false" data-i18n="settings.nav.about"></button>
           </nav>
-
           <!-- ================= Pane: General ================= -->
           <section id="settings-pane-general" class="siu-prefs-pane" role="tabpanel" data-pane="general" data-active="true">
             <header class="siu-prefs-head">
@@ -3483,41 +3539,61 @@
                 <p class="siu-field-hint" data-i18n="settings.theme.hint">选择界面的外观风格或跟随系统设置。</p>
               </div>
 
-              <div>
-                <label class="siu-field-label" for="set-reasoning-effort" data-i18n="settings.effort">推理强度</label>
-                <select id="set-reasoning-effort" class="siu-field">
-                  <option value="" data-i18n="settings.effort.unset">未设置 —— 使用模型默认值</option>
-                  <!-- The value stays the API enum; only the label is copy, and
-                       it reuses the composer popover's keys so the two surfaces
-                       can never drift apart. -->
-                  <option value="low" data-i18n="composer.effort.low">低</option>
-                  <option value="medium" data-i18n="composer.effort.medium">中</option>
-                  <option value="high" data-i18n="composer.effort.high">高</option>
-                </select>
-                <!-- Rewritten by renderReasoningHint() once settings load; the
-                     annotation is the fallback, and its value is the same
-                     translated "none" variant, so the first paint is never
-                     English — including on the error paths where the rewrite
-                     never runs because /api/settings failed. -->
-                <p class="siu-field-hint" id="set-reasoning-hint" data-i18n="settings.effort.none">未设置推理强度，将使用服务商默认值。</p>
-              </div>
+            </div>
+          </section>
 
+          <!-- ================= Pane: AutoReview ================= -->
+          <section id="settings-pane-autoreview" class="siu-prefs-pane" role="tabpanel" data-pane="autoreview" data-active="false">
+            <header class="siu-prefs-head">
+              <h3 class="siu-prefs-title" data-i18n="settings.autoReview.title">AutoReview</h3>
+              <p class="siu-prefs-subtitle" data-i18n="settings.autoReview.subtitle">工具调用的自动安全审核与权限审批</p>
+            </header>
+            <div class="siu-prefs-pane-body">
               <div class="siu-toggle-row">
                 <div class="flex-1">
-                  <div class="siu-toggle-row-title" data-i18n="settings.autoReview">AutoReview</div>
-                  <p class="siu-toggle-row-hint" data-i18n="settings.autoReview.hint">
-                    让每一次工具调用都经过工具模型审核；升级为人工确认的调用会弹出审批卡片。
+                  <div class="siu-toggle-row-title" data-i18n="settings.autoReview.toggle">启用 AutoReview 自动化审核</div>
+                  <p class="siu-toggle-row-hint" data-i18n="settings.autoReview.toggleHint">
+                    每一次工具调用都经过安全规则及审查模型把控；升级为人工确认的敏感调用会弹出审批卡片。
                   </p>
                 </div>
-                <button id="set-auto-review" class="siu-switch" data-on="false" role="switch" aria-checked="false" aria-label="AutoReview" data-i18n-aria-label="settings.autoReview"></button>
+                <button id="set-auto-review" class="siu-switch" data-on="false" role="switch" aria-checked="false" aria-label="AutoReview" data-i18n-aria-label="settings.autoReview.title"></button>
               </div>
+              <div class="mt-4">
+                <label class="siu-field-label" for="role-review-model" data-i18n="settings.autoReview.model">审查模型（Review Model）</label>
+                <select id="role-review-model" class="siu-field"></select>
+                <p class="siu-field-hint" data-i18n="settings.autoReview.modelHint">负责 AutoReview 工具调用的安全审核与风险把控。留空则跟随 Tiny model。</p>
+              </div>
+            </div>
+          </section>
 
+          <!-- ================= Pane: Notifications ================= -->
+          <section id="settings-pane-notifications" class="siu-prefs-pane" role="tabpanel" data-pane="notifications" data-active="false">
+            <header class="siu-prefs-head">
+              <h3 class="siu-prefs-title" data-i18n="settings.notifications.title">通知与声音</h3>
+              <p class="siu-prefs-subtitle" data-i18n="settings.notifications.subtitle">桌面系统通知与 Web Audio 提示音设置</p>
+            </header>
+            <div class="siu-prefs-pane-body">
               <div class="siu-toggle-row">
                 <div class="flex-1">
-                  <div class="siu-toggle-row-title" data-i18n="settings.notifications">桌面通知与提示音</div>
-                  <p class="siu-toggle-row-hint" data-i18n="settings.notifications.hint">在审批请求与任务完成时提醒。</p>
+                  <div class="siu-toggle-row-title" data-i18n="settings.notifications.desktop">桌面系统通知</div>
+                  <p class="siu-toggle-row-hint" data-i18n="settings.notifications.desktopHint">在智能体发起审批请求、任务完成或发生错误时弹出系统级通知。</p>
                 </div>
-                <button id="set-notifications" class="siu-switch" data-on="false" role="switch" aria-checked="false" aria-label="桌面通知与提示音" data-i18n-aria-label="settings.notifications"></button>
+                <button id="set-notifications" class="siu-switch" data-on="false" role="switch" aria-checked="false" aria-label="桌面系统通知" data-i18n-aria-label="settings.notifications.desktop"></button>
+              </div>
+              <div class="siu-toggle-row">
+                <div class="flex-1">
+                  <div class="siu-toggle-row-title" data-i18n="settings.notifications.chime">操作与提醒提示音</div>
+                  <p class="siu-toggle-row-hint" data-i18n="settings.notifications.chimeHint">播放任务完成、审批提醒或失败告警的合成提示音（即时生效，本地静音）。</p>
+                </div>
+                <button id="set-chimes" class="siu-switch" data-on="true" role="switch" aria-checked="true" aria-label="提示音" data-i18n-aria-label="settings.notifications.chime"></button>
+              </div>
+              <div class="mt-2 flex flex-col gap-2">
+                <div class="siu-field-label" data-i18n="settings.notifications.testSound">试听提示音</div>
+                <div class="flex flex-wrap gap-2">
+                  <button id="btn-test-chime-success" type="button" class="siu-btn" data-i18n="settings.notifications.testSoundSuccess">完成音</button>
+                  <button id="btn-test-chime-approval" type="button" class="siu-btn" data-i18n="settings.notifications.testSoundApproval">审批音</button>
+                  <button id="btn-test-chime-error" type="button" class="siu-btn" data-i18n="settings.notifications.testSoundError">告警音</button>
+                </div>
               </div>
             </div>
           </section>
@@ -3597,8 +3673,6 @@
                   <div class="siu-provider-models">
                     <div class="siu-provider-models-head">
                       <span class="siu-field-label siu-provider-models-title" data-i18n="settings.providers.models"></span>
-                      <span id="provider-main-chip" class="siu-model-chip" data-role="main" data-i18n-title="settings.providers.setMain" hidden></span>
-                      <span id="provider-review-chip" class="siu-model-chip" data-role="review" data-i18n-title="settings.providers.setReview" hidden></span>
                     </div>
                     <input id="provider-model-search" type="search" class="siu-field" autocomplete="off" spellcheck="false" data-i18n-placeholder="settings.providers.searchModels" />
                     <div class="siu-provider-model-add">
@@ -3616,6 +3690,35 @@
                     <button id="provider-delete" type="button" class="siu-btn siu-btn--danger" data-i18n="settings.providers.delete"></button>
                   </div>
                 </div>
+              </div>
+            </div>
+          </section>
+          <!-- ================= Pane: Model Roles ================= -->
+          <section id="settings-pane-models" class="siu-prefs-pane" role="tabpanel" data-pane="models" data-active="false">
+            <header class="siu-prefs-head">
+              <h3 class="siu-prefs-title" data-i18n="settings.modelRoles.title">模型角色</h3>
+              <p class="siu-prefs-subtitle" data-i18n="settings.modelRoles.subtitle">独立配置主对话模型与各类后台轻量小模型</p>
+            </header>
+            <div class="siu-prefs-pane-body flex flex-col gap-4">
+              <div>
+                <label class="siu-field-label" for="role-main-model" data-i18n="settings.modelRoles.main">主对话模型（Main）</label>
+                <select id="role-main-model" class="siu-field"></select>
+                <p class="siu-field-hint" data-i18n="settings.modelRoles.mainHint">负责主聊天界面的深度思考、规划与核心回复。</p>
+              </div>
+              <div>
+                <label class="siu-field-label" for="role-tiny-model" data-i18n="settings.modelRoles.tiny">Tiny model</label>
+                <select id="role-tiny-model" class="siu-field"></select>
+                <p class="siu-field-hint" data-i18n="settings.modelRoles.tinyHint">作为所有后台轻量任务（标题总结、长期记忆提炼等）的默认基底模型。留空则跟随主模型。</p>
+              </div>
+              <div>
+                <label class="siu-field-label" for="role-title-model" data-i18n="settings.modelRoles.titleRole">标题生成模型（Title）</label>
+                <select id="role-title-model" class="siu-field"></select>
+                <p class="siu-field-hint" data-i18n="settings.modelRoles.titleHint">负责每轮对话后自动总结并提取简明会话标题。留空则跟随 Tiny model。</p>
+              </div>
+              <div>
+                <label class="siu-field-label" for="role-memory-model" data-i18n="settings.modelRoles.memory">长期记忆模型（Memory）</label>
+                <select id="role-memory-model" class="siu-field"></select>
+                <p class="siu-field-hint" data-i18n="settings.modelRoles.memoryHint">负责从历史交互中沉淀提炼长期记忆事实。留空则跟随 Tiny model。</p>
               </div>
             </div>
           </section>
@@ -3643,6 +3746,67 @@
         </div>
       </div>
 
+    </div>
+    <!-- ===================== MODEL DETAIL MODAL ===================== -->
+    <div id="model-config-modal" class="siu-overlay" data-open="false">
+      <div class="siu-modal siu-modal--sm siu-pop" role="dialog" aria-modal="true" aria-labelledby="model-config-title">
+        <div class="siu-modal-header">
+          <h2 id="model-config-title" class="siu-modal-title" data-i18n="settings.modelConfig.title">模型高级设置</h2>
+          <button class="siu-modal-close" data-close="modelConfig" aria-label="关闭" data-i18n-aria-label="settings.close">
+            <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke-linecap="round" /></svg>
+          </button>
+        </div>
+        <div class="siu-modal-body p-5 flex flex-col gap-4">
+          <div class="text-[12px] font-mono text-muted truncate" id="model-config-id"></div>
+          <div>
+            <label class="siu-field-label" for="model-config-context-limit" data-i18n="settings.modelConfig.contextLimit">上下文窗口上限（Token）</label>
+            <input id="model-config-context-limit" type="number" min="1" step="1" class="siu-field" data-i18n-placeholder="settings.modelConfig.contextLimitPlaceholder" placeholder="留空使用内置默认值，例如 128000" />
+          </div>
+          <div>
+            <label class="siu-field-label" data-i18n="settings.modelConfig.effort">推理程度</label>
+            <div class="flex flex-col gap-2 mt-1">
+              <label class="flex items-center gap-2 text-[12px] text-primary cursor-pointer">
+                <input type="checkbox" id="model-config-effort-auto" class="siu-checkbox" />
+                <span data-i18n="settings.modelConfig.effortAuto">自动（跟随模型能力）</span>
+              </label>
+            </div>
+            <div class="grid grid-cols-2 gap-2 mt-2" id="model-config-efforts-group">
+              <label class="flex items-center gap-2 text-[12px] text-primary cursor-pointer">
+                <input type="checkbox" id="model-config-effort-none" value="none" class="siu-checkbox model-effort-cb" />
+                <span data-i18n="composer.effort.none">关闭（none）</span>
+              </label>
+              <label class="flex items-center gap-2 text-[12px] text-primary cursor-pointer">
+                <input type="checkbox" id="model-config-effort-minimal" value="minimal" class="siu-checkbox model-effort-cb" />
+                <span data-i18n="composer.effort.minimal">极低（minimal）</span>
+              </label>
+              <label class="flex items-center gap-2 text-[12px] text-primary cursor-pointer">
+                <input type="checkbox" id="model-config-effort-low" value="low" class="siu-checkbox model-effort-cb" />
+                <span data-i18n="composer.effort.low">低</span>
+              </label>
+              <label class="flex items-center gap-2 text-[12px] text-primary cursor-pointer">
+                <input type="checkbox" id="model-config-effort-medium" value="medium" class="siu-checkbox model-effort-cb" />
+                <span data-i18n="composer.effort.medium">中</span>
+              </label>
+              <label class="flex items-center gap-2 text-[12px] text-primary cursor-pointer">
+                <input type="checkbox" id="model-config-effort-high" value="high" class="siu-checkbox model-effort-cb" />
+                <span data-i18n="composer.effort.high">高</span>
+              </label>
+              <label class="flex items-center gap-2 text-[12px] text-primary cursor-pointer">
+                <input type="checkbox" id="model-config-effort-xhigh" value="xhigh" class="siu-checkbox model-effort-cb" />
+                <span data-i18n="composer.effort.xhigh">超高（xhigh）</span>
+              </label>
+              <label class="flex items-center gap-2 text-[12px] text-primary cursor-pointer col-span-2">
+                <input type="checkbox" id="model-config-effort-max" value="max" class="siu-checkbox model-effort-cb" />
+                <span data-i18n="composer.effort.max">顶格（max）</span>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="siu-modal-footer">
+          <button data-close="modelConfig" class="siu-btn" data-i18n="settings.closeBtn">关闭</button>
+          <button id="model-config-apply" class="siu-btn siu-btn--primary" data-i18n="settings.save">保存</button>
+        </div>
+      </div>
     </div>
 
     <!-- ===================== QUIT CONFIRM MODAL (⌘Q) ===================== -->
@@ -3737,7 +3901,14 @@
           reasoningEffort: '',
           reasoningEffortEffective: '',
           reasoningSupported: true,
-          modelMetadata: {}
+          modelMetadata: {},
+          // Per-model overrides as the picker must honour them: which models are
+          // served (`enabled`), which reasoning levels each accepts (`efforts`),
+          // and the built-in detector's verdict per id (`modelReasoning`, what
+          // the settings pane's "auto" row describes). Both may be absent on an
+          // older server, so every read is defensive.
+          modelConfigs: {},
+          modelReasoning: {}
         },
         // Same idea for the session list (sidebar + select).
         sessions: [],
@@ -3765,6 +3936,14 @@
         // The last payload the server confirmed — the dirty check compares
         // against it, not against the draft we started from.
         savedProviders: [],
+        // Per-model configuration, keyed by model id: whether the model appears
+        // in the composer's picker, and which reasoning levels it accepts. The
+        // draft is what Save posts (as a FULL replacement of the map); the saved
+        // copy is the dirty check's baseline. Absent key or absent `enabled`
+        // means "enabled", and absent `efforts` means "ask the built-in
+        // capability detector" — the `auto` row the select shows.
+        modelConfigsDraft: {},
+        savedModelConfigs: {},
         activeProviderId: '',
         selectedProviderId: '',
         // Model routing is chosen per model row rather than by typing a name.
@@ -4007,7 +4186,7 @@
       // =======================================================================
       // Modal plumbing
       // =======================================================================
-      const MODALS = { settings: 'settings-modal', quit: 'quit-modal', palette: 'palette-modal' };
+      const MODALS = { settings: 'settings-modal', quit: 'quit-modal', palette: 'palette-modal', modelConfig: 'model-config-modal' };
 
       /**
        * The secondary menu is modal in effect — its scrim blocks the composer —
@@ -5523,6 +5702,9 @@
         $('btn-notify').className = 'siu-btn no-drag' + (enabled ? ' siu-btn--accent' : '');
         $('set-notifications').dataset.on = String(enabled);
         $('set-notifications').setAttribute('aria-checked', String(enabled));
+        const chimesOn = Boolean(Notifications) && !Notifications.isMuted();
+        $('set-chimes').dataset.on = String(chimesOn);
+        $('set-chimes').setAttribute('aria-checked', String(chimesOn));
       }
 
       /**
@@ -5555,13 +5737,26 @@
 
       $('btn-notify').addEventListener('click', () => void enableNotifications());
       $('set-notifications').addEventListener('click', () => void enableNotifications());
-
+      $('set-chimes').addEventListener('click', () => {
+        if (!Notifications) return;
+        const nextMuted = !Notifications.isMuted();
+        Notifications.setMuted(nextMuted);
+        renderNotifyButton();
+      });
+      $('btn-test-chime-success')?.addEventListener('click', () => {
+        Notifications?.playSuccessChime();
+      });
+      $('btn-test-chime-approval')?.addEventListener('click', () => {
+        Notifications?.playApprovalChime();
+      });
+      $('btn-test-chime-error')?.addEventListener('click', () => {
+        Notifications?.playErrorChime();
+      });
       // =======================================================================
       // Settings modal
       // =======================================================================
       /** The panes the nav can switch between, in the order the markup lists them. */
-      const SETTINGS_PANES = ['general', 'providers', 'about'];
-
+      const SETTINGS_PANES = ['general', 'autoreview', 'notifications', 'providers', 'models', 'about'];
       /**
        * One provider, shaped for editing. The stored credential is deliberately
        * NOT copied in: the view only ever carries a mask, and seeding the input
@@ -5613,6 +5808,121 @@
         if (renamed) return provider.name;
         if (provider.id === 'custom') return tr('settings.providers.name.custom');
         return provider.presetName || provider.name || tr('settings.providers.unnamed');
+      }
+
+      /** The three levels a `modelConfigs[id].efforts` list can name, weakest
+       *  first — the order the server normalizes to. */
+      const FULL_EFFORT_SET = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
+      /**
+       * The `<select>` row's reading of a stored entry. `auto` is the absence of
+       * an override ("ask the built-in detector"), NOT the absence of `efforts`
+       * alone — an entry that only flips `enabled` also has no level list.
+       *
+       * A multi-element subset that is not the full set (`low` + `high`, say) has
+       * no row of its own, and inventing one would mean a seventh option naming
+       * a combination the user cannot reproduce. It renders as `auto`; the draft
+       * still carries the stored list until the user picks something, so merely
+       * opening and saving the pane cannot silently drop it.
+       */
+      function modelEffortChoice(cfg) {
+        const efforts = cfg?.efforts;
+        if (!Array.isArray(efforts)) return 'auto';
+        // An EMPTY list is a recorded answer, not a missing one: the model
+        // refuses `reasoning_effort`, which is the `none` row.
+        if (!efforts.length) return 'none';
+        if (FULL_EFFORT_SET.every((level) => efforts.includes(level))) return 'all';
+        if (efforts.length === 1 && FULL_EFFORT_SET.includes(efforts[0])) return efforts[0];
+        return 'auto';
+      }
+
+      /** A model is served unless an entry explicitly switches it off. */
+      function modelEnabled(model) {
+        return state.modelConfigsDraft[model]?.enabled !== false;
+      }
+
+      /**
+       * One entry written back into the draft, canonicalized so the map only ever
+       * holds facts: `enabled: true` and the absence of `efforts` are what the
+       * absent key already means. Without this, toggling a model off and back on
+       * would leave `{}` behind — an entry that changes nothing but still makes
+       * the fingerprint differ from the baseline, so Save would stay lit with no
+       * work to do and every Save would re-send it.
+       */
+      function writeModelConfig(model, patch) {
+        const merged = { ...(state.modelConfigsDraft[model] || {}), ...patch };
+        const entry = merged.enabled === false ? { enabled: false } : {};
+        if (Array.isArray(merged.efforts)) entry.efforts = FULL_EFFORT_SET.filter((level) => merged.efforts.includes(level));
+        if (typeof merged.contextLimit === 'number' && Number.isInteger(merged.contextLimit) && merged.contextLimit > 0) {
+          entry.contextLimit = merged.contextLimit;
+        }
+        if (Object.keys(entry).length) state.modelConfigsDraft[model] = entry;
+        else delete state.modelConfigsDraft[model];
+      }
+
+      /**
+       * Stable one-line identity for the dirty check: sorted ids so key order
+       * cannot drift, and only the two facts the UI can change. Deliberately
+       * NOT `JSON.stringify(map)` — the server normalizes `efforts` order, so a
+       * raw echo would compare unequal to the draft the user never touched.
+       */
+      function modelConfigsFingerprint(map) {
+        return JSON.stringify(
+          Object.keys(map || {})
+            .sort()
+            .map((id) => [id, map[id]?.enabled !== false, map[id]?.efforts ?? null, map[id]?.contextLimit ?? null])
+        );
+      }
+
+      /**
+       * The entry that actually goes on the wire. An entry saying nothing beyond
+       * the defaults is a no-op: `POST /api/settings` replaces the whole map, so
+       * forwarding it would write `{ "<id>": {} }` for every model the user
+       * merely scrolled past and the file would grow with each Save.
+       */
+      function sendableModelConfigs(map) {
+        const out = {};
+        for (const [id, cfg] of Object.entries(map || {})) {
+          if (!id) continue;
+          const enabled = cfg?.enabled !== false;
+          const efforts = Array.isArray(cfg?.efforts) ? cfg.efforts : null;
+          const contextLimit = typeof cfg?.contextLimit === 'number' && Number.isInteger(cfg.contextLimit) && cfg.contextLimit > 0
+            ? cfg.contextLimit
+            : null;
+          if (enabled && !efforts && !contextLimit) continue;
+          out[id] = {
+            ...(enabled ? {} : { enabled: false }),
+            ...(efforts ? { efforts } : {}),
+            ...(contextLimit ? { contextLimit } : {})
+          };
+        }
+        return out;
+      }
+
+      /**
+       * The settings view's `modelConfigs`, normalized into the draft's shape.
+       * Field-by-field rather than a spread: the payload crosses the network, so
+       * a hand-edited settings file or a half-shipped server field must not put
+       * a string, a number or a nested object where the UI expects a boolean and
+       * a level list. An entry that survives with neither half is dropped — it
+       * says nothing the absent key does not already say.
+       */
+      function modelConfigsFromView(view) {
+        const source = view?.modelConfigs;
+        const out = {};
+        if (!source || typeof source !== 'object' || Array.isArray(source)) return out;
+        for (const [id, cfg] of Object.entries(source)) {
+          if (!id || !cfg || typeof cfg !== 'object' || Array.isArray(cfg)) continue;
+          const entry = {};
+          if (cfg.enabled === false) entry.enabled = false;
+          if (Array.isArray(cfg.efforts)) {
+            entry.efforts = FULL_EFFORT_SET.filter((level) => cfg.efforts.includes(level));
+          }
+          if (typeof cfg.contextLimit === 'number' && Number.isInteger(cfg.contextLimit) && cfg.contextLimit > 0) {
+            entry.contextLimit = cfg.contextLimit;
+          }
+          if (Object.keys(entry).length) out[id] = entry;
+        }
+        return out;
       }
 
       /** Stable one-line identity for the dirty check — key order cannot drift. */
@@ -5767,11 +6077,7 @@
         const provider = findDraftProvider(state.selectedProviderId);
         const grid = $('provider-models');
         grid.innerHTML = '';
-        const mainChip = $('provider-main-chip');
-        const reviewChip = $('provider-review-chip');
         if (!provider) {
-          mainChip.hidden = true;
-          reviewChip.hidden = true;
           $('provider-models-empty').hidden = true;
           return;
         }
@@ -5783,27 +6089,79 @@
           item.dataset.model = model;
           item.dataset.main = String(model === state.draftMainModel);
           item.dataset.review = String(model === state.draftReviewModel);
-          item.appendChild(el('span', 'siu-model-item-name', model));
-          const actions = el('div', 'siu-model-item-actions');
-          for (const [role, key] of [['main', 'settings.providers.setMain'], ['review', 'settings.providers.setReview']]) {
-            const button = el('button', 'siu-btn siu-model-action', tr(key));
-            button.type = 'button';
-            button.dataset.setRole = role;
-            actions.appendChild(button);
-          }
-          item.appendChild(actions);
+          // What the `auto` row of the select below resolves to: the server's
+          // built-in detector verdict for this id, as `data-auto-reasoning`
+          // ("true" / "false"). Omitted entirely for an id the server does not
+          // advertise — absence IS the "no verdict" answer, so no placeholder
+          // word is invented for it. Exposed as data rather than copy because
+          // the `auto` label is one string for every model; this attribute is
+          // what tells one row's automatic state from the next. Read alongside
+          // `data-on` like the row's other states.
+          const autoReasoning = state.composer.modelReasoning?.[model];
+          if (autoReasoning !== undefined) item.dataset.autoReasoning = String(autoReasoning);
+          // Served or hidden, editable here rather than only from the picker:
+          // fetching a provider's catalog used to dump every id into the
+          // composer, so switching one off is the point of this control.
+          const toggle = el('button', 'siu-btn siu-model-toggle');
+          toggle.type = 'button';
+          toggle.dataset.toggleEnabled = '';
+          toggle.dataset.on = String(modelEnabled(model));
+          toggle.setAttribute('aria-pressed', String(modelEnabled(model)));
+          toggle.title = tr('settings.modelConfig.enabled');
+          toggle.innerHTML = toggle.dataset.on === 'true' ? CHECK_GLYPH : EMPTY_BOX_GLYPH;
+          item.appendChild(toggle);
+          const name = el('span', 'siu-model-item-name', model);
+          // The column is narrow and truncates with an ellipsis, so the id it
+          // cut off has to stay reachable.
+          name.title = model;
+          item.appendChild(name);
+          const editBtn = el('button', 'siu-btn siu-model-action', tr('settings.modelConfig.edit'));
+          editBtn.type = 'button';
+          editBtn.dataset.editModel = model;
+          item.appendChild(editBtn);
+          // Appended LAST so the DOM order matches the wrapped visual order and
+          // Tab runs toggle → role buttons → levels, top line then bottom. The
           grid.appendChild(item);
         }
         $('provider-models-empty').hidden = models.length > 0;
-
-        // The chips name the two routed models even when the active provider
-        // does not list them (the manual-add input is not the only way in).
-        mainChip.hidden = !state.draftMainModel;
-        mainChip.textContent = state.draftMainModel;
-        reviewChip.hidden = !state.draftReviewModel;
-        reviewChip.textContent = state.draftReviewModel;
       }
 
+      function renderModelRoles() {
+        const choices = new Set();
+        for (const provider of state.providersDraft || []) {
+          for (const m of provider.models || []) choices.add(m);
+        }
+        for (const m of state.settings?.modelChoices || []) choices.add(m);
+        const sorted = [...choices].sort();
+
+        const populate = (selectId, currentVal, emptyLabelKey) => {
+          const sel = $(selectId);
+          if (!sel) return;
+          sel.innerHTML = '';
+          if (emptyLabelKey) {
+            const opt = el('option', '', tr(emptyLabelKey));
+            opt.value = '';
+            sel.appendChild(opt);
+          }
+          for (const m of sorted) {
+            const opt = el('option', '', m);
+            opt.value = m;
+            sel.appendChild(opt);
+          }
+          if (currentVal && !sorted.includes(currentVal)) {
+            const opt = el('option', '', currentVal);
+            opt.value = currentVal;
+            sel.appendChild(opt);
+          }
+          sel.value = currentVal || '';
+        };
+
+        populate('role-main-model', state.draftMainModel, null);
+        populate('role-tiny-model', state.draftTinyModel, 'settings.modelRoles.followMain');
+        populate('role-review-model', state.draftReviewModel, 'settings.modelRoles.followTiny');
+        populate('role-title-model', state.draftTitleModel, 'settings.modelRoles.followTiny');
+        populate('role-memory-model', state.draftMemoryModel, 'settings.modelRoles.followTiny');
+      }
       /**
        * Language and theme are absent on purpose: both selects persist the
        * moment they change, so a pending difference cannot exist and flagging
@@ -5814,9 +6172,14 @@
           state.providersDraft.map(providerFingerprint),
           state.activeProviderId,
           state.draftMainModel,
+          state.draftTinyModel,
           state.draftReviewModel,
+          state.draftTitleModel,
+          state.draftMemoryModel,
           $('set-auto-review').dataset.on === 'true',
-          $('set-reasoning-effort').value
+          // Last, so the existing fields keep their positions and an untouched
+          // tree still compares equal to the baseline below.
+          modelConfigsFingerprint(state.modelConfigsDraft)
         ]);
       }
 
@@ -5826,9 +6189,11 @@
           state.savedProviders.map(providerFingerprint),
           state.activeProviderId,
           view.modelName || '',
+          view.tinyModelName || '',
           view.reviewModelName || '',
-          Boolean(view.autoReview),
-          view.reasoningEffort || ''
+          view.titleModelName || '',
+          view.memoryModelName || '',
+          modelConfigsFingerprint(state.savedModelConfigs)
         ]);
       }
 
@@ -5843,6 +6208,13 @@
         state.settings = view;
         state.providersDraft = (view.providers || []).map(providerDraftFrom);
         state.savedProviders = (view.providers || []).map(providerDraftFrom);
+        // Both copies come from the same payload: the draft is edited, the saved
+        // one is the dirty check's baseline. Server-normalized values (a
+        // de-duplicated `efforts`, an entry the user's save dropped) land here,
+        // so a Save that the server rewrote is reflected instead of leaving the
+        // form comparing the draft against what was merely *sent*.
+        state.modelConfigsDraft = modelConfigsFromView(view);
+        state.savedModelConfigs = modelConfigsFromView(view);
         state.activeProviderId = view.activeProviderId || state.providersDraft[0]?.id || '';
         for (const provider of state.providersDraft) {
           provider.enabled = provider.id === state.activeProviderId;
@@ -5852,7 +6224,10 @@
           state.selectedProviderId = state.activeProviderId || state.providersDraft[0]?.id || '';
         }
         state.draftMainModel = view.modelName || '';
+        state.draftTinyModel = view.tinyModelName || '';
         state.draftReviewModel = view.reviewModelName || '';
+        state.draftTitleModel = view.titleModelName || '';
+        state.draftMemoryModel = view.memoryModelName || '';
         // The composer toolbar mirrors the same view. Seeded here rather than in
         // the settings modal's own paths so boot, openSettings and Save all land
         // in one place — and so a saved model/effort is reflected immediately.
@@ -5864,7 +6239,6 @@
         // them here too would duplicate that logic and hardcode the English.
         $('set-auto-review').dataset.on = String(view.autoReview);
         $('set-auto-review').setAttribute('aria-checked', String(view.autoReview));
-        $('set-reasoning-effort').value = view.reasoningEffort || '';
         // The select is a live preview, so it shows the language actually in
         // force — not the last value read from disk, which Save is what commits.
         // (Assigning `.value` fires no `change`, so this cannot loop back into
@@ -5876,7 +6250,6 @@
         // never repaints behind the user's back.
         state.theme = view.theme || 'system';
         $('set-theme').value = state.theme;
-        renderReasoningHint(view);
         $('settings-msg').textContent = '';
         delete $('settings-msg').dataset.tone;
 
@@ -5899,36 +6272,10 @@
       function renderSettingsDynamic() {
         renderProviderList();
         renderProviderDetail();
+        renderModelRoles();
         renderSettingsDirty();
         renderProviderKeyToggle();
-        // JS-built text, so a language switch must re-resolve it — this is the
-        // one general-pane string that is not a `data-i18n` annotation.
-        if (state.settings) renderReasoningHint(state.settings);
         renderNotifyButton();
-      }
-
-      /** Effort state the provider will actually see for the main route. */
-      function renderReasoningHint(view) {
-        const hint = $('set-reasoning-hint');
-        const chosen = $('set-reasoning-effort').value;
-        const effective = view.reasoningEffortEffective;
-        const supported = view.reasoningSupported !== false;
-        const parts = [];
-        if (supported) {
-          parts.push(
-            effective
-              ? tr('settings.effort.active', { level: escapeHtml(effortLevelLabel(effective)) })
-              : tr('settings.effort.none')
-          );
-        } else {
-          parts.push(tr('settings.effort.unsupported'));
-        }
-        if (chosen && !supported) {
-          parts.push(tr('settings.effort.pending'));
-        }
-        hint.innerHTML = parts.join(' ');
-        if (supported) delete hint.dataset.tone;
-        else hint.dataset.tone = 'warn';
       }
 
       async function openSettings() {
@@ -5950,10 +6297,6 @@
         renderSettingsDirty();
       });
 
-      $('set-reasoning-effort').addEventListener('change', () => {
-        if (state.settings) renderReasoningHint(state.settings);
-        renderSettingsDirty();
-      });
 
       // -----------------------------------------------------------------------
       // Providers pane
@@ -6069,7 +6412,10 @@
           if (result.ok) {
             // Preserve the order the user already has; append what is new.
             for (const model of result.models || []) {
-              if (!provider.models.includes(model)) provider.models.push(model);
+              if (!provider.models.includes(model)) {
+                provider.models.push(model);
+                writeModelConfig(model, { efforts: [...FULL_EFFORT_SET] });
+              }
             }
             message.dataset.tone = 'ok';
             message.textContent = tr('settings.providers.fetchOk', { count: (result.models || []).length });
@@ -6095,22 +6441,112 @@
         const input = $('provider-model-input');
         const model = input.value.trim();
         if (!model) return;
-        if (!provider.models.includes(model)) provider.models.push(model);
+        if (!provider.models.includes(model)) {
+          provider.models.push(model);
+          // Default every newly added model with all reasoning levels
+          writeModelConfig(model, { efforts: [...FULL_EFFORT_SET] });
+        }
         input.value = '';
         renderProviderModels();
         renderSettingsDirty();
       });
 
+      /**
+       * The grid is rebuilt from scratch on every edit, which destroys the node
+       * the user was standing on — a keyboard user would be returned to `<body>`
+       * after each toggle. Restores the caret to the SAME control on the SAME
+       * model, and only when the activated control held focus: a mouse click
+       * lands wherever the pointer was, so moving focus there would steal it.
+       * Same rule as `hideComposerPopovers(refocus)`.
+       */
+      function refocusModelControl(model, attribute) {
+        const selector = `.siu-model-item[data-model="${CSS.escape(model)}"] [${attribute}]`;
+        document.querySelector(selector)?.focus();
+      }
+
       $('provider-models').addEventListener('click', (event) => {
-        const button = event.target.closest('[data-set-role]');
-        const item = event.target.closest('.siu-model-item');
-        if (!button || !item) return;
-        if (button.dataset.setRole === 'main') state.draftMainModel = item.dataset.model;
-        else state.draftReviewModel = item.dataset.model;
+        const toggle = event.target.closest('[data-toggle-enabled]');
+        if (toggle) {
+          const item = toggle.closest('.siu-model-item');
+          if (!item) return;
+          const model = item.dataset.model;
+          const hadFocus = toggle.contains(document.activeElement);
+          // A draft edit like the role buttons beside it: Save commits, so the
+          // composer picker does not change out from under a half-finished edit.
+          writeModelConfig(model, { enabled: !modelEnabled(model) });
+          renderProviderModels();
+          if (hadFocus) refocusModelControl(model, 'data-toggle-enabled');
+          renderSettingsDirty();
+          return;
+        }
+        const editBtn = event.target.closest('[data-edit-model]');
+        if (editBtn) {
+          const model = editBtn.dataset.editModel;
+          state.editingModelId = model;
+          $('model-config-id').textContent = model;
+          const cfg = state.modelConfigsDraft[model];
+          $('model-config-context-limit').value = cfg?.contextLimit ?? '';
+          const isAuto = !cfg || !Array.isArray(cfg.efforts);
+          $('model-config-effort-auto').checked = isAuto;
+          $('model-config-efforts-group').style.opacity = isAuto ? '0.4' : '1';
+          $('model-config-efforts-group').style.pointerEvents = isAuto ? 'none' : 'auto';
+          const efforts = Array.isArray(cfg?.efforts) ? cfg.efforts : FULL_EFFORT_SET;
+          for (const level of FULL_EFFORT_SET) {
+            const cb = $(`model-config-effort-${level}`);
+            if (cb) cb.checked = efforts.includes(level);
+          }
+          openModal('modelConfig');
+          return;
+        }
+      });
+      $('model-config-apply').addEventListener('click', () => {
+        const model = state.editingModelId;
+        if (!model) {
+          closeModal('modelConfig');
+          return;
+        }
+        const rawLimit = $('model-config-context-limit').value.trim();
+        const contextLimit = rawLimit && Number.isInteger(Number(rawLimit)) && Number(rawLimit) > 0 ? Number(rawLimit) : undefined;
+        const isAuto = $('model-config-effort-auto').checked;
+        let efforts = undefined;
+        if (!isAuto) {
+          efforts = [];
+          for (const level of FULL_EFFORT_SET) {
+            const cb = $(`model-config-effort-${level}`);
+            if (cb && cb.checked) efforts.push(level);
+          }
+        }
+        writeModelConfig(model, { contextLimit, efforts });
+        closeModal('modelConfig');
         renderProviderModels();
         renderSettingsDirty();
       });
 
+      $('model-config-effort-auto').addEventListener('change', () => {
+        const isAuto = $('model-config-effort-auto').checked;
+        $('model-config-efforts-group').style.opacity = isAuto ? '0.4' : '1';
+        $('model-config-efforts-group').style.pointerEvents = isAuto ? 'none' : 'auto';
+      });
+      $('role-main-model')?.addEventListener('change', (e) => {
+        state.draftMainModel = e.target.value;
+        renderSettingsDirty();
+      });
+      $('role-tiny-model')?.addEventListener('change', (e) => {
+        state.draftTinyModel = e.target.value;
+        renderSettingsDirty();
+      });
+      $('role-review-model')?.addEventListener('change', (e) => {
+        state.draftReviewModel = e.target.value;
+        renderSettingsDirty();
+      });
+      $('role-title-model')?.addEventListener('change', (e) => {
+        state.draftTitleModel = e.target.value;
+        renderSettingsDirty();
+      });
+      $('role-memory-model')?.addEventListener('change', (e) => {
+        state.draftMemoryModel = e.target.value;
+        renderSettingsDirty();
+      });
       $('provider-delete').addEventListener('click', () => {
         if (state.providersDraft.length <= 1) return;
         const removed = state.selectedProviderId;
@@ -6134,10 +6570,16 @@
           providers: state.providersDraft,
           activeProviderId: state.activeProviderId,
           modelName: state.draftMainModel,
+          tinyModelName: state.draftTinyModel,
           reviewModelName: state.draftReviewModel,
-          autoReview: $('set-auto-review').dataset.on === 'true',
-          reasoningEffort: $('set-reasoning-effort').value,
-          language: $('set-language').value
+          titleModelName: state.draftTitleModel,
+          memoryModelName: state.draftMemoryModel,
+          language: $('set-language').value,
+          // A full replacement of the map, so every default-only entry is
+          // pruned first: the draft accumulates an object for every model the
+          // user touched and forwarding those would grow the settings file with
+          // entries that change nothing.
+          modelConfigs: sendableModelConfigs(state.modelConfigsDraft)
         };
 
         try {
@@ -6337,6 +6779,12 @@
         '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z"/></svg>';
       const CHECK_GLYPH =
         '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>';
+      /** The "off" half of the enable toggle. Same 12×12 grid and stroke weight
+       *  as `CHECK_GLYPH`, so switching a model on and off does not shift the
+       *  row's baseline. Drawn rather than typed: a bare `☐`/`✓` mixes two
+       *  fonts at two sizes and reads as two controls. */
+      const EMPTY_BOX_GLYPH =
+        '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4"><rect x="5" y="5" width="14" height="14" rx="3"/></svg>';
       const STAR_PATH = 'm12 3.6 2.6 5.3 5.8.8-4.2 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8L3.6 9.7l5.8-.8z';
       const STAR_GLYPH =
         '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="' +
@@ -6397,7 +6845,15 @@
           reasoningEffort: view.reasoningEffort || '',
           reasoningEffortEffective: view.reasoningEffortEffective || '',
           reasoningSupported: view.reasoningSupported !== false,
-          modelMetadata: view.modelMetadata || {}
+          modelMetadata: view.modelMetadata || {},
+          // Per-model overrides drive the picker (a disabled model is not
+          // offered) and the effort panel (a model with an explicit `efforts`
+          // list offers exactly those levels). `modelReasoning` is the built-in
+          // detector's verdict per id — the settings pane's "auto" row describes
+          // it — and is carried here so a later surface can label the two apart.
+          // Both default to `{}`: an older server ships neither.
+          modelConfigs: view.modelConfigs || {},
+          modelReasoning: view.modelReasoning || {}
         };
         // No repaint here on purpose. The three controls are driven by the
         // status payload, and this view can arrive while `state.lastStatus` is
@@ -6414,7 +6870,7 @@
       /** The three levels the reasoning-effort enum can take today; each maps to
        *  a `composer.effort.*` key. The unset case is deliberately absent:
        *  every surface words "no effort" differently, so the caller owns it. */
-      const EFFORT_LEVELS = ['low', 'medium', 'high'];
+      const EFFORT_LEVELS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'];
 
       /**
        * The shared display mapping for an effort enum value. A known level
@@ -6588,6 +7044,21 @@
         else void selectEffort(row.dataset.level === 'off' ? '' : row.dataset.level);
       }
 
+      /**
+       * Whether the composer may offer this model. The per-model switch in
+       * Settings writes `enabled: false` for a model the user does not want in
+       * the picker — the reason the switch exists, since fetching a provider's
+       * models now returns its whole catalog. Absent entry means served.
+       *
+       * The model ALREADY in force is never filtered: it is what the runner
+       * routes through, so hiding it would leave the user with a picker that
+       * cannot name the model it is running. The caller decides that exception
+       * (the pinned current row); this helper answers the plain question.
+       */
+      function servableModel(model) {
+        return state.composer.modelConfigs?.[model]?.enabled !== false;
+      }
+
       function popoverGroupHead(label, glyph) {
         const head = el('div', 'siu-popover-group-head');
         // The head is appended straight into the `role="listbox"`, whose owned
@@ -6672,7 +7143,17 @@
         const body = $('model-popover-list');
         body.innerHTML = '';
         const needle = $('model-search').value.trim().toLowerCase();
-        const providers = state.composer.providers.filter((provider) => (provider.models || []).length > 0);
+        // `enabled: false` on a model means "keep it out of the picker" — the
+        // point of the per-model switch in Settings, because fetching a
+        // provider's catalog otherwise drops every id it serves into this list.
+        // A `models[]` copy of the config is derived here so the favorites and
+        // group loops below cannot disagree about which ids are served.
+        const servedModels = (provider) =>
+          (provider.models || []).filter((model) => servableModel(model));
+        const providers = state.composer.providers
+          .filter((provider) => (provider.enabled || provider.id === state.composer.activeProviderId))
+          .map((provider) => ({ ...provider, models: servedModels(provider) }))
+          .filter((provider) => provider.models.length > 0);
         // Prefer the provider already in force when it carries the model. Taking
         // the first listing provider would move a user whose own gateway serves
         // the same id as a stock preset onto that preset — the same silent
@@ -6698,10 +7179,14 @@
           body.appendChild(modelRow(current, ownerOf(current)));
         }
 
-        // Favorites next and pinned: they are the models the user reaches for,
-        // and they stay reachable even after the owning provider was removed.
+        // Favorites next and pinned — but only the ones an ENABLED provider
+        // actually serves. A favorite whose provider is switched off cannot run:
+        // `ownerOf` would resolve no provider for it, so picking it would set
+        // the model while the runner kept the active provider's endpoint. The
+        // row would be a trap rather than a shortcut.
+        const served = new Set(providers.flatMap((provider) => provider.models || []));
         const favorites = readFavoriteModels().filter(
-          (model) => model !== current && (!needle || model.toLowerCase().includes(needle))
+          (model) => model !== current && served.has(model) && (!needle || model.toLowerCase().includes(needle))
         );
         if (favorites.length) {
           body.appendChild(popoverGroupHead(tr('composer.model.favorites'), STAR_ON_GLYPH));
@@ -6746,8 +7231,11 @@
         }
       }
 
-      /** Four fixed levels, rebuilt per open because the labels are dictionary
-       *  lookups a language switch has to re-resolve. */
+      /**
+       * One row per level the model in force actually accepts. The dictionary
+       * labels are lookups a language switch has to re-resolve, so the panel is
+       * rebuilt per open.
+       */
       function renderEffortPopover() {
         const box = $('effort-popover-list');
         const panel = $('effort-popover');
@@ -6757,7 +7245,19 @@
         // outside the listbox's `innerHTML` reset, hence the removal here.
         panel.querySelector('.siu-popover-hint')?.remove();
         const chosen = state.composer.reasoningEffort || '';
-        for (const level of ['', 'low', 'medium', 'high']) {
+        // An explicit `efforts` list on the model in force is AUTHORITATIVE: the
+        // server sends exactly those levels, so offering the others would let the
+        // user pick a value the wire will drop. An EMPTY list is not "no
+        // preference" — it is the recorded answer "this model refuses
+        // `reasoning_effort`", which is a different panel, not a shorter one.
+        const configured = state.composer.modelConfigs?.[state.currentModel]?.efforts;
+        const refuses = Array.isArray(configured) && configured.length === 0;
+        const levels = Array.isArray(configured) ? configured : EFFORT_LEVELS;
+        // `''` is always offered: "derive" is a real choice, distinct from every
+        // named level, and hiding it would strand a user who wants the model's
+        // own default back.
+        const offered = refuses ? [] : ['', ...levels];
+        for (const level of offered) {
           const row = el('div', 'siu-popover-row');
           row.setAttribute('role', 'option');
           // Same roving-tabindex contract as the model rows.
@@ -6772,10 +7272,22 @@
           row.addEventListener('click', () => void selectEffort(level));
           box.appendChild(row);
         }
-        // The level is still stored, so say so rather than let the pick look lost.
-        if (chosen && !state.composer.reasoningSupported) {
-          panel.appendChild(el('div', 'siu-popover-hint', tr('composer.effort.pending')));
-        }
+        // Why no row explains the stored preference, when that happens. Three
+        // distinct situations, one user question — "I picked a level, why is
+        // nothing checked?":
+        //   · the model refuses the parameter and a level is stored → deferred
+        //   · the model refuses it and nothing is stored → nothing to defer,
+        //     so say what is true of the model instead of a save that never
+        //     happened
+        //   · a subset that cannot carry the stored level, or a model the
+        //     built-in detector rejects → deferred in both cases
+        const chosenOffered = offered.includes(chosen);
+        const hintKey = !chosen
+          ? (refuses ? 'settings.effort.unsupported' : '')
+          : chosenOffered && state.composer.reasoningSupported
+            ? ''
+            : 'composer.effort.pending';
+        if (hintKey) panel.appendChild(el('div', 'siu-popover-hint', tr(hintKey)));
         // Hand the keyboard to the checked row: this panel has no text field, so
         // there is nothing else for Tab/arrows to start from.
         box.querySelector('[data-current="true"]')?.focus();

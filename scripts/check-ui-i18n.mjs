@@ -176,6 +176,7 @@ const SETTINGS_FUNCTIONS = [
   'renderProviderDetail',
   'renderProviderKeyToggle',
   'renderProviderModels',
+  'renderModelRoles',
   'renderSettingsDirty',
   'renderSettingsDynamic'
 ];
@@ -270,7 +271,6 @@ const CHROME_FUNCTIONS = [
   'closeCompletions',
   'renderNotifyButton',
   'fillSettingsForm',
-  'renderReasoningHint',
   'fillModelSelect',
   'renderThemeSelect',
   'popoverGroupHead'

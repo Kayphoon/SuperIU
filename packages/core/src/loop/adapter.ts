@@ -11,7 +11,7 @@ export interface AiSdkStepAdapterOptions {
   /** Output budget for this route. See `effectiveMaxTokens` for why effort scales it. */
   maxTokens?: number;
   /** Provider reasoning effort, forwarded so thinking models can be budgeted correctly. */
-  reasoningEffort?: 'low' | 'medium' | 'high';
+  reasoningEffort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 }
 
 /** `NaN`/`Infinity` are "the provider did not count this", not a token count. */

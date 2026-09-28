@@ -5,8 +5,10 @@ import { fileURLToPath } from 'node:url';
 import {
   AgentRunner,
   DEFAULT_MAIN_MODEL,
+  DEFAULT_REASONING_EFFORT,
   DEFAULT_REVIEW_MODEL,
   MODEL_ROLES,
+  formatContextLimit,
   getEmotionPromptModifier,
   modelMetadataFor,
   parseReasoningEffort,
@@ -16,6 +18,7 @@ import {
   type EmotionState,
   type ModelMetadata,
   type ModelRole,
+  type ModelRoute,
   type ReasoningEffort,
   type RunnerCallbacks,
   type SessionDescriptor,
@@ -130,6 +133,91 @@ function parseTheme(value: unknown): Theme | undefined {
   return THEMES.find((id) => id === normalized);
 }
 
+/** Reasoning levels, weakest first — the canonical order of a `ModelOptionConfig.efforts` list. */
+const REASONING_LEVELS: readonly ReasoningEffort[] = [
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max'
+];
+
+/** True for a JSON object literal: not null, not an array, not a primitive. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Validate a per-model configuration map, reporting why each entry was rejected.
+ *
+ * One scan serves both callers, because their tolerance differs only in what they
+ * do with `errors`: `loadSettings` keeps the valid entries — a hand-edited file
+ * must never make the server unstartable — while `applySettings` refuses the
+ * whole patch so a malformed write cannot half-apply. Copying the rules per
+ * caller is exactly how the two would drift apart.
+ *
+ * `efforts` is normalized to the canonical order and de-duplicated, so the same
+ * list written two ways compares equal under `JSON.stringify` — which
+ * `applySettings` uses to decide whether the runner has to be rebuilt. An EMPTY
+ * list is meaningful and preserved: it is the explicit "this model refuses
+ * `reasoning_effort`" answer, distinct from the absent field ("ask the built-in
+ * detector").
+ */
+function scanModelConfigs(value: unknown): { configs: Record<string, ModelOptionConfig>; errors: string[] } {
+  const configs: Record<string, ModelOptionConfig> = {};
+  const errors: string[] = [];
+  if (value === undefined || value === null) return { configs, errors };
+  if (!isPlainObject(value)) {
+    errors.push('expected an object of { modelId: { enabled?, efforts? } }');
+    return { configs, errors };
+  }
+
+  for (const [rawId, rawEntry] of Object.entries(value)) {
+    const id = rawId.trim();
+    if (!id) {
+      errors.push('a model id is empty');
+      continue;
+    }
+    if (!isPlainObject(rawEntry)) {
+      errors.push(`'${id}' must be an object`);
+      continue;
+    }
+    if (rawEntry.enabled !== undefined && typeof rawEntry.enabled !== 'boolean') {
+      errors.push(`'${id}'.enabled must be a boolean`);
+      continue;
+    }
+    let contextLimit: number | undefined;
+    if (rawEntry.contextLimit !== undefined) {
+      const rawLimit = Number(rawEntry.contextLimit);
+      if (!Number.isInteger(rawLimit) || rawLimit <= 0) {
+        errors.push(`'${id}'.contextLimit must be a positive integer`);
+        continue;
+      }
+      contextLimit = rawLimit;
+    }
+    let efforts: ReasoningEffort[] | undefined;
+    const rawEfforts = rawEntry.efforts;
+    if (rawEfforts !== undefined) {
+      if (
+        !Array.isArray(rawEfforts) ||
+        rawEfforts.some((level) => !REASONING_LEVELS.includes(level as ReasoningEffort))
+      ) {
+        errors.push(`'${id}'.efforts must be an array of: ${REASONING_LEVELS.join(', ')}`);
+        continue;
+      }
+      efforts = REASONING_LEVELS.filter((level) => rawEfforts.includes(level));
+    }
+    configs[id] = {
+      ...(rawEntry.enabled === undefined ? {} : { enabled: rawEntry.enabled }),
+      ...(contextLimit === undefined ? {} : { contextLimit }),
+      ...(efforts === undefined ? {} : { efforts })
+    };
+  }
+  return { configs, errors };
+}
+
 export interface ProviderConfig {
   id: string;
   name: string;
@@ -140,6 +228,17 @@ export interface ProviderConfig {
   description: string;
   helpUrl: string;
   custom: boolean;
+}
+export interface ModelOptionConfig {
+  /** false hides the model from the composer picker. Absent = enabled. */
+  enabled?: boolean;
+  /**
+   * Reasoning levels this model accepts. Present = authoritative (empty =
+   * refuses the parameter). Absent = fall back to the built-in detector.
+   */
+  efforts?: ReasoningEffort[];
+  /** Custom context window ceiling in tokens. Absent = built-in metadata. */
+  contextLimit?: number;
 }
 
 /**
@@ -327,6 +426,12 @@ interface UiSettings {
   modelName: string;
   /** Tool/review model — Settings only. */
   reviewModelName: string;
+  /** Tiny model — default base for auxiliary background tasks (title, memory, etc.). */
+  tinyModelName?: string;
+  /** Title model — for summarizing session titles. */
+  titleModelName?: string;
+  /** Memory model — for extracting long-term memories. */
+  memoryModelName?: string;
   autoReview: boolean;
   /**
    * Provider reasoning effort applied to every reasoning-capable route.
@@ -339,6 +444,7 @@ interface UiSettings {
   theme: Theme;
   activeProviderId?: string;
   providers?: ProviderConfig[];
+  modelConfigs?: Record<string, ModelOptionConfig>;
 }
 
 export type PostureKey = 'terse' | 'cautious' | 'constructive' | 'driven' | 'pragmatic';
@@ -380,6 +486,9 @@ function loadSettings(): UiSettings {
     baseURL: process.env.OPENAI_BASE_URL ?? '',
     modelName: process.env.OPENAI_MODEL_NAME ?? DEFAULT_MAIN_MODEL,
     reviewModelName: process.env.OPENAI_REVIEW_MODEL_NAME ?? DEFAULT_REVIEW_MODEL,
+    tinyModelName: process.env.OPENAI_TINY_MODEL_NAME ?? '',
+    titleModelName: process.env.OPENAI_TITLE_MODEL_NAME ?? '',
+    memoryModelName: process.env.OPENAI_MEMORY_MODEL_NAME ?? '',
     autoReview: (process.env.SUPERIU_AUTO_REVIEW ?? '1') !== '0',
     reasoningEffort: parseReasoningEffort(process.env.OPENAI_REASONING_EFFORT) ?? '',
     language: parseLanguage(process.env.SUPERIU_LANGUAGE) ?? DEFAULT_LANGUAGE,
@@ -430,6 +539,12 @@ function loadSettings(): UiSettings {
       ? raw.activeProviderId
       : (providers.find((p) => p.enabled)?.id || providers[0]?.id || 'openai');
 
+    // Per-model answers to "does this model take `reasoning_effort`?" and "is it
+    // offered at all". Bad entries are dropped rather than fatal: this file may
+    // be hand-edited, and a typo in one model's list must not stop the server
+    // from starting.
+    const { configs: modelConfigs } = scanModelConfigs(raw.modelConfigs);
+
     return {
       apiKey: effectiveKey,
       baseURL: effectiveBaseURL,
@@ -438,12 +553,16 @@ function loadSettings(): UiSettings {
         typeof raw.reviewModelName === 'string' && raw.reviewModelName
           ? raw.reviewModelName
           : defaults.reviewModelName,
+      tinyModelName: typeof raw.tinyModelName === 'string' ? raw.tinyModelName.trim() : defaults.tinyModelName,
+      titleModelName: typeof raw.titleModelName === 'string' ? raw.titleModelName.trim() : defaults.titleModelName,
+      memoryModelName: typeof raw.memoryModelName === 'string' ? raw.memoryModelName.trim() : defaults.memoryModelName,
       autoReview: typeof raw.autoReview === 'boolean' ? raw.autoReview : defaults.autoReview,
       reasoningEffort: parseReasoningEffort(raw.reasoningEffort) ?? defaults.reasoningEffort,
       language: parseLanguage(raw.language) ?? defaults.language,
       theme: parseTheme(raw.theme) ?? defaults.theme,
       activeProviderId,
-      providers
+      providers,
+      ...(Object.keys(modelConfigs).length > 0 ? { modelConfigs } : {})
     };
   } catch {
     return {
@@ -545,6 +664,43 @@ function resolvedCredentials(target: AgentRunner): string[] {
 }
 
 function runnerOptions(sessionReference?: string, historyDbPath?: string, newSession = false) {
+  // A model the user has declared a level set for gets an EXPLICIT route, so the
+  // level is a decision the router cannot second-guess: the capability gate only
+  // decides the effort of a route that names none, and an explicit effort is
+  // taken as an instruction (the same escape hatch `setModel` uses).
+  //
+  // EVERY role running on a constrained model needs its own route — not just
+  // `main`. A role that names none inherits the router-wide
+  // `defaultReasoningEffort` below, which is the user's GLOBAL preference: the
+  // level they chose for a DIFFERENT model. A role on an unconstrained model
+  // must keep inheriting that global value, so it deliberately gets no route
+  // here, and `defaultReasoningEffort` stays the honest global preference rather
+  // than the main model's clamped level.
+  //
+  // The `model` on each route is NOT redundant. `AgentRunner` spreads
+  // `options.modelRoutes` LAST over its own env-derived routes
+  // (`packages/core/src/runner.ts` :223-234, which is also where
+  // `OPENAI_MEMORY_MODEL_NAME` / `OPENAI_TITLE_MODEL_NAME` are read), so a route
+  // naming only an effort would silently clobber the model the env var selected.
+  // Resolving the effective model here keeps both halves in agreement.
+  const auxBase = settings.tinyModelName || settings.modelName;
+  const effectiveModel: Record<ModelRole, string> = {
+    main: settings.modelName,
+    review: settings.reviewModelName,
+    memory: settings.memoryModelName || process.env.OPENAI_MEMORY_MODEL_NAME || auxBase,
+    title: settings.titleModelName || process.env.OPENAI_TITLE_MODEL_NAME || auxBase
+  };
+  const modelRoutes: Partial<Record<ModelRole, ModelRoute>> = {};
+  for (const role of MODEL_ROLES) {
+    const model = effectiveModel[role];
+    const level = levelFor(model);
+    const hasExplicitModel =
+      (role === 'title' && Boolean(settings.titleModelName)) ||
+      (role === 'memory' && Boolean(settings.memoryModelName));
+    if (level !== undefined || hasExplicitModel) {
+      modelRoutes[role] = { model, ...(level ? { reasoningEffort: level } : {}) };
+    }
+  }
   return {
     apiKey: settings.apiKey || undefined,
     baseURL: settings.baseURL || undefined,
@@ -553,7 +709,19 @@ function runnerOptions(sessionReference?: string, historyDbPath?: string, newSes
     autoReview: settings.autoReview,
     // `''` means derive (env, else core's `medium`). An explicit option wins
     // over `OPENAI_REASONING_EFFORT`, matching how the other settings resolve.
+    // This is the user's GLOBAL preference and must stay exactly that: it is the
+    // fallback for every role whose model declares no level set, so deriving it
+    // from the main model's clamped level would leak that clamp onto roles
+    // running a different model (a constrained `main` would drag an
+    // unconstrained `review` down to the main model's level). A constrained role
+    // carries its own effort on its route above instead.
     defaultReasoningEffort: settings.reasoningEffort || undefined,
+    // Per-model capability answer, so a user-declared level set reaches models
+    // the built-in allowlist does not know and an explicit `[]` suppresses the
+    // parameter on a model the allowlist would have allowed.
+    modelReasoningCapable,
+    contextLimitFor: (model: string) => settings.modelConfigs?.[(model || '').trim()]?.contextLimit,
+    ...(Object.keys(modelRoutes).length > 0 ? { modelRoutes } : {}),
     sessionId: sessionReference,
     // A draft has no file to reopen, so a rebuild must skip the resume path
     // rather than be handed a path that does not exist yet.
@@ -588,10 +756,69 @@ let settings: UiSettings = loadSettings();
 let runner: AgentRunner = null as unknown as AgentRunner;
 let memoryDir = '';
 
+/**
+ * Whether the user has told us this model takes `reasoning_effort`.
+ *
+ * `undefined` means "no opinion" and defers to the core allowlist, which is what
+ * keeps a model the user never touched behaving exactly as before. An EMPTY
+ * `efforts` list is an explicit `false`: the model refuses the parameter, so a
+ * level must not be attached even though the allowlist would allow one.
+ */
+function modelReasoningCapable(model: string): boolean | undefined {
+  const cfg = settings.modelConfigs?.[model.trim()];
+  if (cfg && Array.isArray(cfg.efforts)) return cfg.efforts.length > 0;
+  return undefined;
+}
+
+/** The levels the user has declared for `model`, or `undefined` when unconstrained. */
+function configuredEfforts(model: string): ReasoningEffort[] | undefined {
+  const cfg = settings.modelConfigs?.[(model || '').trim()];
+  return cfg && Array.isArray(cfg.efforts) ? cfg.efforts : undefined;
+}
+
+/**
+ * The level to send for `model`, preferring the stored preference.
+ *
+ * The stored `reasoningEffort` is a global preference, not a per-model fact, so
+ * it may name a level this model does not accept (`high` for a model narrowed to
+ * `low`). Rather than send a level the model rejects, fall back to the strongest
+ * one it does accept — the last element, since the list is written in canonical
+ * ascending order.
+ */
+function levelFor(model: string): ReasoningEffort | undefined {
+  const allowed = configuredEfforts(model);
+  if (!allowed || allowed.length === 0) return undefined;
+  // An empty stored value means "derive", whose documented meaning is the core
+  // default (`medium`) — declaring the full list ['low','medium','high'] must
+  // therefore behave exactly like declaring nothing, rather than silently
+  // promoting the route to the strongest level on the ladder.
+  const chosen = settings.reasoningEffort || DEFAULT_REASONING_EFFORT;
+  return allowed.includes(chosen) ? chosen : allowed[allowed.length - 1];
+}
+
+/**
+ * Every model id the console can offer, de-duplicated.
+ *
+ * The union of the preset list, every provider's own model list, and the two
+ * models currently configured — a provider's `models[]` is where a hand-typed id
+ * lands, so covering only `MODEL_CHOICES` would leave the user's own model
+ * without a context window and the usage meter dividing by the default. Shared
+ * with the capability map so both halves describe the same set of models.
+ */
+function advertisedModelIds(): string[] {
+  const ids = new Set<string>(MODEL_CHOICES);
+  for (const provider of settings.providers ?? []) {
+    for (const model of provider.models ?? []) ids.add(model);
+  }
+  ids.add(settings.modelName);
+  ids.add(settings.reviewModelName);
+  return [...new Set([...ids].map((id) => id.trim()).filter(Boolean))];
+}
+
 interface PublicModelRoute {
   model: string;
   maxTokens?: number;
-  reasoningEffort?: 'low' | 'medium' | 'high';
+  reasoningEffort?: ReasoningEffort;
   hasApiKey: boolean;
 }
 
@@ -624,17 +851,15 @@ function publicRoutes(): Record<string, PublicModelRoute> {
  * without a context window and the usage meter dividing by the default.
  */
 function modelMetadataView(): Record<string, ModelMetadata> {
-  const ids = new Set<string>(MODEL_CHOICES);
-  for (const provider of settings.providers ?? []) {
-    for (const model of provider.models ?? []) ids.add(model);
-  }
-  ids.add(settings.modelName);
-  ids.add(settings.reviewModelName);
   return Object.fromEntries(
-    [...ids]
-      .map((id) => id.trim())
-      .filter(Boolean)
-      .map((id) => [id, modelMetadataFor(id)])
+    advertisedModelIds().map((id) => {
+      const base = modelMetadataFor(id);
+      const customLimit = settings.modelConfigs?.[id]?.contextLimit;
+      if (customLimit) {
+        return [id, { ...base, contextLimit: customLimit, formattedContext: formatContextLimit(customLimit) }];
+      }
+      return [id, base];
+    })
   );
 }
 
@@ -879,12 +1104,30 @@ function settingsView() {
     baseURL: settings.baseURL,
     modelName: settings.modelName,
     reviewModelName: settings.reviewModelName,
+    tinyModelName: settings.tinyModelName || '',
+    titleModelName: settings.titleModelName || '',
+    memoryModelName: settings.memoryModelName || '',
     autoReview: settings.autoReview,
     language: settings.language,
     theme: settings.theme,
     reasoningEffort: settings.reasoningEffort,
     reasoningEffortEffective: runner.getModelRoutes().main.reasoningEffort ?? '',
-    reasoningSupported: supportsReasoningEffort(settings.modelName),
+    reasoningSupported:
+      modelReasoningCapable(settings.modelName) ?? supportsReasoningEffort(settings.modelName),
+    /**
+     * Per-model answers, as stored: only entries the user actually configured.
+     * The renderer distinguishes "no entry" (nothing to say) from an entry with
+     * an empty `efforts` (this model refuses the parameter), so an empty map must
+     * not be padded with defaults here.
+     */
+    modelConfigs: settings.modelConfigs ?? {},
+    /**
+     * Whether the built-in detector considers each offered model
+     * reasoning-capable. The renderer cannot know the core allowlist, so without
+     * this a model with no stored entry would have to be shown as "unknown"
+     * rather than in its own automatic state.
+     */
+    modelReasoning: Object.fromEntries(advertisedModelIds().map((id) => [id, supportsReasoningEffort(id)])),
     modelChoices: MODEL_CHOICES,
     /**
      * Capability metadata (vision / tools / context window) per model id. The
@@ -911,6 +1154,15 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
   if (typeof patch.modelName === 'string' && patch.modelName.trim()) next.modelName = patch.modelName.trim();
   if (typeof patch.reviewModelName === 'string' && patch.reviewModelName.trim()) {
     next.reviewModelName = patch.reviewModelName.trim();
+  }
+  if (typeof patch.tinyModelName === 'string') {
+    next.tinyModelName = patch.tinyModelName.trim();
+  }
+  if (typeof patch.titleModelName === 'string') {
+    next.titleModelName = patch.titleModelName.trim();
+  }
+  if (typeof patch.memoryModelName === 'string') {
+    next.memoryModelName = patch.memoryModelName.trim();
   }
   if (typeof patch.autoReview === 'boolean') next.autoReview = patch.autoReview;
   if (typeof patch.reasoningEffort === 'string') {
@@ -944,6 +1196,19 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
   }
   if (typeof patch.activeProviderId === 'string' && patch.activeProviderId.trim()) {
     next.activeProviderId = patch.activeProviderId.trim();
+  }
+
+  if (patch.modelConfigs !== undefined) {
+    // A full replacement, not a merge: the map is what the model grid shows, and
+    // a merge would make "uncheck this model" impossible to express — an omitted
+    // entry has to mean "no opinion", which is indistinguishable from "deleted".
+    const { configs, errors } = scanModelConfigs(patch.modelConfigs);
+    if (errors.length > 0) {
+      // Path-free and specific: this copy is rendered verbatim in the Settings
+      // dialog, so it names the offending entry rather than the settings file.
+      throw new Error(`Invalid modelConfigs: ${errors[0]}.`);
+    }
+    next.modelConfigs = configs;
   }
 
   if (Array.isArray(patch.providers)) {
@@ -1022,8 +1287,13 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
     next.baseURL !== settings.baseURL ||
     next.modelName !== settings.modelName ||
     next.reviewModelName !== settings.reviewModelName ||
+    next.tinyModelName !== settings.tinyModelName ||
+    next.titleModelName !== settings.titleModelName ||
+    next.memoryModelName !== settings.memoryModelName ||
     next.autoReview !== settings.autoReview ||
-    next.reasoningEffort !== settings.reasoningEffort;
+    // scan canonicalizes `efforts`, so an entry written as ['high','low'] is not
+    // a change against one stored as ['low','high'].
+    JSON.stringify(next.modelConfigs ?? {}) !== JSON.stringify(settings.modelConfigs ?? {});
 
   settings = next;
   persistSettings(settings);
@@ -1187,7 +1457,14 @@ async function handleApi(
     }
 
     // Runtime switch: takes effect on the next turn, never disturbs a running one.
-    runner.setModel(role, { model });
+    //
+    // The level is recomputed for the NEW model. `setModel` merges onto the role's
+    // existing route, so a role left over from a model the user configured a level
+    // list for would otherwise keep sending that level — an explicit effort the
+    // router cannot second-guess — to a model that may reject the parameter
+    // outright. `undefined` clears it back to the inherited default, which is what
+    // an unconstrained model is supposed to get.
+    runner.setModel(role, { model, reasoningEffort: levelFor(model) });
 
     // Mirror into persisted settings so the selection survives a restart. This
     // writes the file only — the runner is NOT rebuilt, so the active session

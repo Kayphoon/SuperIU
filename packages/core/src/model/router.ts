@@ -17,9 +17,17 @@ export type ModelRole = 'main' | 'review' | 'title' | 'memory';
 export const MODEL_ROLES: readonly ModelRole[] = ['main', 'review', 'title', 'memory'];
 
 /** Provider reasoning effort. Higher effort reasons for longer and needs more output budget. */
-export type ReasoningEffort = 'low' | 'medium' | 'high';
+export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
-const REASONING_EFFORTS: readonly ReasoningEffort[] = ['low', 'medium', 'high'];
+const REASONING_EFFORTS: readonly ReasoningEffort[] = [
+  'none',
+  'minimal',
+  'low',
+  'medium',
+  'high',
+  'xhigh',
+  'max'
+];
 
 export interface ModelRoute {
   provider?: string;
@@ -40,6 +48,12 @@ export interface ModelRouterOptions {
    * explicitly configured, and so per-turn overrides can re-resolve it.
    */
   defaultReasoningEffort?: ReasoningEffort;
+  /**
+   * Per-model capability override. `undefined` result = fall back to
+   * `supportsReasoningEffort(model)`. Lets an embedder widen or narrow the gate
+   * for models the built-in allowlist does not know about.
+   */
+  modelReasoningCapable?: (model: string) => boolean | undefined;
 }
 
 /**
@@ -150,9 +164,13 @@ export const MAX_TOKENS_CAP = 16_384;
  * 2048 / 4096 / 8192 ladder.
  */
 const EFFORT_MULTIPLIER: Record<NonNullable<ModelRoute['reasoningEffort']>, number> = {
+  none: 1,
+  minimal: 1,
   low: 1,
   medium: 2,
-  high: 4
+  high: 4,
+  xhigh: 6,
+  max: 8
 };
 
 /**
@@ -201,11 +219,13 @@ export class ModelRouter {
   /** Per-role overlays: only explicitly-set fields, inherited fields stay unset. */
   private readonly routes: Partial<Record<ModelRole, Partial<ModelRoute>>>;
   private readonly defaultReasoningEffort?: ReasoningEffort;
+  private readonly modelReasoningCapable?: (model: string) => boolean | undefined;
 
   constructor(options: ModelRouterOptions) {
     this.defaultRoute = { ...options.defaultRoute };
     this.routes = { ...(options.routes ?? {}) };
     this.defaultReasoningEffort = options.defaultReasoningEffort;
+    this.modelReasoningCapable = options.modelReasoningCapable;
   }
 
   /**
@@ -229,9 +249,10 @@ export class ModelRouter {
    * a second time and silently inflates the budget (medium 4096 becomes 8192).
    */
   public finalize(route: ModelRoute): ModelRoute {
+    const override = this.modelReasoningCapable?.(route.model);
+    const capable = override === undefined ? supportsReasoningEffort(route.model) : override;
     const reasoningEffort =
-      route.reasoningEffort ??
-      (supportsReasoningEffort(route.model) ? this.defaultReasoningEffort : undefined);
+      route.reasoningEffort ?? (capable ? this.defaultReasoningEffort : undefined);
     const withEffort = { ...route, reasoningEffort };
     return { ...withEffort, maxTokens: effectiveMaxTokens(withEffort) };
   }

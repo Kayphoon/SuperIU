@@ -86,6 +86,12 @@ interface PersistedSettings {
   reasoningEffort: string;
   activeProviderId: string;
   providers: PersistedProvider[];
+  /**
+   * Per-model configuration (enabled + accepted effort levels). Absent until the
+   * user touches the model grid, which is why it is optional rather than
+   * defaulted here — an omitted key and `{}` are different states to assert on.
+   */
+  modelConfigs?: Record<string, { enabled?: boolean; efforts?: string[] }>;
 }
 
 /** One row of `/api/settings`'s `modelMetadata`. */
@@ -885,6 +891,235 @@ async function runWireTests() {
         turn.body?.max_tokens === 2048,
         `the request carried max_tokens ${String(turn.body?.max_tokens)}, expected the unscaled 2048`
       );
+    });
+
+    // -------------------------------------------------------------------------
+    // Per-model configuration: the user's own effort list, proven on the wire
+    //
+    // The built-in allowlist is per FAMILY and cannot express "this exact model
+    // on my relay takes these three levels". The configuration map is a full
+    // replacement posted on /api/settings, and every assertion below is either
+    // on the outgoing probe payload or on the persisted file — a settings view
+    // alone cannot show the parameter left the process.
+    //
+    // Each patch re-asserts `modelName` AND the whole map, because the POST is a
+    // full replacement: a partial patch would silently inherit the previous
+    // case's entry and the next assertion would pass for the wrong reason.
+    // -------------------------------------------------------------------------
+    const RELAY_MODEL = 'sensenova-6.8-flash-lite';
+
+    await test('a configured effort list enables reasoning_effort on a model outside the allowlist', async () => {
+      // The id is deliberately NOT in the built-in allowlist: it is the case the
+      // per-model configuration exists for.
+      const openView = await requestJson(`${handle.url}/api/settings`);
+      const beforeReasoning = (openView.modelReasoning as Record<string, boolean> | undefined)?.[RELAY_MODEL];
+      assert(
+        beforeReasoning !== true,
+        `the built-in detector already accepts ${RELAY_MODEL}, so this test would prove nothing`
+      );
+
+      const view = await postJson(`${handle.url}/api/settings`, {
+        modelName: RELAY_MODEL,
+        reasoningEffort: 'medium',
+        modelConfigs: { [RELAY_MODEL]: { efforts: ['low', 'medium', 'high'] } }
+      });
+      assert(view.modelName === RELAY_MODEL, `modelName not applied: ${String(view.modelName)}`);
+      assert(
+        view.reasoningSupported === true,
+        `reasoningSupported did not follow the override: ${String(view.reasoningSupported)}`
+      );
+      assert(
+        view.reasoningEffortEffective === 'medium',
+        `reasoningEffortEffective is '${String(view.reasoningEffortEffective)}'`
+      );
+
+      const status = await requestJson(`${handle.url}/api/status`);
+      assert(status.model === RELAY_MODEL, `status.model is '${String(status.model)}'`);
+      assert(
+        status.reasoningEffort === 'medium',
+        `status.reasoningEffort is '${String(status.reasoningEffort)}'`
+      );
+
+      const before = probes.length;
+      await runTurnAndReadDone(handle.url, 'a level the user enabled');
+      const turn = lastProbe(probes.slice(before), '/chat/completions');
+      assert(turn.body?.model === RELAY_MODEL, `request model '${String(turn.body?.model)}'`);
+      assert(
+        turn.body?.reasoning_effort === 'medium',
+        `the request carried reasoning_effort '${String(turn.body?.reasoning_effort)}'`
+      );
+      // `medium` scales the budget 2048 × 2, so the same payload proves the
+      // effort reached the route and not only the status string.
+      assert(
+        turn.body?.max_tokens === 4096,
+        `the request carried max_tokens ${String(turn.body?.max_tokens)}, expected 4096`
+      );
+    });
+
+    await test('a level outside the configured list is clamped to the highest allowed level', async () => {
+      // The stored `reasoningEffort` is a GLOBAL preference, so it may name a
+      // level this model does not accept. Sending it anyway would be an upstream
+      // 400; dropping the parameter would silently lose the user's intent. The
+      // contract is to fall back to the strongest level the model does accept.
+      await postJson(`${handle.url}/api/settings`, {
+        modelName: RELAY_MODEL,
+        reasoningEffort: 'low',
+        modelConfigs: { [RELAY_MODEL]: { efforts: ['high'] } }
+      });
+
+      const status = await requestJson(`${handle.url}/api/status`);
+      assert(
+        status.reasoningEffort === 'high',
+        `status.reasoningEffort is '${String(status.reasoningEffort)}', expected the clamped 'high'`
+      );
+
+      const before = probes.length;
+      await runTurnAndReadDone(handle.url, 'a level the model does not accept');
+      const turn = lastProbe(probes.slice(before), '/chat/completions');
+      assert(
+        turn.body?.reasoning_effort === 'high',
+        `the request carried reasoning_effort '${String(turn.body?.reasoning_effort)}', expected the clamped 'high'`
+      );
+      assert(
+        turn.body?.max_tokens === 8192,
+        `the request carried max_tokens ${String(turn.body?.max_tokens)}, expected the high budget 8192`
+      );
+    });
+
+    await test('an empty effort list re-suppresses a model the allowlist accepts', async () => {
+      // `o3-mini` IS reasoning-capable by the built-in detector, so this is the
+      // narrowing direction: the user's empty list is an authoritative "this
+      // model refuses the parameter" and must strip both the effort and the
+      // scaled budget the allowlist would otherwise have granted.
+      //
+      // Positive control first, on the SAME model and the same stored `high`:
+      // without it, "no reasoning_effort" below would also pass on a route that
+      // never had the parameter to begin with.
+      //
+      // o-series requests carry their budget as `max_completion_tokens`, not
+      // `max_tokens`: `@ai-sdk/openai` renames the field for reasoning models
+      // (`isReasoningModel` matches `o*`/`gpt-5*`, and its arg builder moves
+      // `max_tokens` onto `max_completion_tokens`), so the scaled number is
+      // observable there and asserting on `max_tokens` would fail on a correct
+      // build. The values are the router's own 2048 / 8192 ladder.
+      await postJson(`${handle.url}/api/settings`, {
+        modelName: 'o3-mini',
+        reasoningEffort: 'high',
+        modelConfigs: { 'o3-mini': { efforts: ['low', 'medium', 'high'] } }
+      });
+      const controlBefore = probes.length;
+      await runTurnAndReadDone(handle.url, 'a model the user left wide open');
+      const control = lastProbe(probes.slice(controlBefore), '/chat/completions');
+      assert(
+        control.body?.reasoning_effort === 'high',
+        `the control turn carried reasoning_effort '${String(control.body?.reasoning_effort)}'`
+      );
+      assert(
+        control.body?.max_completion_tokens === 8192,
+        `the control turn carried max_completion_tokens ${String(control.body?.max_completion_tokens)}, expected 8192`
+      );
+
+      await postJson(`${handle.url}/api/settings`, {
+        modelName: 'o3-mini',
+        modelConfigs: { 'o3-mini': { efforts: [] } }
+      });
+
+      const status = await requestJson(`${handle.url}/api/status`);
+      assert(status.model === 'o3-mini', `status.model is '${String(status.model)}'`);
+      assert(
+        status.reasoningEffort === '',
+        `o3-mini reported effort '${String(status.reasoningEffort)}' despite an empty list`
+      );
+
+      const before = probes.length;
+      await runTurnAndReadDone(handle.url, 'a model the user narrowed to nothing');
+      const turn = lastProbe(probes.slice(before), '/chat/completions');
+      assert(turn.body?.model === 'o3-mini', `request model '${String(turn.body?.model)}'`);
+      assert(
+        !('reasoning_effort' in (turn.body ?? {})),
+        `the request carried reasoning_effort ${String(turn.body?.reasoning_effort)} to a model the user narrowed to nothing`
+      );
+      // Same model, same stored `high`: only the empty list changed, and the
+      // budget must collapse from the control's 8192 back to the unscaled base.
+      assert(
+        turn.body?.max_completion_tokens === 2048,
+        `the request carried max_completion_tokens ${String(turn.body?.max_completion_tokens)}, expected the unscaled 2048`
+      );
+    });
+
+    await test('modelConfigs persists to the settings file exactly as sent', async () => {
+      const sent = { 'o3-mini': { efforts: [] as string[] } };
+      await postJson(`${handle.url}/api/settings`, { modelName: 'o3-mini', modelConfigs: sent });
+      const persisted = await readSettingsFile();
+      assert(
+        JSON.stringify(persisted.modelConfigs) === JSON.stringify(sent),
+        `persisted modelConfigs are ${JSON.stringify(persisted.modelConfigs)}, expected ${JSON.stringify(sent)}`
+      );
+    });
+
+    await test('an invalid modelConfigs is rejected and leaves the stored map untouched', async () => {
+      const before = await readSettingsFile();
+      let status = 0;
+      let message = '';
+      try {
+        await postJson(`${handle.url}/api/settings`, {
+          modelName: 'o3-mini',
+          modelConfigs: { x: { efforts: ['ultra'] } }
+        });
+      } catch (err) {
+        message = err instanceof Error ? err.message : String(err);
+        status = Number(/(?:^|\D)(\d{3})(?:\D|$)/.exec(message)?.[1] ?? 0);
+      }
+      assert(
+        message.includes('400'),
+        `an invalid modelConfigs was not rejected with a 400: ${message || '(no error thrown)'}`
+      );
+      assert(status === 400, `the rejection was not an HTTP 400: ${message}`);
+
+      // A rejected patch must not half-apply: the map the grid shows is still
+      // the one the user had, not a truncated or normalized remnant.
+      const after = await readSettingsFile();
+      assert(
+        JSON.stringify(after.modelConfigs) === JSON.stringify(before.modelConfigs),
+        `the rejected patch altered the stored map: ${JSON.stringify(after.modelConfigs)}`
+      );
+    });
+
+    await test('GET /api/settings exposes the built-in verdict per advertised model', async () => {
+      const view = await requestJson(`${handle.url}/api/settings`);
+      const table = view.modelReasoning;
+      assert(
+        table !== null && typeof table === 'object' && !Array.isArray(table),
+        `modelReasoning missing from /api/settings: ${JSON.stringify(view).slice(0, 200)}`
+      );
+      const reasoning = table as Record<string, unknown>;
+      assert(
+        reasoning['o3-mini'] === true,
+        `modelReasoning['o3-mini'] is ${String(reasoning['o3-mini'])}, expected true`
+      );
+      assert(
+        reasoning['gpt-4o'] === false,
+        `modelReasoning['gpt-4o'] is ${String(reasoning['gpt-4o'])}, expected false`
+      );
+      // The stored map is what the grid renders from, and it is served raw.
+      const configs = view.modelConfigs as Record<string, unknown> | undefined;
+      assert(
+        configs !== null && typeof configs === 'object' && !Array.isArray(configs),
+        `modelConfigs missing from /api/settings: ${JSON.stringify(view).slice(0, 200)}`
+      );
+      assert(
+        JSON.stringify(configs?.['o3-mini']) === JSON.stringify({ efforts: [] }),
+        `modelConfigs['o3-mini'] is ${JSON.stringify(configs?.['o3-mini'])}`
+      );
+    });
+
+    // Restore the no-override baseline this suite had before the block above:
+    // the map is a full replacement, but an omission PRESERVES it, so every
+    // later patch (and the negative-control test above) would otherwise inherit
+    // an override it never asked for.
+    await postJson(`${handle.url}/api/settings`, {
+      modelName: 'gemini-1.5-flash',
+      modelConfigs: {}
     });
 
     await test('a reasoning model reports the effort in force and clamps a full window', async () => {
