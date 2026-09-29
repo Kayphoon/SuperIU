@@ -16,10 +16,13 @@
   },
   "dependencies": {
     "@agent/core": "workspace:*",
-    "@agent/ui": "workspace:*"
+    "@agent/protocol": "workspace:*",
+    "@agent/ui": "workspace:*",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.9",
+    "@types/ws": "^8.5.14",
     "electron": "^44.4.3",
     "tsx": "^4.23.15",
     "typescript": "^5.8.2"

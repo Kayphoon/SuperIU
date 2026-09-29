@@ -25,6 +25,20 @@ import {
   type ToolCallItem
 } from '@agent/core';
 import type { ReviewResult } from '@agent/core';
+import { GatewayServer, DeviceRegistry, EventHub } from './gateway/index.js';
+import type { GatewayRunner } from './gateway/index.js';
+
+// Re-export the gateway surface so `@agent/ui` is the single import a host needs
+// to boot both the web shell and the WebSocket gateway.
+export { GatewayServer, DeviceRegistry, EventHub } from './gateway/index.js';
+export type {
+  GatewayServerOptions,
+  GatewayRunner,
+  ConnectedClient,
+  DeviceRegistryOptions,
+  EventHubOptions
+} from './gateway/index.js';
+export { TargetDeviceOfflineError, RpcTimeoutError, RemoteRpcError } from './gateway/index.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const MAX_BODY_BYTES = 1_000_000;
@@ -42,6 +56,17 @@ export interface StartServerOptions {
   settingsFile?: string;
   /** Suppress the startup banner. */
   quiet?: boolean;
+  /**
+   * WebSocket path the VPS Gateway binds to on the same HTTP server. Defaults
+   * to `/ws`; pass `null` to boot the web shell without a gateway.
+   */
+  gatewayPath?: string | null;
+  /**
+   * Pre-shared token clients must present during the gateway handshake.
+   * Defaults to `SUPERIU_GATEWAY_TOKEN`; when neither is set the gateway runs in
+   * open development mode.
+   */
+  gatewayToken?: string;
 }
 
 export interface ServerHandle {
@@ -61,6 +86,14 @@ export interface ServerHandle {
    * the same reason `language` is reported here.
    */
   theme: Theme;
+  /**
+   * The live VPS Gateway, when one was booted. `undefined` only when
+   * `gatewayPath: null` was requested. Exposed so an embedder can inspect
+   * connected devices or invoke {@link GatewayServer.callClientRpc}.
+   */
+  gateway?: GatewayServer;
+  /** WebSocket URL clients should connect to, when a gateway was booted. */
+  gatewayUrl?: string;
   /** Idempotent: resolves pending approvals, closes the HTTP server and the agent runner. */
   close(): Promise<void>;
 }
@@ -1927,6 +1960,21 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
     });
   });
 
+  // Boot the VPS Gateway on the SAME server so `@agent/ui` serves the SPA and
+  // the WebSocket endpoint from one port. `gatewayPath: null` opts out.
+  let gateway: GatewayServer | undefined;
+  if (options.gatewayPath !== null) {
+    gateway = new GatewayServer({
+      server,
+      path: options.gatewayPath ?? '/ws',
+      token: options.gatewayToken,
+      // The runner is reached through the narrow `GatewayRunner` surface: the
+      // gateway only needs to run a turn, abort one, and report the current
+      // session, never the whole core class.
+      runner: runner as unknown as GatewayRunner
+    });
+  }
+
   if (!options.quiet) {
     const workstation = runner.getWorkstation();
     console.log('=== SuperIU Web UI (@agent/ui) ===');
@@ -1946,6 +1994,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
     console.log(`  Settings:    ${SETTINGS_FILE}`);
     console.log(`  Workspace:   ${workstation.cwd}`);
     console.log(`  Assets:      ${PUBLIC_DIR}`);
+    if (gateway) console.log(`  Gateway:     ws://${host}:${listening}${gateway.path}`);
     console.log('');
   }
 
@@ -1954,12 +2003,17 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
   const close = (): Promise<void> => {
     closing ??= new Promise<void>((resolve) => {
       resolvePendingApprovals(false);
-      server.close(() => {
-        runner.close();
-        resolve();
+      // Close the gateway first so its upgrade listener stops and every client
+      // receives a clean close before the HTTP server goes down.
+      const gatewayClose = gateway ? gateway.close() : Promise.resolve();
+      void gatewayClose.then(() => {
+        server.close(() => {
+          runner.close();
+          resolve();
+        });
+        // Idle keep-alive sockets would otherwise hold the close callback open.
+        server.closeAllConnections?.();
       });
-      // Idle keep-alive sockets would otherwise hold the close callback open.
-      server.closeAllConnections?.();
     });
     return closing;
   };
@@ -1971,6 +2025,8 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
     url: `http://${host}:${listening}`,
     language: settings.language,
     theme: settings.theme,
+    gateway,
+    gatewayUrl: gateway ? `ws://${host}:${listening}${gateway.path}` : undefined,
     close
   };
 }

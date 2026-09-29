@@ -15,13 +15,18 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "server": "node dist/daemon.js",
+    "build:server": "node ../../scripts/build-server-binary.mjs --all"
   },
   "dependencies": {
-    "@agent/core": "workspace:*"
+    "@agent/core": "workspace:*",
+    "@agent/protocol": "workspace:*",
+    "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.9",
+    "@types/ws": "^8.5.14",
     "typescript": "^5.8.2"
   }
 }

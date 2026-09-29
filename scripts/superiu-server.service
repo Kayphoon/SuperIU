@@ -1,0 +1,42 @@
+# SuperIU headless server (systemd USER unit).
+#
+# Install (no root required):
+#   mkdir -p ~/.config/systemd/user
+#   cp scripts/superiu-server.service ~/.config/systemd/user/superiu-server.service
+#   sh scripts/install.sh                 # installs ~/.superiu/bin/superiu-server
+#
+# Create the environment file with your gateway credentials, e.g.:
+#   mkdir -p ~/.superiu
+#   cat > ~/.superiu/env <<'EOF'
+#   PORT=3000
+#   HOST=127.0.0.1
+#   SUPERIU_GATEWAY_TOKEN=change-me
+#   EOF
+#   chmod 600 ~/.superiu/env
+#
+# Enable and start it:
+#   systemctl --user daemon-reload && systemctl --user enable --now superiu-server
+#
+# Keep it running after you log out (survives SSH disconnect / no active session):
+#   loginctl enable-linger $USER
+#
+# Inspect logs:  journalctl --user -u superiu-server -f
+
+[Unit]
+Description=SuperIU headless server (web shell + WebSocket gateway)
+Documentation=https://github.com/superiu/superiu
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/.superiu/bin/superiu-server start
+EnvironmentFile=%h/.superiu/env
+Restart=on-failure
+RestartSec=2
+# Give the daemon time to flush its session log on shutdown.
+TimeoutStopSec=15
+WorkingDirectory=%h
+
+[Install]
+WantedBy=default.target

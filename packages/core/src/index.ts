@@ -1,5 +1,6 @@
 export * from './types.js';
 export * from './spillover.js';
+export * from './execution/index.js';
 export * from './tools/index.js';
 export * from './memory/index.js';
 export * from './emotion/engine.js';

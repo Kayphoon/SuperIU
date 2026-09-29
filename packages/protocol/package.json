@@ -1,5 +1,5 @@
 {
-  "name": "@agent/core",
+  "name": "@agent/protocol",
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
@@ -15,14 +15,6 @@
     "build": "tsc",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
-  },
-  "dependencies": {
-    "@agent/protocol": "workspace:*",
-    "@ai-sdk/openai": "^1.1.0",
-    "ai": "^4.1.0",
-    "dotenv": "^16.4.7",
-    "execa": "^9.5.0",
-    "zod": "^3.23.8"
   },
   "devDependencies": {
     "@types/node": "^22.13.9",

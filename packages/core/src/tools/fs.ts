@@ -1,13 +1,15 @@
 import { tool } from 'ai';
 import { z } from 'zod';
-import * as fs from 'node:fs/promises';
-import * as path from 'node:path';
 import { handleSpillover } from '../spillover.js';
 import { executeBashCommand } from './bash.js';
+import { LocalExecutionContext } from '../execution/local.js';
+import type { ExecutionContext } from '../execution/types.js';
 
 export interface FsToolOptions {
   workspaceDir?: string;
   spilloverDir?: string;
+  /** Optional execution context. Falls back to a local context when omitted. */
+  context?: ExecutionContext;
 }
 
 export function createReadFileTool(options: FsToolOptions = {}) {
@@ -19,11 +21,16 @@ export function createReadFileTool(options: FsToolOptions = {}) {
       limit: z.number().optional().default(200).describe('Maximum number of lines to read (default: 200)')
     }),
     execute: async ({ path: targetPath, offset, limit }) => {
-      const baseDir = options.workspaceDir ? path.resolve(options.workspaceDir) : process.cwd();
-      const resolvedPath = path.isAbsolute(targetPath) ? targetPath : path.resolve(baseDir, targetPath);
+      const context =
+        options.context ??
+        new LocalExecutionContext({
+          workspaceDir: options.workspaceDir,
+          spilloverDir: options.spilloverDir
+        });
+      const spilloverDir = options.spilloverDir ?? context.spilloverDir;
 
       try {
-        const rawContent = await fs.readFile(resolvedPath, 'utf-8');
+        const rawContent = await context.readFile({ path: targetPath, offset, limit });
         const lines = rawContent.split(/\r?\n/);
         const startLine = Math.max(0, offset - 1);
         const endLine = startLine + Math.max(1, limit);
@@ -33,7 +40,7 @@ export function createReadFileTool(options: FsToolOptions = {}) {
           .map((line, idx) => `${startLine + idx + 1}: ${line}`)
           .join('\n');
 
-        const spillResult = await handleSpillover(indexedContent, options.spilloverDir);
+        const spillResult = await handleSpillover(indexedContent, spilloverDir);
         return spillResult.content;
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
@@ -60,19 +67,23 @@ export function createWriteFileTool(
         )
     }),
     execute: async ({ path: targetPath, content, then_run }) => {
-      const baseDir = options.workspaceDir ? path.resolve(options.workspaceDir) : process.cwd();
-      const resolvedPath = path.isAbsolute(targetPath) ? targetPath : path.resolve(baseDir, targetPath);
+      const context =
+        options.context ??
+        new LocalExecutionContext({
+          workspaceDir: options.workspaceDir,
+          spilloverDir: options.spilloverDir
+        });
 
+      let bytesWritten: number;
       try {
-        await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
-        await fs.writeFile(resolvedPath, content, 'utf-8');
+        const result = await context.writeFile({ path: targetPath, content });
+        bytesWritten = result.bytesWritten;
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         return `[Error writing file ${targetPath}: ${message}]`;
       }
 
-      const bytes = Buffer.byteLength(content, 'utf-8');
-      const writeResult = `Successfully wrote ${bytes} bytes to ${targetPath}`;
+      const writeResult = `Successfully wrote ${bytesWritten} bytes to ${targetPath}`;
 
       if (!then_run) {
         return writeResult;
@@ -81,7 +92,8 @@ export function createWriteFileTool(
       const bashOutput = await executeBashCommand(then_run, {
         workspaceDir: options.workspaceDir,
         spilloverDir: options.spilloverDir,
-        getSignal: options.getSignal
+        getSignal: options.getSignal,
+        context: options.context
       });
 
       return `${writeResult}\n\n[then_run: ${then_run}]\n${bashOutput}`;
