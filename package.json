@@ -12,10 +12,15 @@
     "desktop": "pnpm --filter \"@agent/desktop\" run start",
     "app:install": "pnpm --filter \"@agent/desktop\" run package:mac",
     "app:zip": "pnpm --filter \"@agent/desktop\" run package:zip",
-    "test": "pnpm build && node scripts/smoke-test.ts && node scripts/check-ui-i18n.mjs && node scripts/check-dict-parity.mjs && node scripts/check-cli-i18n.mjs && node scripts/check-redaction-coverage.mjs && node scripts/provider-settings-wire.ts"
+    "test": "vitest run && node scripts/smoke-test.ts && node scripts/check-ui-i18n.mjs && node scripts/check-dict-parity.mjs && node scripts/check-cli-i18n.mjs && node scripts/check-redaction-coverage.mjs && node scripts/provider-settings-wire.ts",
+    "test:unit": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest"
   },
   "devDependencies": {
     "@types/node": "^22.13.9",
-    "typescript": "^5.8.2"
+    "@vitest/coverage-v8": "^5.0.2",
+    "typescript": "^5.8.2",
+    "vitest": "^5.0.2"
   }
 }

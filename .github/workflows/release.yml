@@ -1,4 +1,4 @@
-name: Release Server
+name: Release
 
 on:
   push:
@@ -10,8 +10,8 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    name: build (${{ matrix.asset }})
+  build-server:
+    name: build server (${{ matrix.asset }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -60,9 +60,44 @@ jobs:
           path: release/${{ matrix.asset }}*
           if-no-files-found: error
 
+  build-desktop-mac:
+    name: build desktop (macOS)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm -r build
+
+      - name: Package macOS app zip
+        run: pnpm --filter @agent/desktop run package:zip --no-install
+
+      - name: Checksum
+        working-directory: packages/desktop/dist
+        run: shasum -a 256 *.zip > *.zip.sha256
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: superiu-desktop-mac
+          path: packages/desktop/dist/*.zip*
+          if-no-files-found: error
+
   release:
     name: publish release
-    needs: build
+    needs: [build-server, build-desktop-mac]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
