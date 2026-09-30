@@ -88,13 +88,18 @@ jobs:
 
       - name: Checksum
         working-directory: packages/desktop/dist
-        run: shasum -a 256 *.zip > *.zip.sha256
+        run: |
+          for f in *.zip; do
+            [ -f "$f" ] && shasum -a 256 "$f" > "$f.sha256"
+          done
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: superiu-desktop-mac
-          path: packages/desktop/dist/*.zip*
+          path: |
+            packages/desktop/dist/*.zip
+            packages/desktop/dist/*.zip.sha256
           if-no-files-found: error
 
   release:
