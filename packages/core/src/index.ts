@@ -11,4 +11,6 @@ export * from './loop/index.js';
 export * from './model/index.js';
 export * from './review/index.js';
 export * from './skills/index.js';
+export * from './mcp/index.js';
+export * from './subagent/index.js';
 export * from './runner.js';

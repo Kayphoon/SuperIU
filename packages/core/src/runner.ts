@@ -12,6 +12,13 @@ import { createTools } from './tools/index.js';
 import { ContextAssembler } from './context/index.js';
 import { AgentLoopEngine, type ToolDefinition } from './loop/engine.js';
 import { AiSdkStepAdapter } from './loop/adapter.js';
+import { McpManager, DEFAULT_MCP_CONFIG_PATH, type McpManagerOptions } from './mcp/manager.js';
+import {
+  createSubagentTool,
+  SubagentRegistry,
+  SubagentRunner,
+  type SubagentToolExecutor
+} from './subagent/index.js';
 import type { StepModelCaller } from './loop/types.js';
 import { AutoReviewer } from './review/reviewer.js';
 import type { PermissionGate } from './review/types.js';
@@ -70,6 +77,25 @@ export interface AgentRunnerOptions extends RunnerConfig {
   /** Interactive resolver for AutoReview `ask_user` verdicts (UI Approval Card). */
   permissionGate?: PermissionGate;
   tools?: Record<string, ToolDefinition>;
+  /**
+   * MCP connection manager. When omitted the runner constructs one from
+   * `mcpConfigPath` (default: `~/.superiu/mcp.json`, or none when `null`) with
+   * `autoConnect: false`, so no server is spawned until {@link AgentRunner.initMcp}
+   * is called. Injecting a manager lets an embedder share one across runners.
+   */
+  mcpManager?: McpManager;
+  /**
+   * Path to the MCP JSON config the default manager loads. `null` disables file
+   * loading entirely (programmatic-only usage). Ignored when `mcpManager` is set.
+   */
+  mcpConfigPath?: string | null;
+  /**
+   * Subagent persona registry. Defaults to a fresh registry with the five
+   * built-in specialists.
+   */
+  subagentRegistry?: SubagentRegistry;
+  /** Whether to expose the `subagent` tool. Defaults to true. */
+  enableSubagents?: boolean;
   /** Initial per-role routes merged over the default main route. */
   modelRoutes?: Partial<Record<ModelRole, ModelRoute>>;
   /**
@@ -138,7 +164,21 @@ export class AgentRunner {
    * other roles are the tool/auxiliary models configured in settings.
    */
   public models: ModelRouter;
+  /**
+   * MCP connection manager. Present always (never `undefined`), so a shell can
+   * list/connect servers regardless of whether any tools are currently merged.
+   */
+  public mcpManager: McpManager;
+  /** Registry backing the `subagent` tool. Present even when the tool is disabled. */
+  public subagentRegistry: SubagentRegistry;
+  /** Child-turn executor for the `subagent` tool; `undefined` when disabled. */
+  public subagentRunner?: SubagentRunner;
   private currentAbortController: AbortController | null = null;
+  /**
+   * MCP config file `initMcp()` should load, or `null` to skip file loading
+   * (injected manager or explicit opt-out).
+   */
+  private mcpConfigPath: string | null = null;
   private stepCaller: StepModelCaller;
   /** Credentials a route inherits when it does not carry its own. */
   private providerDefaults: { apiKey: string; baseURL?: string };
@@ -273,13 +313,77 @@ export class AgentRunner {
     this.stepCaller = options.stepCaller ?? this.buildCaller(this.models.resolve('main'));
 
     // 5. Tools carry a dynamic abort signal so Ctrl+C tears down the process tree.
-    const tools =
+    const baseTools =
       options.tools ||
       createTools({
         workspaceDir,
         spilloverDir: this.config.spilloverDir,
         getSignal: () => this.currentAbortController?.signal
       });
+
+    // 5a. MCP: one manager owns every server connection. It starts disconnected
+    //     (`autoConnect: false`) so constructing a runner never spawns a child
+    //     process; `initMcp()` opts in explicitly. MCP tools are not frozen into
+    //     this static map because a server may connect after construction: they
+    //     are exposed on demand via `getTools()` and merged into the engine by
+    //     `refreshTools()` (called from `initMcp()`), which the loop then executes.
+    const mcpOptions: McpManagerOptions = {
+      configPath: options.mcpConfigPath,
+      autoConnect: false
+    };
+    this.mcpManager = options.mcpManager ?? new McpManager(mcpOptions);
+    // What `initMcp()` should load: an injected manager is owned by its embedder
+    // (skip file loading), an explicit `null` opts out, and `undefined` defers to
+    // the manager's default. Captured here because a no-argument
+    // `loadConfigFile()` re-applies `~/.superiu/mcp.json` even when opted out.
+    this.mcpConfigPath =
+      options.mcpManager !== undefined
+        ? null
+        : options.mcpConfigPath === undefined
+          ? DEFAULT_MCP_CONFIG_PATH
+          : options.mcpConfigPath;
+
+    // 5b. Subagents: a registry plus a child runner that reuses the parent's
+    //     tools for the child loop. The executor closes over the engine and
+    //     resolves `this.engine` lazily, because the engine is constructed below
+    //     and may be rebound on session switches.
+    this.subagentRegistry = options.subagentRegistry ?? new SubagentRegistry();
+    const enableSubagents = options.enableSubagents !== false;
+
+    if (enableSubagents) {
+      const toolExecutor: SubagentToolExecutor = {
+        executeTool: async (toolCall) => {
+          const record = await this.engine.executeTool(toolCall);
+          return {
+            toolCallId: record.toolCallId,
+            name: record.name,
+            result: record.result,
+            isError: record.isError
+          };
+        }
+      };
+
+      this.subagentRunner = new SubagentRunner({
+        registry: this.subagentRegistry,
+        // Resolve the caller per invocation so a child can run on its own route
+        // independently of the parent turn, and so a runtime model switch is
+        // observed rather than captured at construction.
+        stepCaller: () => this.buildCaller(this.models.resolve('main')),
+        toolExecutor,
+        tools: { ...baseTools },
+        workspaceDir
+      });
+    }
+
+    // The single tool map the engine executes. The `subagent` tool is merged
+    // here; MCP tools are layered on dynamically by `getTools()`.
+    const tools: Record<string, ToolDefinition> = { ...baseTools };
+    if (this.subagentRunner) {
+      tools.subagent = createSubagentTool({
+        runner: this.subagentRunner,
+        registry: this.subagentRegistry
+      }) as unknown as ToolDefinition;
+    }
 
     // 6. AutoReview gate: rules always run; the review model only sees calls the
     //    rule engine cannot classify. Tests can inject a mock review caller.
@@ -387,6 +491,65 @@ export class AgentRunner {
 
   public getWorkstation(): WorkstationInfo {
     return this.assembler.promptBuilder.workstationInfo();
+  }
+
+  /** The MCP connection manager (never `undefined`). */
+  public getMcpManager(): McpManager {
+    return this.mcpManager;
+  }
+
+  /** The subagent registry backing the `subagent` tool. */
+  public getSubagentRegistry(): SubagentRegistry {
+    return this.subagentRegistry;
+  }
+
+  /**
+   * Load the MCP config, connect every enabled server, and refresh the engine's
+   * tool map with the resulting tools.
+   *
+   * A runner built with `mcpConfigPath: null` skips file loading entirely (the
+   * manager carries no default path), so this only connects programmatically
+   * registered servers. Safe to call repeatedly and safe to skip: a runner with
+   * no MCP servers is fully functional. Failures are contained per server by the
+   * manager, so a broken server degrades its own tools rather than throwing here.
+   */
+  public async initMcp(): Promise<void> {
+    if (this.mcpConfigPath) {
+      await this.mcpManager.loadConfigFile(this.mcpConfigPath, { connect: true });
+    }
+    await this.mcpManager.connectAll();
+    await this.refreshTools();
+  }
+
+  /**
+   * The current effective tool map: the engine's static tools plus every MCP
+   * tool that is connected right now.
+   *
+   * MCP tools are resolved on demand rather than frozen at construction so a
+   * server connected after the runner was built still contributes tools. The
+   * engine remains the sole executor; these definitions call back into the
+   * manager.
+   */
+  public async getTools(): Promise<Record<string, ToolDefinition>> {
+    const mcpTools = await this.mcpManager.asCoreTools();
+    return { ...this.engine.tools, ...mcpTools };
+  }
+
+  /**
+   * Merge every currently-available MCP tool into the engine's tool map.
+   *
+   * Existing (core) tools are never shadowed: MCP tools are prefixed
+   * (`mcp__<server>__<tool>`) and only fill keys the core map does not already
+   * own. Engine construction fixes the map, so this is how a later connection
+   * becomes visible to the loop.
+   */
+  public async refreshTools(): Promise<void> {
+    const mcpTools = await this.mcpManager.asCoreTools();
+    for (const [name, definition] of Object.entries(mcpTools)) {
+      if (!this.engine.tools[name]) {
+        this.engine.tools[name] = definition;
+      }
+    }
   }
 
   /**
