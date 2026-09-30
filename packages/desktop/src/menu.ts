@@ -11,6 +11,8 @@ export interface MenuHandlers {
   dispatch(action: MenuAction): void;
   /** Reveal the project documentation. */
   openDocs(): void;
+  /** Check GitHub Releases for a newer build and offer to install it. */
+  checkForUpdates?(): void;
 }
 
 /**
@@ -41,6 +43,7 @@ const MENU_LABELS = {
   zh: {
     app: 'SuperIU',
     settings: '设置…',
+    checkForUpdates: '检查更新…',
     newSession: '新建会话',
     focusInput: '聚焦输入框',
     abort: '中止本轮',
@@ -56,6 +59,7 @@ const MENU_LABELS = {
   en: {
     app: 'SuperIU',
     settings: 'Settings…',
+    checkForUpdates: 'Check for Updates…',
     newSession: 'New Session',
     focusInput: 'Focus Input',
     abort: 'Abort Turn',
@@ -121,6 +125,10 @@ export function buildMenuTemplate(
         label: L.settings,
         accelerator: 'Cmd+,',
         click: () => dispatch('settings')
+      },
+      {
+        label: L.checkForUpdates,
+        click: () => handlers.checkForUpdates?.()
       },
       { type: 'separator' },
       { role: 'services' },

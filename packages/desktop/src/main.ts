@@ -35,6 +35,7 @@ import {
 import { GatewayClient } from './gateway_client.js';
 import { WorkspaceSandboxWorker } from './sandbox/worker.js';
 import { ABOUT_LABELS, buildMenuTemplate, createMenuDispatcher } from './menu.js';
+import { triggerUpdateCheck } from './updater.js';
 import {
   RemoteConnectionManager,
   RemoteConnectionError,
@@ -294,7 +295,13 @@ function openDocs(): void {
 
 function installApplicationMenu(): void {
   const template = buildMenuTemplate(
-    { dispatch: dispatchToRenderer, openDocs },
+    {
+      dispatch: dispatchToRenderer,
+      openDocs,
+      checkForUpdates: () => {
+        void triggerUpdateCheck(true);
+      }
+    },
     APP_NAME,
     uiLanguage
   );
@@ -809,6 +816,14 @@ async function bootstrap(): Promise<void> {
   nativeTheme.themeSource = serverHandle.theme;
 
   mainWindow = createWindow(serverHandle.url);
+
+  // Silent background update probe. Delayed so it never competes with startup
+  // work, and skipped in development where there is no installable bundle.
+  if (app.isPackaged) {
+    setTimeout(() => {
+      void triggerUpdateCheck(false);
+    }, 5000);
+  }
 }
 
 if (gotTheLock) {
