@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseVersion, semverGt, selectMacAsset } from '../src/updater.js';
+import { parseVersion, semverGt, selectMacAsset, versionFromAssetName } from '../src/updater.js';
 
 // ---------------------------------------------------------------------------
 // parseVersion
@@ -102,6 +102,29 @@ describe('semverGt', () => {
   it('handles the default repo tag shape (v-prefixed)', () => {
     expect(semverGt('v0.2.0', '0.1.0')).toBe(true);
     expect(semverGt('v0.1.0', '0.1.0')).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// versionFromAssetName
+// ---------------------------------------------------------------------------
+
+describe('versionFromAssetName', () => {
+  it('extracts the version from a desktop asset name', () => {
+    expect(versionFromAssetName('SuperIU-0.2.0-mac-arm64.zip')).toBe('0.2.0');
+    expect(versionFromAssetName('SuperIU-1.0.0-mac-x64.zip')).toBe('1.0.0');
+  });
+
+  it('keeps pre-release identifiers', () => {
+    expect(versionFromAssetName('SuperIU-1.0.0-beta.3-mac-arm64.zip')).toBe('1.0.0-beta.3');
+  });
+
+  it('returns null for names without an embedded semver', () => {
+    expect(versionFromAssetName('superiu-server-linux-x64')).toBeNull();
+    expect(versionFromAssetName('latest')).toBeNull();
+    expect(versionFromAssetName(undefined)).toBeNull();
+    expect(versionFromAssetName(null)).toBeNull();
+    expect(versionFromAssetName('')).toBeNull();
   });
 });
 

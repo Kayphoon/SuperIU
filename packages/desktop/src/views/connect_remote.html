@@ -1,455 +1,1387 @@
 <!doctype html>
+<!--
+  ─────────────────────────────────────────────────────────────────────────────
+  SuperIU Desktop · “连接到远程 VPS” 向导
+  ─────────────────────────────────────────────────────────────────────────────
+
+  Loadable directly in an Electron BrowserWindow:
+
+    const win = new BrowserWindow({
+      width: 520, height: 720,
+      titleBarStyle: 'hiddenInset',
+      vibrancy: 'under-window',
+      webPreferences: { preload: path.join(__dirname, 'preload.cjs') }
+    });
+    win.loadFile(path.join(__dirname, 'views', 'connect_remote.html'));
+
+  Optional prefill via query string (also usable through a data: URL wrapper):
+    connect_remote.html?alias=prod-1&workspace=/home/ubuntu/app&port=51234
+
+  ── Renderer bridge contract ──────────────────────────────────────────────────
+  Preferred: the preload exposes `window.superiuDesktop.remote`:
+
+    interface RemoteViewBridge {
+      listHosts(): Promise<SshHostEntry[]>;               // parsed ~/.ssh/config
+      connect(payload: {                                  // resolves on success
+        alias: string; workspace: string;
+        localPort?: number; remember: boolean;
+      }): Promise<{ localUrl: string; tunnelPort: number }>;
+      cancel(): Promise<void>;                            // abort a running flow
+      dismiss?(): Promise<void>;                          // close wizard on success
+      onProgress(cb: (step: {                             // step-by-step updates
+        id: 'probe'|'install'|'workspace'|'token'|'start'|'tunnel'|'client';
+        status: 'pending'|'active'|'done'|'failed';
+        detail?: string;
+      }) => void): () => void;
+    }
+
+  Fallback transport (no preload changes required): the page speaks a small
+  postMessage protocol, so the main process can drive it today via
+  `webContents.executeJavaScript("window.postMessage(..., '*')")`.
+
+    main → page:  { source:'superiu-host', type:'remote:hosts',    hosts:[...] }
+                  { source:'superiu-host', type:'remote:progress', step:{...} }
+                  { source:'superiu-host', type:'remote:done',     result:{...} }
+                  { source:'superiu-host', type:'remote:error',    step, message }
+    page → main:  { source:'superiu-remote', type:'ready' }
+                  { source:'superiu-remote', type:'connect', payload:{...} }
+                  { source:'superiu-remote', type:'cancel' }
+                  { source:'superiu-remote', type:'dismiss' }
+
+  With neither transport present the view runs a scripted simulation so the
+  surface stays fully reviewable. Demo modes (skip the form / force states):
+    ?demo=ok     run the full pipeline to success
+    ?demo=fail   fail at the SSH tunnel step
+    ?demo=auth   fail at the probe step (authentication)
+-->
 <html lang="zh-CN">
 <head>
-  <meta charset="utf-8">
-  <title>连接远程 VPS</title>
-  <style>
-    :root {
-      --bg: #ececec;
-      --card-bg: rgba(255, 255, 255, 0.85);
-      --border: rgba(0, 0, 0, 0.12);
-      --text: #1d1d1f;
-      --text-muted: #86868b;
-      --primary: #0071e3;
-      --primary-hover: #0077ed;
-      --primary-text: #ffffff;
-      --input-bg: #ffffff;
-      --success: #34c759;
-      --danger: #ff3b30;
-      --warning: #ff9500;
-      --step-pending: #d1d1d6;
-    }
+<meta charset="utf-8">
+<meta name="color-scheme" content="light dark">
+<title>连接到远程 VPS</title>
+<style>
+/* ── Design tokens ──────────────────────────────────────────────────────── */
+:root {
+  --window-bg: #f5f5f7;
+  --card-bg: #ffffff;
+  --card-border: rgba(0, 0, 0, 0.08);
+  --card-shadow: 0 14px 40px rgba(0, 0, 0, 0.10), 0 2px 8px rgba(0, 0, 0, 0.05);
 
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg: #1e1e1e;
-        --card-bg: rgba(36, 36, 38, 0.85);
-        --border: rgba(255, 255, 255, 0.15);
-        --text: #f5f5f7;
-        --text-muted: #a1a1a6;
-        --primary: #2997ff;
-        --primary-hover: #47a6ff;
-        --primary-text: #ffffff;
-        --input-bg: #2c2c2e;
-        --success: #30d158;
-        --danger: #ff453a;
-        --warning: #ffd60a;
-        --step-pending: #48484a;
-      }
-    }
+  --label: #1d1d1f;
+  --secondary: #6e6e73;
+  --tertiary: #8e8e93;
+  --separator: rgba(60, 60, 67, 0.12);
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      user-select: none;
-      -webkit-user-select: none;
-    }
+  --field-bg: #ffffff;
+  --field-border: rgba(60, 60, 67, 0.24);
+  --field-error: #ff3b30;
 
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      padding: 24px;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      -webkit-font-smoothing: antialiased;
-    }
+  --accent: #007aff;
+  --accent-contrast: #ffffff;
+  --accent-track: rgba(0, 122, 255, 0.20);
+  --focus-ring: rgba(0, 122, 255, 0.32);
 
-    header {
-      margin-bottom: 20px;
-    }
+  --green: #34c759;
+  --green-soft: rgba(52, 199, 89, 0.12);
+  --green-border: rgba(52, 199, 89, 0.35);
+  --green-text: #1f7a38;
+  --red: #ff3b30;
+  --red-soft: rgba(255, 59, 48, 0.09);
+  --red-border: rgba(255, 59, 48, 0.32);
+  --red-text: #d70015;
+  --track: rgba(60, 60, 67, 0.16);
 
-    h1 {
-      font-size: 19px;
-      font-weight: 600;
-      letter-spacing: -0.015em;
-    }
+  --control-bg: rgba(0, 0, 0, 0.045);
+  --control-bg-hover: rgba(0, 0, 0, 0.075);
+  --control-bg-active: rgba(0, 0, 0, 0.11);
 
-    p.subtitle {
-      font-size: 13px;
-      color: var(--text-muted);
-      margin-top: 4px;
-    }
+  --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+}
 
-    .card {
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 18px;
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      overflow-y: auto;
-    }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --window-bg: #232325;
+    --card-bg: #2e2e30;
+    --card-border: rgba(255, 255, 255, 0.10);
+    --card-shadow: 0 14px 40px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.30);
 
-    .form-group {
-      margin-bottom: 14px;
-    }
+    --label: #f5f5f7;
+    --secondary: #98989d;
+    --tertiary: #636366;
+    --separator: rgba(84, 84, 88, 0.55);
 
-    label {
-      display: block;
-      font-size: 12px;
-      font-weight: 500;
-      margin-bottom: 6px;
-      color: var(--text);
-    }
+    --field-bg: #1f1f21;
+    --field-border: rgba(255, 255, 255, 0.18);
+    --field-error: #ff453a;
 
-    select, input[type="text"] {
-      width: 100%;
-      height: 32px;
-      padding: 0 10px;
-      font-size: 13px;
-      color: var(--text);
-      background: var(--input-bg);
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      outline: none;
-      transition: border-color 0.15s ease, box-shadow 0.15s ease;
-      font-family: inherit;
-    }
+    --accent: #0a84ff;
+    --accent-track: rgba(10, 132, 255, 0.26);
+    --focus-ring: rgba(10, 132, 255, 0.45);
 
-    select:focus, input[type="text"]:focus {
-      border-color: var(--primary);
-      box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.25);
-    }
+    --green: #30d158;
+    --green-soft: rgba(48, 209, 88, 0.13);
+    --green-border: rgba(48, 209, 88, 0.38);
+    --green-text: #63e489;
+    --red: #ff453a;
+    --red-soft: rgba(255, 69, 58, 0.13);
+    --red-border: rgba(255, 69, 58, 0.40);
+    --red-text: #ff6961;
+    --track: rgba(255, 255, 255, 0.16);
 
-    .checkbox-group {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-top: 6px;
-      font-size: 13px;
-      cursor: pointer;
-    }
+    --control-bg: rgba(255, 255, 255, 0.08);
+    --control-bg-hover: rgba(255, 255, 255, 0.13);
+    --control-bg-active: rgba(255, 255, 255, 0.18);
+  }
+}
+:root[data-theme="dark"] {
+  --window-bg: #232325;
+  --card-bg: #2e2e30;
+  --card-border: rgba(255, 255, 255, 0.10);
+  --card-shadow: 0 14px 40px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.30);
+  --label: #f5f5f7;
+  --secondary: #98989d;
+  --tertiary: #636366;
+  --separator: rgba(84, 84, 88, 0.55);
+  --field-bg: #1f1f21;
+  --field-border: rgba(255, 255, 255, 0.18);
+  --field-error: #ff453a;
+  --accent: #0a84ff;
+  --accent-track: rgba(10, 132, 255, 0.26);
+  --focus-ring: rgba(10, 132, 255, 0.45);
+  --green: #30d158;
+  --green-soft: rgba(48, 209, 88, 0.13);
+  --green-border: rgba(48, 209, 88, 0.38);
+  --green-text: #63e489;
+  --red: #ff453a;
+  --red-soft: rgba(255, 69, 58, 0.13);
+  --red-border: rgba(255, 69, 58, 0.40);
+  --red-text: #ff6961;
+  --track: rgba(255, 255, 255, 0.16);
+  --control-bg: rgba(255, 255, 255, 0.08);
+  --control-bg-hover: rgba(255, 255, 255, 0.13);
+  --control-bg-active: rgba(255, 255, 255, 0.18);
+}
 
-    .checkbox-group input {
-      cursor: pointer;
-    }
+/* ── Base ───────────────────────────────────────────────────────────────── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
 
-    .actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 10px;
-      margin-top: auto;
-      padding-top: 14px;
-    }
+html, body { height: 100%; }
 
-    button {
-      height: 32px;
-      padding: 0 16px;
-      font-size: 13px;
-      font-weight: 500;
-      border-radius: 6px;
-      border: 1px solid var(--border);
-      background: var(--input-bg);
-      color: var(--text);
-      cursor: pointer;
-      outline: none;
-      transition: all 0.15s ease;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-    }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue",
+    "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--label);
+  background: var(--window-bg);
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none;
+  user-select: none;
+  overflow-x: hidden;
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
 
-    button.primary {
-      background: var(--primary);
-      color: var(--primary-text);
-      border: none;
-    }
+/* Drag strip for the hiddenInset traffic lights. */
+.titlebar-drag {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 40px;
+  -webkit-app-region: drag;
+  z-index: 1;
+}
 
-    button.primary:hover {
-      background: var(--primary-hover);
-    }
+.page {
+  position: relative;
+  z-index: 2;
+  max-width: 480px;
+  margin: 0 auto;
+  padding: 44px 28px 26px;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
 
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-    }
+/* ── Header ─────────────────────────────────────────────────────────────── */
+.header {
+  text-align: center;
+  -webkit-app-region: drag;
+  margin-bottom: 22px;
+  animation: rise 0.5s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+.header .glyph {
+  width: 58px; height: 58px;
+  margin: 0 auto 14px;
+  border-radius: 15px;
+  background: linear-gradient(150deg, #0a84ff 0%, #5e5ce6 100%);
+  box-shadow: 0 8px 20px rgba(10, 132, 255, 0.35),
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.35);
+  display: grid;
+  place-items: center;
+}
+.header h1 {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.header p {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--secondary);
+}
 
-    /* Pipeline view */
-    #pipeline {
-      display: none;
-      flex-direction: column;
-      gap: 12px;
-      margin-top: 6px;
-    }
+/* ── Card ───────────────────────────────────────────────────────────────── */
+.card {
+  background: var(--card-bg);
+  border: 0.5px solid var(--card-border);
+  border-radius: 12px;
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+  animation: rise 0.5s cubic-bezier(0.22, 0.9, 0.3, 1) 0.06s both;
+  transition: background-color 0.25s ease, border-color 0.25s ease;
+}
 
-    .step-item {
-      display: flex;
-      align-items: flex-start;
-      gap: 10px;
-      font-size: 13px;
-      line-height: 20px;
-    }
+/* The two wizard panels occupy the same grid cell so the card cross-fades
+   between form and pipeline without a height jump. */
+.panels { display: grid; }
+.panel {
+  grid-area: 1 / 1;
+  padding: 20px 22px;
+  transition: opacity 0.32s ease, transform 0.32s ease, visibility 0s;
+}
+.panel.is-hidden {
+  opacity: 0;
+  transform: translateY(8px) scale(0.996);
+  pointer-events: none;
+  visibility: hidden;
+  transition: opacity 0.26s ease, transform 0.26s ease, visibility 0s linear 0.26s;
+}
 
-    .step-icon {
-      width: 18px;
-      height: 18px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      margin-top: 1px;
-      font-size: 13px;
-      color: var(--step-pending);
-    }
+/* ── Form ───────────────────────────────────────────────────────────────── */
+.field { margin-bottom: 16px; }
+.field:last-of-type { margin-bottom: 0; }
 
-    .step-item.active .step-icon {
-      color: var(--primary);
-      animation: spin 1s linear infinite;
-    }
+.field-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.field-head label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.tag-optional {
+  font-size: 11px;
+  color: var(--tertiary);
+  font-weight: 400;
+}
 
-    .step-item.done .step-icon {
-      color: var(--success);
-      font-weight: bold;
-    }
+input[type="text"],
+input[type="number"],
+select {
+  width: 100%;
+  appearance: none;
+  font: inherit;
+  color: var(--label);
+  background: var(--field-bg);
+  border: 0.5px solid var(--field-border);
+  border-radius: 6px;
+  padding: 6px 9px;
+  min-height: 30px;
+  box-shadow: inset 0 0.5px 1.5px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.25s ease;
+}
+input::placeholder { color: var(--tertiary); }
+input:focus-visible, select:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3.5px var(--focus-ring);
+}
+input[aria-invalid="true"] { border-color: var(--field-error); }
+input[aria-invalid="true"]:focus-visible {
+  box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--field-error) 30%, transparent);
+}
 
-    .step-item.failed .step-icon {
-      color: var(--danger);
-      font-weight: bold;
-    }
+/* Hide native number spinners for a cleaner macOS look. */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; }
 
-    .step-content {
-      flex: 1;
-    }
+.select-wrap { position: relative; }
+.select-wrap select {
+  padding-right: 30px;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='11' viewBox='0 0 10 11'%3E%3Cpath d='M1.5 3.6 5 .4l3.5 3.2M1.5 7.4 5 10.6l3.5-3.2' fill='none' stroke='%238e8e93' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+.select-wrap.is-empty select { color: var(--tertiary); }
 
-    .step-name {
-      font-weight: 500;
-    }
+.hint {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--secondary);
+  min-height: 16px;
+}
+.hint code {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.field-error {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--red-text);
+  display: none;
+}
+.field.has-error .field-error { display: block; }
+.field.has-error .hint { display: none; }
 
-    .step-detail {
-      font-size: 12px;
-      color: var(--text-muted);
-      margin-top: 2px;
-      word-break: break-all;
-    }
+.switch-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 2px 0;
+}
+.switch-row input[type="checkbox"] {
+  width: 15px; height: 15px;
+  margin-top: 1px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex: none;
+}
+.switch-row label { cursor: pointer; }
+.switch-row .sub {
+  display: block;
+  font-size: 12px;
+  color: var(--secondary);
+  margin-top: 1px;
+}
 
-    .step-item.failed .step-detail {
-      color: var(--danger);
-    }
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.btn {
+  appearance: none;
+  font: inherit;
+  font-weight: 500;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 14px;
+  min-height: 28px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  transition: background-color 0.12s ease, filter 0.12s ease, box-shadow 0.15s ease,
+    opacity 0.15s ease;
+}
+.btn:focus-visible { outline: none; box-shadow: 0 0 0 3.5px var(--focus-ring); }
+.btn:disabled { opacity: 0.55; cursor: default; pointer-events: none; }
 
-    .error-banner {
-      display: none;
-      background: rgba(255, 59, 48, 0.1);
-      border: 1px solid var(--danger);
-      border-radius: 6px;
-      padding: 10px 12px;
-      font-size: 12px;
-      color: var(--danger);
-      margin-bottom: 12px;
-    }
+.btn-primary {
+  background: var(--accent);
+  color: var(--accent-contrast);
+  box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.28),
+    0 0.5px 1.5px rgba(0, 0, 0, 0.18);
+}
+.btn-primary:hover { filter: brightness(1.07); }
+.btn-primary:active { filter: brightness(0.9); }
 
-    @keyframes spin {
-      from { transform: rotate(0deg); }
-      to { transform: rotate(360deg); }
-    }
-  </style>
+.btn-secondary {
+  background: var(--control-bg);
+  color: var(--label);
+  box-shadow: inset 0 0 0 0.5px var(--separator);
+}
+.btn-secondary:hover { background: var(--control-bg-hover); }
+.btn-secondary:active { background: var(--control-bg-active); }
+
+.btn .mini-spinner {
+  width: 12px; height: 12px;
+  border-radius: 50%;
+  border: 1.8px solid rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+  animation: spin 0.7s linear infinite;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+/* ── Trust footnote ─────────────────────────────────────────────────────── */
+.trust {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 0.5px solid var(--separator);
+  color: var(--secondary);
+  font-size: 12px;
+}
+.trust svg { flex: none; opacity: 0.8; }
+
+/* ── Pipeline panel ─────────────────────────────────────────────────────── */
+.pipeline-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.pipeline-head .title {
+  font-size: 13px;
+  font-weight: 600;
+}
+.pipeline-head .counter {
+  font-size: 12px;
+  color: var(--secondary);
+  font-variant-numeric: tabular-nums;
+}
+.progressbar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--track);
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+.progressbar .fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: width 0.45s cubic-bezier(0.3, 0.8, 0.4, 1), background-color 0.3s ease;
+}
+.progressbar.is-done .fill { background: var(--green); }
+.progressbar.is-failed .fill { background: var(--red); }
+
+/* ── Banners ────────────────────────────────────────────────────────────── */
+.banner {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border-radius: 9px;
+  padding: 11px 12px;
+  margin-bottom: 14px;
+  font-size: 12.5px;
+  animation: bannerIn 0.3s cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+.banner .b-icon { flex: none; margin-top: 1px; }
+.banner .b-title { font-weight: 600; margin-bottom: 2px; }
+.banner .b-detail {
+  color: var(--secondary);
+  font-family: var(--mono);
+  font-size: 11.5px;
+  word-break: break-all;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.banner .b-actions { display: flex; gap: 8px; margin-top: 9px; }
+.banner .btn { min-height: 24px; padding: 3px 11px; font-size: 12.5px; }
+
+.banner-error {
+  background: var(--red-soft);
+  box-shadow: inset 0 0 0 0.5px var(--red-border);
+}
+.banner-error .b-title { color: var(--red-text); }
+
+.banner-success {
+  background: var(--green-soft);
+  box-shadow: inset 0 0 0 0.5px var(--green-border);
+}
+.banner-success .b-title { color: var(--green-text); }
+
+/* ── Step list ──────────────────────────────────────────────────────────── */
+.steps { list-style: none; }
+.step {
+  display: flex;
+  gap: 12px;
+}
+.rail {
+  position: relative;
+  width: 20px;
+  flex: none;
+  display: flex;
+  justify-content: center;
+}
+/* Connector segment below each node. */
+.step:not(:last-child) .rail::after {
+  content: "";
+  position: absolute;
+  top: 26px;
+  bottom: -6px;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--track);
+  transition: background-color 0.4s ease;
+}
+.step[data-state="done"]:not(:last-child) .rail::after { background: var(--green); }
+
+.node {
+  position: relative;
+  z-index: 1;
+  width: 20px; height: 20px;
+  margin-top: 2px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: var(--card-bg);
+  border: 2px solid var(--track);
+  transition: border-color 0.25s ease, background-color 0.25s ease;
+}
+.node .ring, .node svg { position: absolute; }
+.node svg { opacity: 0; transform: scale(0.5); transition: opacity 0.2s ease, transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+.node .ring {
+  inset: -2px;
+  border-radius: 50%;
+  border: 2px solid var(--accent-track);
+  border-top-color: var(--accent);
+  opacity: 0;
+  animation: spin 0.7s linear infinite;
+}
+
+.step[data-state="active"] .node { border-color: transparent; }
+.step[data-state="active"] .node .ring { opacity: 1; }
+.step[data-state="active"] .step-label { color: var(--label); font-weight: 600; }
+
+.step[data-state="done"] .node { background: var(--green); border-color: var(--green); }
+.step[data-state="done"] .node .icon-check { opacity: 1; transform: scale(1); }
+
+.step[data-state="failed"] .node { background: var(--red); border-color: var(--red); }
+.step[data-state="failed"] .node .icon-cross { opacity: 1; transform: scale(1); }
+
+.step-body { padding-bottom: 16px; min-width: 0; }
+.step:last-child .step-body { padding-bottom: 2px; }
+.step-label {
+  font-size: 13px;
+  color: var(--secondary);
+  transition: color 0.2s ease;
+}
+.step[data-state="done"] .step-label { color: var(--label); }
+.step-detail {
+  font-size: 12px;
+  color: var(--tertiary);
+  margin-top: 1px;
+  word-break: break-all;
+}
+.step-detail .mono {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  -webkit-user-select: text;
+  user-select: text;
+}
+.step[data-state="failed"] .step-detail { color: var(--red-text); }
+
+.pipeline-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 0.5px solid var(--separator);
+}
+.pipeline-foot[hidden] { display: none; }
+
+/* ── Footer ─────────────────────────────────────────────────────────────── */
+.page-foot {
+  margin-top: auto;
+  padding-top: 18px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--tertiary);
+  -webkit-app-region: drag;
+}
+
+/* ── A11y helpers ───────────────────────────────────────────────────────── */
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+/* ── Animations ─────────────────────────────────────────────────────────── */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes bannerIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+</style>
 </head>
 <body>
-  <header>
-    <h1>连接远程 VPS Agent</h1>
-    <p class="subtitle">通过 SSH 隧道自动安装常驻守护进程并实现安全控制</p>
+<div class="titlebar-drag" aria-hidden="true"></div>
+
+<main class="page">
+  <!-- ── Header ─────────────────────────────────────────────────────────── -->
+  <header class="header">
+    <div class="glyph" aria-hidden="true">
+      <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
+        <path d="M7 18a4.5 4.5 0 1 1 .42-8.98 5.5 5.5 0 0 1 10.66 1.7A3.75 3.75 0 0 1 17.5 18H7Z"
+              stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/>
+        <path d="M12 21v-6.2m0 0-2.4 2.4M12 14.8l2.4 2.4"
+              stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </div>
+    <h1>连接到远程 VPS</h1>
+    <p>通过 SSH 一键部署 superiu-server，并建立端到端加密隧道</p>
   </header>
 
-  <div class="card">
-    <div id="errorBanner" class="error-banner"></div>
+  <!-- ── Card ───────────────────────────────────────────────────────────── -->
+  <section class="card">
+    <div class="panels">
 
-    <form id="configForm">
-      <div class="form-group">
-        <label for="hostSelect">选择 SSH 主机 (~/.ssh/config)</label>
-        <select id="hostSelect">
-          <option value="">加载中...</option>
-        </select>
+      <!-- ░░ Panel 1 · connection form ░░ -->
+      <form class="panel" id="panel-form" novalidate autocomplete="off">
+        <fieldset id="form-fields" style="border:none;min-width:0;">
+
+          <div class="field" id="field-host">
+            <div class="field-head">
+              <label for="host-select" id="host-label">SSH 主机</label>
+            </div>
+
+            <div class="select-wrap is-empty" id="host-select-wrap" hidden>
+              <select id="host-select" aria-labelledby="host-label">
+                <option value="" disabled selected>请选择主机…</option>
+                <option value="__custom">自定义主机…</option>
+              </select>
+            </div>
+
+            <div id="host-custom-wrap">
+              <input type="text" id="host-custom" aria-labelledby="host-label"
+                     placeholder="主机别名，例如 myserver" spellcheck="false"
+                     autocapitalize="off" autocorrect="off">
+            </div>
+
+            <p class="hint" id="host-hint"></p>
+            <p class="field-error" id="host-error">请选择或输入一个 SSH 主机。</p>
+          </div>
+
+          <div class="field" id="field-workspace">
+            <div class="field-head">
+              <label for="workspace">远程工作目录</label>
+            </div>
+            <input type="text" id="workspace" placeholder="/home/ubuntu/my-project"
+                   spellcheck="false" autocapitalize="off" autocorrect="off">
+            <p class="hint">superiu-server 将在该目录内运行并保存状态。</p>
+            <p class="field-error" id="workspace-error">请输入远程工作目录（绝对路径或以 ~ 开头）。</p>
+          </div>
+
+          <div class="field" id="field-port">
+            <div class="field-head">
+              <label for="port">本地转发端口</label>
+              <span class="tag-optional">可选</span>
+            </div>
+            <input type="number" id="port" placeholder="自动分配" min="1024" max="65535">
+            <p class="hint">留空则自动分配一个空闲的本地端口（推荐）。</p>
+            <p class="field-error" id="port-error">端口需为 1024 – 65535 之间的数字。</p>
+          </div>
+
+          <div class="field">
+            <div class="switch-row">
+              <input type="checkbox" id="remember">
+              <label for="remember">
+                设为启动时默认连接
+                <span class="sub">下次启动 SuperIU 时自动连接此主机。</span>
+              </label>
+            </div>
+          </div>
+
+        </fieldset>
+
+        <div class="actions">
+          <button type="submit" class="btn btn-primary" id="btn-connect">连接并部署</button>
+        </div>
+
+        <div class="trust">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <rect x="5" y="10" width="14" height="10" rx="2.5" stroke="currentColor" stroke-width="1.8"/>
+            <path d="M8 10V7.5a4 4 0 0 1 8 0V10" stroke="currentColor" stroke-width="1.8"/>
+          </svg>
+          <span>全部流量经 SSH 加密隧道传输，配对凭据仅保存在本机。</span>
+        </div>
+      </form>
+
+      <!-- ░░ Panel 2 · deployment pipeline ░░ -->
+      <div class="panel is-hidden" id="panel-progress" aria-hidden="true">
+        <div class="pipeline-head">
+          <span class="title" id="pipeline-title">正在部署</span>
+          <span class="counter" id="pipeline-counter">0 / 7</span>
+        </div>
+        <div class="progressbar" id="progressbar"><div class="fill"></div></div>
+
+        <!-- Error banner -->
+        <div class="banner banner-error" id="banner-error" role="alert" hidden>
+          <span class="b-icon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <path d="M12 3.6 21.2 19.4a1.2 1.2 0 0 1-1.04 1.8H3.84a1.2 1.2 0 0 1-1.04-1.8L12 3.6Z"
+                    fill="var(--red)" opacity="0.92"/>
+              <path d="M12 9.4v4.6" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/>
+              <circle cx="12" cy="17.2" r="1.15" fill="#fff"/>
+            </svg>
+          </span>
+          <div>
+            <div class="b-title" id="error-title">连接失败</div>
+            <div class="b-detail" id="error-detail"></div>
+            <div class="b-actions">
+              <button type="button" class="btn btn-primary" id="btn-retry">重试</button>
+              <button type="button" class="btn btn-secondary" id="btn-back">返回编辑</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Success banner -->
+        <div class="banner banner-success" id="banner-success" role="status" hidden>
+          <span class="b-icon" aria-hidden="true">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="9.2" fill="var(--green)"/>
+              <path d="m8 12.4 2.7 2.7L16.2 9.5" stroke="#fff" stroke-width="1.9"
+                    stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+          </span>
+          <div>
+            <div class="b-title">已连接，远程环境就绪</div>
+            <div class="b-detail" id="success-detail"></div>
+            <div class="b-actions">
+              <button type="button" class="btn btn-primary" id="btn-finish">完成</button>
+            </div>
+          </div>
+        </div>
+
+        <ol class="steps" id="steps"></ol>
+
+        <div class="pipeline-foot" id="pipeline-foot">
+          <button type="button" class="btn btn-secondary" id="btn-cancel">取消</button>
+        </div>
       </div>
 
-      <div class="form-group">
-        <label for="workspaceInput">远端工作区路径</label>
-        <input type="text" id="workspaceInput" placeholder="/home/ubuntu/workspace" value="~/workspace" required>
-      </div>
-
-      <div class="form-group">
-        <label class="checkbox-group">
-          <input type="checkbox" id="saveDefaultCheck" checked>
-          <span>设为默认连接（下次启动自动连接）</span>
-        </label>
-      </div>
-
-      <div class="actions">
-        <button type="button" id="cancelBtn">取消</button>
-        <button type="submit" class="primary" id="connectBtn">一键部署并连接</button>
-      </div>
-    </form>
-
-    <div id="pipeline">
-      <div class="step-item" id="step-probe">
-        <span class="step-icon">○</span>
-        <div class="step-content">
-          <div class="step-name">1. 探测远端环境 (OS 与 CPU 架构)</div>
-          <div class="step-detail">等待就绪</div>
-        </div>
-      </div>
-      <div class="step-item" id="step-install">
-        <span class="step-icon">○</span>
-        <div class="step-content">
-          <div class="step-name">2. 检查或安装守护进程 (superiu-server)</div>
-          <div class="step-detail">等待就绪</div>
-        </div>
-      </div>
-      <div class="step-item" id="step-workspace">
-        <span class="step-icon">○</span>
-        <div class="step-content">
-          <div class="step-name">3. 准备远端工作区目录</div>
-          <div class="step-detail">等待就绪</div>
-        </div>
-      </div>
-      <div class="step-item" id="step-token">
-        <span class="step-icon">○</span>
-        <div class="step-content">
-          <div class="step-name">4. 生成安全配对凭证</div>
-          <div class="step-detail">等待就绪</div>
-        </div>
-      </div>
-      <div class="step-item" id="step-start">
-        <span class="step-icon">○</span>
-        <div class="step-content">
-          <div class="step-name">5. 启动云端 Agent 守护服务</div>
-          <div class="step-detail">等待就绪</div>
-        </div>
-      </div>
-      <div class="step-item" id="step-tunnel">
-        <span class="step-icon">○</span>
-        <div class="step-content">
-          <div class="step-name">6. 建立 SSH 本地安全加密隧道</div>
-          <div class="step-detail">等待就绪</div>
-        </div>
-      </div>
-      <div class="step-item" id="step-client">
-        <span class="step-icon">○</span>
-        <div class="step-content">
-          <div class="step-name">7. 客户端完成长连接配对</div>
-          <div class="step-detail">等待就绪</div>
-        </div>
-      </div>
-
-      <div class="actions" id="pipelineActions" style="display: none;">
-        <button type="button" id="retryBtn">重试</button>
-      </div>
     </div>
-  </div>
+  </section>
 
-  <script>
-    const form = document.getElementById('configForm');
-    const hostSelect = document.getElementById('hostSelect');
-    const workspaceInput = document.getElementById('workspaceInput');
-    const saveDefaultCheck = document.getElementById('saveDefaultCheck');
-    const connectBtn = document.getElementById('connectBtn');
-    const cancelBtn = document.getElementById('cancelBtn');
-    const pipeline = document.getElementById('pipeline');
-    const pipelineActions = document.getElementById('pipelineActions');
-    const retryBtn = document.getElementById('retryBtn');
-    const errorBanner = document.getElementById('errorBanner');
+  <footer class="page-foot">SuperIU Desktop · 远程部署向导</footer>
+  <p class="visually-hidden" role="status" aria-live="polite" id="sr-status"></p>
+</main>
 
-    const steps = ['probe', 'install', 'workspace', 'token', 'start', 'tunnel', 'client'];
+<script>
+'use strict';
+/* ════════════════════════════════════════════════════════════════════════
+   View model
+   ════════════════════════════════════════════════════════════════════════ */
+var STEPS = [
+  { id: 'probe',     label: '探测远程系统',              desc: '检测操作系统与 CPU 架构' },
+  { id: 'install',   label: '安装 / 校验 superiu-server', desc: '部署或校验远端守护进程' },
+  { id: 'workspace', label: '准备远程工作目录',           desc: '创建并初始化项目目录' },
+  { id: 'token',     label: '生成安全配对凭据',           desc: '签发一次性配对 Token' },
+  { id: 'start',     label: '启动云端 Agent 守护进程',    desc: '在远端拉起 superiu-server' },
+  { id: 'tunnel',    label: '建立 SSH 加密隧道',          desc: '本地端口转发至远端守护进程' },
+  { id: 'client',    label: '连接并配对桌面客户端',       desc: '完成握手与会话配对' }
+];
 
-    async function init() {
-      try {
-        if (window.superiuDesktop && window.superiuDesktop.getSshHosts) {
-          const hosts = await window.superiuDesktop.getSshHosts();
-          hostSelect.innerHTML = '';
-          if (hosts.length === 0) {
-            const opt = document.createElement('option');
-            opt.value = '';
-            opt.textContent = '未在 ~/.ssh/config 中发现主机，请手动输入';
-            hostSelect.appendChild(opt);
-          } else {
-            hosts.forEach(h => {
-              const opt = document.createElement('option');
-              opt.value = h.alias;
-              opt.textContent = `${h.alias} (${h.hostName}${h.user ? ` - ${h.user}` : ''})`;
-              hostSelect.appendChild(opt);
-            });
-          }
-        }
-      } catch (e) {
-        console.error('Failed to load hosts', e);
+var ERROR_TITLES = {
+  probe:     '无法连接到远程主机',
+  install:   '守护进程安装失败',
+  workspace: '远程工作目录准备失败',
+  token:     '配对凭据生成失败',
+  start:     '守护进程启动失败',
+  tunnel:    'SSH 加密隧道建立失败',
+  client:    '桌面客户端配对失败'
+};
+
+var $ = function (id) { return document.getElementById(id); };
+
+var els = {
+  form: $('panel-form'),
+  fields: $('form-fields'),
+  panelForm: $('panel-form'),
+  panelProgress: $('panel-progress'),
+  hostSelectWrap: $('host-select-wrap'),
+  hostSelect: $('host-select'),
+  hostCustomWrap: $('host-custom-wrap'),
+  hostCustom: $('host-custom'),
+  hostHint: $('host-hint'),
+  fieldHost: $('field-host'),
+  workspace: $('workspace'),
+  fieldWorkspace: $('field-workspace'),
+  port: $('port'),
+  fieldPort: $('field-port'),
+  remember: $('remember'),
+  btnConnect: $('btn-connect'),
+  pipelineTitle: $('pipeline-title'),
+  pipelineCounter: $('pipeline-counter'),
+  progressbar: $('progressbar'),
+  progressFill: null, // resolved after DOM ready
+  bannerError: $('banner-error'),
+  errorTitle: $('error-title'),
+  errorDetail: $('error-detail'),
+  bannerSuccess: $('banner-success'),
+  successDetail: $('success-detail'),
+  btnRetry: $('btn-retry'),
+  btnBack: $('btn-back'),
+  btnFinish: $('btn-finish'),
+  btnCancel: $('btn-cancel'),
+  pipelineFoot: $('pipeline-foot'),
+  steps: $('steps'),
+  sr: $('sr-status')
+};
+
+var state = {
+  hosts: [],            // SshHostEntry[] from the bridge
+  usingCustomHost: true,
+  connecting: false,
+  lastPayload: null,
+  stepEls: {},          // id -> { row, detail }
+  demo: new URLSearchParams(location.search).get('demo')
+};
+
+/* ════════════════════════════════════════════════════════════════════════
+   Theme — prefers-color-scheme drives the CSS; the Electron theme channel
+   can additionally pin a scheme via data-theme on <html>.
+   ════════════════════════════════════════════════════════════════════════ */
+(function initTheme() {
+  var bridge = window.superiuDesktop;
+  if (bridge && typeof bridge.onTheme === 'function') {
+    bridge.onTheme(function (payload) {
+      if (payload && (payload.scheme === 'dark' || payload.scheme === 'light')) {
+        document.documentElement.dataset.theme = payload.scheme;
       }
+    });
+  }
+})();
+
+/* ════════════════════════════════════════════════════════════════════════
+   Bridge resolution — direct preload bridge first, postMessage transport
+   second, scripted simulation last (keeps the surface reviewable anywhere).
+   ════════════════════════════════════════════════════════════════════════ */
+var bridge = (function resolveBridge() {
+  var direct = window.superiuDesktop && window.superiuDesktop.remote;
+  if (direct && typeof direct.connect === 'function') {
+    return {
+      kind: 'ipc',
+      listHosts: function () { return typeof direct.listHosts === 'function' ? direct.listHosts() : Promise.resolve([]); },
+      connect: function (payload) { return direct.connect(payload); },
+      cancel: function () { return typeof direct.cancel === 'function' ? direct.cancel() : Promise.resolve(); },
+      dismiss: function () { return typeof direct.dismiss === 'function' ? direct.dismiss() : Promise.resolve(); },
+      onProgress: function (cb) { return typeof direct.onProgress === 'function' ? direct.onProgress(cb) : function () {}; }
+    };
+  }
+
+  // postMessage transport: the host page / main process drives the view by
+  // posting { source:'superiu-host', ... } messages; we answer with
+  // { source:'superiu-remote', ... } so no preload change is required.
+  var pending = {};
+  var seq = 0;
+  var progressCb = null;
+
+  window.addEventListener('message', function (event) {
+    var msg = event.data;
+    if (!msg || msg.source !== 'superiu-host') return;
+    if (msg.type === 'remote:hosts' && Array.isArray(msg.hosts)) {
+      setHosts(msg.hosts);
+    } else if (msg.type === 'remote:progress' && msg.step && progressCb) {
+      progressCb(msg.step);
+    } else if (msg.type === 'remote:done' && pending.connect) {
+      pending.connect.resolve(msg.result || {});
+      pending.connect = null;
+    } else if (msg.type === 'remote:error' && pending.connect) {
+      var err = new Error(msg.message || '连接失败');
+      err.step = msg.step;
+      pending.connect.reject(err);
+      pending.connect = null;
     }
+  });
 
-    function updateStep(id, status, detail) {
-      const el = document.getElementById(`step-${id}`);
-      if (!el) return;
-      el.className = `step-item ${status}`;
-      const icon = el.querySelector('.step-icon');
-      const detailEl = el.querySelector('.step-detail');
+  function send(type, extra) {
+    var msg = { source: 'superiu-remote', type: type };
+    if (extra) for (var k in extra) msg[k] = extra[k];
+    (window.parent !== window ? window.parent : window).postMessage(msg, '*');
+  }
 
-      if (status === 'active') {
-        icon.textContent = '◐';
-      } else if (status === 'done') {
-        icon.textContent = '✓';
-      } else if (status === 'failed') {
-        icon.textContent = '✗';
-      } else {
-        icon.textContent = '○';
-      }
+  return {
+    kind: 'postmessage',
+    listHosts: function () { send('ready'); return new Promise(function (r) { setTimeout(function () { r(state.hosts); }, 400); }); },
+    connect: function (payload) {
+      return new Promise(function (resolve, reject) {
+        pending.connect = { resolve: resolve, reject: reject };
+        send('connect', { payload: payload });
+      });
+    },
+    cancel: function () { send('cancel'); return Promise.resolve(); },
+    dismiss: function () { send('dismiss'); return Promise.resolve(); },
+    onProgress: function (cb) { progressCb = cb; return function () { progressCb = null; }; }
+  };
+})();
 
-      if (detail) {
-        detailEl.textContent = detail;
-      }
+/* ════════════════════════════════════════════════════════════════════════
+   Host list — select populated from ~/.ssh/config, with custom fallback.
+   ════════════════════════════════════════════════════════════════════════ */
+function setHosts(hosts) {
+  state.hosts = hosts.filter(function (h) { return h && h.alias; });
+  var select = els.hostSelect;
+
+  // Rebuild options: placeholder, one per host, then the custom escape hatch.
+  select.innerHTML = '';
+  var placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.disabled = true;
+  placeholder.selected = true;
+  placeholder.textContent = '请选择主机…';
+  select.appendChild(placeholder);
+
+  state.hosts.forEach(function (h) {
+    var opt = document.createElement('option');
+    opt.value = h.alias;
+    opt.textContent = h.alias;
+    select.appendChild(opt);
+  });
+
+  var custom = document.createElement('option');
+  custom.value = '__custom';
+  custom.textContent = '自定义主机…';
+  select.appendChild(custom);
+
+  if (state.hosts.length > 0) {
+    els.hostSelectWrap.hidden = false;
+    els.hostCustomWrap.hidden = true;
+    state.usingCustomHost = false;
+    updateHostHint();
+  }
+}
+
+function currentHostAlias() {
+  if (state.usingCustomHost) return els.hostCustom.value.trim();
+  var v = els.hostSelect.value;
+  return v === '__custom' ? els.hostCustom.value.trim() : v;
+}
+
+function updateHostHint() {
+  if (state.usingCustomHost) {
+    els.hostHint.innerHTML = state.hosts.length
+      ? '未找到匹配项？也可直接使用任意 ssh 别名或 user@host。'
+      : '未在 <code>~/.ssh/config</code> 中发现主机，可直接输入别名或 <code>user@host</code>。';
+    return;
+  }
+  var entry = null;
+  for (var i = 0; i < state.hosts.length; i++) {
+    if (state.hosts[i].alias === els.hostSelect.value) { entry = state.hosts[i]; break; }
+  }
+  if (!entry) { els.hostHint.textContent = ''; return; }
+  var target = (entry.user ? entry.user + '@' : '') + (entry.hostName || entry.alias);
+  var port = entry.port && entry.port !== 22 ? ':' + entry.port : '';
+  els.hostHint.innerHTML = '将连接到 <code></code>';
+  els.hostHint.querySelector('code').textContent = target + port;
+}
+
+els.hostSelect.addEventListener('change', function () {
+  if (els.hostSelect.value === '__custom') {
+    state.usingCustomHost = true;
+    els.hostSelectWrap.hidden = true;
+    els.hostCustomWrap.hidden = false;
+    els.hostCustom.focus();
+  } else {
+    state.usingCustomHost = false;
+  }
+  els.hostSelectWrap.classList.toggle('is-empty', !els.hostSelect.value);
+  clearFieldError(els.fieldHost);
+  updateHostHint();
+});
+
+/* ════════════════════════════════════════════════════════════════════════
+   Validation
+   ════════════════════════════════════════════════════════════════════════ */
+function clearFieldError(field) { field.classList.remove('has-error'); }
+function setFieldError(field, input) {
+  field.classList.add('has-error');
+  if (input) input.setAttribute('aria-invalid', 'true');
+}
+['hostCustom', 'workspace', 'port'].forEach(function (k) {
+  els[k].addEventListener('input', function () {
+    var map = { hostCustom: els.fieldHost, workspace: els.fieldWorkspace, port: els.fieldPort };
+    clearFieldError(map[k]);
+    els[k].removeAttribute('aria-invalid');
+  });
+});
+
+function validate() {
+  var ok = true;
+  var alias = currentHostAlias();
+  var workspace = els.workspace.value.trim();
+  var portRaw = els.port.value.trim();
+
+  if (!alias) { setFieldError(els.fieldHost, els.hostCustom); ok = false; }
+  if (!workspace || !(workspace[0] === '/' || workspace[0] === '~')) {
+    setFieldError(els.fieldWorkspace, els.workspace); ok = false;
+  }
+  var localPort;
+  if (portRaw) {
+    var n = Number(portRaw);
+    if (!Number.isInteger(n) || n < 1024 || n > 65535) {
+      setFieldError(els.fieldPort, els.port); ok = false;
+    } else {
+      localPort = n;
     }
+  }
+  if (!ok) return null;
 
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const alias = hostSelect.value.trim();
-      const workspace = workspaceInput.value.trim();
-      const saveDefault = saveDefaultCheck.checked;
+  var payload = { alias: alias, workspace: workspace, remember: els.remember.checked };
+  if (localPort !== undefined) payload.localPort = localPort;
+  return payload;
+}
 
-      if (!alias) {
-        alert('请选择或指定有效的 SSH 主机');
+/* ════════════════════════════════════════════════════════════════════════
+   Pipeline rendering
+   ════════════════════════════════════════════════════════════════════════ */
+var CHECK_SVG = '<svg class="icon-check" width="12" height="12" viewBox="0 0 12 12" fill="none">' +
+  '<path d="m2.4 6.3 2.4 2.4 4.8-5.2" stroke="#fff" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+var CROSS_SVG = '<svg class="icon-cross" width="11" height="11" viewBox="0 0 11 11" fill="none">' +
+  '<path d="M2.6 2.6 8.4 8.4M8.4 2.6 2.6 8.4" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/></svg>';
+
+function buildSteps() {
+  els.steps.innerHTML = '';
+  state.stepEls = {};
+  STEPS.forEach(function (s) {
+    var li = document.createElement('li');
+    li.className = 'step';
+    li.dataset.state = 'pending';
+    li.dataset.stepId = s.id;
+
+    var rail = document.createElement('span');
+    rail.className = 'rail';
+    var node = document.createElement('span');
+    node.className = 'node';
+    node.innerHTML = '<span class="ring"></span>' + CHECK_SVG + CROSS_SVG;
+    rail.appendChild(node);
+
+    var body = document.createElement('div');
+    body.className = 'step-body';
+    var label = document.createElement('div');
+    label.className = 'step-label';
+    label.textContent = s.label;
+    var detail = document.createElement('div');
+    detail.className = 'step-detail';
+    detail.textContent = s.desc;
+    body.appendChild(label);
+    body.appendChild(detail);
+
+    li.appendChild(rail);
+    li.appendChild(body);
+    els.steps.appendChild(li);
+    state.stepEls[s.id] = { row: li, detail: detail, def: s };
+  });
+  els.progressFill = els.progressbar.querySelector('.fill');
+}
+
+function setStep(id, status, detail) {
+  var entry = state.stepEls[id];
+  if (!entry) return;
+  entry.row.dataset.state = status;
+  if (detail) {
+    // Technical details (paths, ports, versions) render in SF Mono.
+    entry.detail.innerHTML = '<span class="mono"></span>';
+    entry.detail.firstChild.textContent = detail;
+  } else if (status === 'pending') {
+    entry.detail.textContent = entry.def.desc;
+  }
+  updatePipelineHead();
+  var label = entry.def.label;
+  var verb = status === 'active' ? '进行中' : status === 'done' ? '已完成' : status === 'failed' ? '失败' : '等待中';
+  els.sr.textContent = label + '：' + verb;
+}
+
+function resetSteps() {
+  STEPS.forEach(function (s) { setStep(s.id, 'pending'); });
+  els.bannerError.hidden = true;
+  els.bannerSuccess.hidden = true;
+  els.progressbar.classList.remove('is-done', 'is-failed');
+  updatePipelineHead();
+}
+
+function updatePipelineHead() {
+  var done = 0, failed = false;
+  STEPS.forEach(function (s) {
+    var st = state.stepEls[s.id] && state.stepEls[s.id].row.dataset.state;
+    if (st === 'done') done++;
+    if (st === 'failed') failed = true;
+  });
+  els.pipelineCounter.textContent = done + ' / ' + STEPS.length;
+  els.progressFill.style.width = Math.round((done / STEPS.length) * 100) + '%';
+  if (failed) els.progressbar.classList.add('is-failed');
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Panel switching
+   ════════════════════════════════════════════════════════════════════════ */
+function showPanel(which) {
+  var toForm = which === 'form';
+  els.panelForm.classList.toggle('is-hidden', !toForm);
+  els.panelProgress.classList.toggle('is-hidden', toForm);
+  els.panelForm.setAttribute('aria-hidden', String(!toForm));
+  els.panelProgress.setAttribute('aria-hidden', String(toForm));
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Connect flow
+   ════════════════════════════════════════════════════════════════════════ */
+var unsubscribeProgress = null;
+
+function beginConnect(payload) {
+  state.connecting = true;
+  state.lastPayload = payload;
+  persistForm(payload);
+
+  resetSteps();
+  showPanel('progress');
+  els.pipelineFoot.hidden = false;
+  els.pipelineTitle.textContent = '正在部署到 ' + payload.alias;
+  els.bannerError.hidden = true;
+  els.bannerSuccess.hidden = true;
+  els.btnConnect.disabled = true;
+
+  if (unsubscribeProgress) unsubscribeProgress();
+  unsubscribeProgress = bridge.onProgress(function (step) {
+    if (step && step.id) setStep(step.id, step.status, step.detail);
+  });
+
+  var settled = false;
+  function finish(fn) { if (!settled) { settled = true; fn(); } }
+
+  return Promise.resolve()
+    .then(function () { return bridge.connect(payload); })
+    .then(function (result) {
+      finish(function () { onConnectSuccess(result || {}); });
+    })
+    .catch(function (err) {
+      finish(function () { onConnectFailure(err); });
+    })
+    .finally(function () {
+      state.connecting = false;
+      els.btnConnect.disabled = false;
+      if (unsubscribeProgress) { unsubscribeProgress(); unsubscribeProgress = null; }
+    });
+}
+
+function onConnectSuccess(result) {
+  // Ensure the visual pipeline reads as complete even if a host skipped
+  // emitting a trailing 'done' for the final step.
+  setStep('client', 'done');
+  els.progressbar.classList.add('is-done');
+  els.pipelineFoot.hidden = true;
+  els.pipelineTitle.textContent = '部署完成';
+
+  var bits = [];
+  if (result.localUrl) bits.push(result.localUrl);
+  if (result.tunnelPort) bits.push('本地端口 ' + result.tunnelPort);
+  els.successDetail.textContent = bits.join(' · ') || '隧道已建立，桌面客户端已配对。';
+  els.bannerSuccess.hidden = false;
+  els.sr.textContent = '连接成功，远程环境就绪。';
+}
+
+function onConnectFailure(err) {
+  var step = (err && err.step) || 'probe';
+  var message = (err && err.message) || String(err || '未知错误');
+
+  // Reflect the failing step even if the host only surfaced the error.
+  var entry = state.stepEls[step];
+  if (entry && entry.row.dataset.state !== 'done') {
+    setStep(step, 'failed', message);
+  }
+  els.progressbar.classList.add('is-failed');
+  els.pipelineFoot.hidden = true;
+  els.pipelineTitle.textContent = '部署失败';
+
+  els.errorTitle.textContent = ERROR_TITLES[step] || '连接失败';
+  els.errorDetail.textContent = message;
+  els.bannerError.hidden = false;
+  els.sr.textContent = els.errorTitle.textContent + '：' + message;
+  els.btnRetry.focus();
+}
+
+/* ── Form submit / buttons ──────────────────────────────────────────────── */
+els.panelForm.addEventListener('submit', function (event) {
+  event.preventDefault();
+  if (state.connecting) return;
+  var payload = validate();
+  if (!payload) return;
+  beginConnect(payload);
+});
+
+els.btnCancel.addEventListener('click', function () {
+  bridge.cancel().catch(function () { /* best effort */ });
+  state.connecting = false;
+  els.btnConnect.disabled = false;
+  showPanel('form');
+});
+
+els.btnRetry.addEventListener('click', function () {
+  if (!state.lastPayload) return;
+  els.bannerError.hidden = true;
+  beginConnect(state.lastPayload);
+});
+
+els.btnBack.addEventListener('click', function () {
+  showPanel('form');
+  var first = state.usingCustomHost ? els.hostCustom : els.hostSelect;
+  first.focus();
+});
+
+els.btnFinish.addEventListener('click', function () {
+  bridge.dismiss().catch(function () { /* no host attached — nothing to do */ });
+});
+
+/* ── Persistence (baseline; the host may additionally persist `remember`) ── */
+var STORE_KEY = 'superiu.remote.form.v1';
+function persistForm(payload) {
+  try {
+    localStorage.setItem(STORE_KEY, JSON.stringify({
+      alias: payload.alias,
+      custom: state.usingCustomHost,
+      workspace: payload.workspace,
+      localPort: payload.localPort,
+      remember: payload.remember
+    }));
+  } catch (_) { /* storage may be unavailable under file:// — non-fatal */ }
+}
+function restoreForm() {
+  var q = new URLSearchParams(location.search);
+  var saved = {};
+  try { saved = JSON.parse(localStorage.getItem(STORE_KEY) || '{}'); } catch (_) {}
+
+  var alias = q.get('alias') || saved.alias || '';
+  var workspace = q.get('workspace') || saved.workspace || '';
+  var port = q.get('port') || saved.localPort || '';
+  var remember = saved.remember === true;
+
+  if (workspace) els.workspace.value = workspace;
+  if (port) els.port.value = port;
+  els.remember.checked = remember;
+
+  if (alias) {
+    var inList = state.hosts.some(function (h) { return h.alias === alias; });
+    if (inList) {
+      els.hostSelect.value = alias;
+      state.usingCustomHost = false;
+      els.hostSelectWrap.hidden = false;
+      els.hostCustomWrap.hidden = true;
+      els.hostSelectWrap.classList.remove('is-empty');
+    } else {
+      state.usingCustomHost = true;
+      els.hostSelectWrap.hidden = true;
+      els.hostCustomWrap.hidden = false;
+      els.hostCustom.value = alias;
+    }
+    updateHostHint();
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════════════
+   Scripted simulation — active when no host bridge is attached, so every
+   state of the surface is reviewable (and ?demo= forces a scenario).
+   ════════════════════════════════════════════════════════════════════════ */
+var DEMO_HOSTS = [
+  { alias: 'dev-box',   hostName: 'dev.internal',  user: 'ubuntu', port: 22 },
+  { alias: 'prod-1',    hostName: '203.0.113.10',  user: 'deploy', port: 2222 },
+  { alias: 'gpu-rig',   hostName: 'gpu.example.com', user: 'cuda', port: 22 }
+];
+
+function simulate(payload) {
+  var mode = state.demo || 'ok';
+  var timings = [
+    ['probe', 900, 'Linux x86_64'],
+    ['install', 1500, 'superiu-server v0.4.2'],
+    ['workspace', 700, payload.workspace],
+    ['token', 450, '已生成'],
+    ['start', 1100, '监听 127.0.0.1:8787'],
+    ['tunnel', 950, '本地端口 ' + (payload.localPort || 51234)],
+    ['client', 800, null]
+  ];
+  return new Promise(function (resolve, reject) {
+    var i = 0;
+    function next() {
+      if (i >= timings.length) {
+        resolve({ localUrl: 'ws://127.0.0.1:' + (payload.localPort || 51234) + '/ws', tunnelPort: payload.localPort || 51234 });
         return;
       }
-
-      form.style.display = 'none';
-      pipeline.style.display = 'flex';
-      errorBanner.style.display = 'none';
-
-      try {
-        if (window.superiuDesktop && window.superiuDesktop.connectRemote) {
-          await window.superiuDesktop.connectRemote({ alias, workspace, saveDefault });
+      var step = timings[i][0], ms = timings[i][1], detail = timings[i][2];
+      setStep(step, 'active');
+      setTimeout(function () {
+        var failHere = (mode === 'fail' && step === 'tunnel') || (mode === 'auth' && step === 'probe');
+        if (failHere) {
+          var msg = mode === 'auth'
+            ? 'SSH 认证失败：Permission denied (publickey)。请确认本机密钥已加入远端 authorized_keys。'
+            : 'SSH 握手超时：Connection timed out during banner exchange。';
+          setStep(step, 'failed', msg);
+          var err = new Error(msg);
+          err.step = step;
+          reject(err);
+          return;
         }
-      } catch (err) {
-        errorBanner.textContent = String(err.message || err);
-        errorBanner.style.display = 'block';
-        pipelineActions.style.display = 'flex';
-      }
-    });
-
-    if (window.superiuDesktop && window.superiuDesktop.onRemoteProgress) {
-      window.superiuDesktop.onRemoteProgress((step) => {
-        updateStep(step.id, step.status, step.detail);
-        if (step.status === 'failed') {
-          pipelineActions.style.display = 'flex';
-        }
-      });
+        setStep(step, 'done', detail);
+        i++; next();
+      }, ms);
     }
+    next();
+  });
+}
 
-    cancelBtn.addEventListener('click', () => {
-      if (window.superiuDesktop && window.superiuDesktop.closeRemoteWizard) {
-        window.superiuDesktop.closeRemoteWizard();
-      }
-    });
+/* ════════════════════════════════════════════════════════════════════════
+   Boot
+   ════════════════════════════════════════════════════════════════════════ */
+(async function boot() {
+  buildSteps();
+  updateHostHint();
 
-    retryBtn.addEventListener('click', () => {
-      pipelineActions.style.display = 'none';
-      pipeline.style.display = 'none';
-      form.style.display = 'block';
-    });
+  var hosts = [];
+  try { hosts = await bridge.listHosts() || []; } catch (_) { hosts = []; }
+  if (hosts.length) {
+    setHosts(hosts);
+  } else if (bridge.kind !== 'ipc' || state.demo) {
+    // No hosts from the host process — in simulation contexts seed samples so
+    // the select affordance is visible; a real IPC host just shows the input.
+    if (bridge.kind !== 'ipc') setHosts(DEMO_HOSTS);
+  }
+  restoreForm();
 
-    init();
-  </script>
+  // Wrap the pipeline with the simulator when nothing real is attached.
+  if (bridge.kind === 'postmessage' && !window.superiuDesktop) {
+    var real = bridge;
+    bridge = {
+      kind: 'simulation',
+      listHosts: function () { return Promise.resolve(state.hosts.length ? state.hosts : DEMO_HOSTS); },
+      connect: simulate,
+      cancel: function () { return Promise.resolve(); },
+      dismiss: function () { return Promise.resolve(); },
+      onProgress: function () { return function () {}; }
+    };
+    void real;
+  }
+
+  if (state.demo) {
+    // ?demo=ok|fail|auth — auto-run the scenario for design review.
+    var payload = validate() || {
+      alias: currentHostAlias() || 'prod-1',
+      workspace: els.workspace.value.trim() || '/home/ubuntu/my-project',
+      remember: false
+    };
+    setTimeout(function () { beginConnect(payload); }, 650);
+  }
+})();
+</script>
 </body>
 </html>

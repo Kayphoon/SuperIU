@@ -158,12 +158,30 @@ export function selectMacAsset(
   return null;
 }
 
+/**
+ * Extract a semver version from a release asset name.
+ *
+ * The rolling release channel tags every master build as `latest`, which is not
+ * a parseable version. The asset names, however, always embed the package
+ * version (`SuperIU-0.2.0-mac-arm64.zip`), so the asset name is the version
+ * source of truth for the rolling channel.
+ */
+export function versionFromAssetName(name: string | undefined | null): string | null {
+  if (typeof name !== 'string') return null;
+  // Pre-release segments may contain dots/hyphen words (`1.0.0-beta.3`) but must
+  // not swallow the platform/arch suffixes that follow the version.
+  const match = name.match(/(\d+\.\d+\.\d+(?:-(?!mac\b|linux\b|windows\b|arm64\b|x64\b)[\w.]+)*)/);
+  return match ? (match[1] as string) : null;
+}
+
 /** Shape of the GitHub `/releases/latest` payload fields we consume. */
 interface GithubLatestRelease {
   tag_name?: string;
   name?: string;
   body?: string;
   assets?: ReleaseAsset[];
+  draft?: boolean;
+  prerelease?: boolean;
 }
 
 /** Resolve the version the app is currently running at. */
@@ -199,48 +217,71 @@ export async function checkForUpdates(
   const repo = options.repo ?? DEFAULT_REPO;
   const currentVersion = resolveCurrentVersion(options.currentVersion);
 
-  const url = `https://api.github.com/repos/${repo}/releases/latest`;
-  let release: GithubLatestRelease;
+  const headers = {
+    // GitHub rejects requests without a User-Agent.
+    'User-Agent': 'SuperIU-Desktop',
+    Accept: 'application/vnd.github+json'
+  };
+
+  async function fetchJson(url: string): Promise<Response> {
+    return fetch(url, { headers });
+  }
+
+  /**
+   * Resolve the release to compare against.
+   *
+   * `/releases/latest` is tried first (the cheap, canonical path), but it never
+   * returns pre-releases — and the rolling `latest` channel publishes every
+   * master build as a prerelease, leaving that endpoint 404ing forever. When it
+   * does, fall back to the release list (ordered newest-first by GitHub) and
+   * take the first entry that carries a mac asset.
+   */
+  async function fetchLatestRelease(): Promise<GithubLatestRelease | null> {
+    const direct = await fetchJson(`https://api.github.com/repos/${repo}/releases/latest`);
+    if (direct.ok) return (await direct.json()) as GithubLatestRelease;
+    if (direct.status !== 404) throw new Error(`GitHub API responded ${direct.status}`);
+
+    const list = await fetchJson(`https://api.github.com/repos/${repo}/releases?per_page=20`);
+    if (!list.ok) throw new Error(`GitHub API responded ${list.status}`);
+    const releases = (await list.json()) as GithubLatestRelease[];
+    return releases.find((release) => selectMacAsset(release.assets) !== null) ?? null;
+  }
+
   try {
-    const response = await fetch(url, {
-      headers: {
-        // GitHub rejects requests without a User-Agent.
-        'User-Agent': 'SuperIU-Desktop',
-        Accept: 'application/vnd.github+json'
-      }
-    });
-    if (!response.ok) {
-      throw new Error(`GitHub API responded ${response.status}`);
+    const release = await fetchLatestRelease();
+    if (!release) throw new Error('no release with a macOS asset found');
+
+    // Prefer the version embedded in the asset name (rolling channel tags are
+    // `latest`, not semver); fall back to the tag for classic tagged releases.
+    const asset = selectMacAsset(release.assets);
+    const tagVersion = (release.tag_name ?? release.name ?? '').replace(/^v/i, '').trim();
+    const latestVersion = versionFromAssetName(asset?.name) ?? tagVersion;
+
+    if (!latestVersion || !semverGt(latestVersion, currentVersion)) {
+      return {
+        hasUpdate: false,
+        currentVersion,
+        latestVersion: latestVersion || currentVersion,
+        releaseNotes: release.body ?? undefined
+      };
     }
-    release = (await response.json()) as GithubLatestRelease;
+
+    const releaseNotes = release.body?.trim() || undefined;
+
+    return {
+      hasUpdate: true,
+      currentVersion,
+      latestVersion,
+      ...(releaseNotes ? { releaseNotes } : {}),
+      ...(asset?.browser_download_url ? { downloadUrl: asset.browser_download_url } : {}),
+      ...(asset?.name ? { assetName: asset.name } : {})
+    };
   } catch (err) {
     if (!options.silent) {
       console.warn('[superiu] update check failed:', err instanceof Error ? err.message : err);
     }
     return { hasUpdate: false, currentVersion, latestVersion: currentVersion };
   }
-
-  const latestVersion = (release.tag_name ?? release.name ?? '').replace(/^v/i, '').trim();
-  if (!latestVersion || !semverGt(latestVersion, currentVersion)) {
-    return {
-      hasUpdate: false,
-      currentVersion,
-      latestVersion: latestVersion || currentVersion,
-      releaseNotes: release.body ?? undefined
-    };
-  }
-
-  const asset = selectMacAsset(release.assets);
-  const releaseNotes = release.body?.trim() || undefined;
-
-  return {
-    hasUpdate: true,
-    currentVersion,
-    latestVersion,
-    ...(releaseNotes ? { releaseNotes } : {}),
-    ...(asset?.browser_download_url ? { downloadUrl: asset.browser_download_url } : {}),
-    ...(asset?.name ? { assetName: asset.name } : {})
-  };
 }
 
 /** Run a command to completion, rejecting on a non-zero exit. */
