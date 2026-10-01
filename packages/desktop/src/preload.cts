@@ -38,6 +38,10 @@ const FLASH_FRAME: typeof import('./ipc.js').INVOKE.flashFrame = 'superiu:flash-
 const QUIT: typeof import('./ipc.js').INVOKE.quit = 'superiu:quit';
 const SET_LANGUAGE: typeof import('./ipc.js').INVOKE.setLanguage = 'superiu:set-language';
 const SET_THEME: typeof import('./ipc.js').INVOKE.setTheme = 'superiu:set-theme';
+const GET_SSH_HOSTS: typeof import('./ipc.js').INVOKE.getSshHosts = 'superiu:get-ssh-hosts';
+const CONNECT_REMOTE: typeof import('./ipc.js').INVOKE.connectRemote = 'superiu:connect-remote';
+const CLOSE_REMOTE_WIZARD: typeof import('./ipc.js').INVOKE.closeRemoteWizard = 'superiu:close-remote-wizard';
+const REMOTE_PROGRESS_CHANNEL: typeof import('./ipc.js').REMOTE_PROGRESS_CHANNEL = 'superiu:remote-progress';
 
 const { contextBridge, ipcRenderer } = require('electron');
 
@@ -93,6 +97,26 @@ const bridge: SuperiuDesktopBridge = {
 
   setTheme(theme: string): Promise<void> {
     return ipcRenderer.invoke(SET_THEME, theme);
+  },
+
+  getSshHosts(): Promise<any> {
+    return ipcRenderer.invoke(GET_SSH_HOSTS);
+  },
+
+  connectRemote(options: any): Promise<void> {
+    return ipcRenderer.invoke(CONNECT_REMOTE, options);
+  },
+
+  closeRemoteWizard(): Promise<void> {
+    return ipcRenderer.invoke(CLOSE_REMOTE_WIZARD);
+  },
+
+  onRemoteProgress(callback: (step: any) => void): () => void {
+    const listener = (_event: unknown, step: any): void => callback(step);
+    ipcRenderer.on(REMOTE_PROGRESS_CHANNEL, listener);
+    return (): void => {
+      ipcRenderer.off(REMOTE_PROGRESS_CHANNEL, listener);
+    };
   }
 };
 

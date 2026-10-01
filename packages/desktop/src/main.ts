@@ -29,6 +29,7 @@ import { startServer, type ServerHandle } from '@agent/ui';
 import {
   INVOKE,
   THEME_CHANNEL,
+  REMOTE_PROGRESS_CHANNEL,
   type NotificationPayload,
   type ThemePayload
 } from './ipc.js';
@@ -79,6 +80,7 @@ let mainWindow: BrowserWindow | null = null;
 let serverHandle: ServerHandle | null = null;
 let gatewayClient: GatewayClient | null = null;
 let remoteManager: RemoteConnectionManager | null = null;
+let remoteWizardWindow: BrowserWindow | null = null;
 let shuttingDown = false;
 
 // ---------------------------------------------------------------------------
@@ -300,6 +302,9 @@ function installApplicationMenu(): void {
       openDocs,
       checkForUpdates: () => {
         void triggerUpdateCheck(true);
+      },
+      connectRemote: () => {
+        openRemoteWizard();
       }
     },
     APP_NAME,
@@ -576,11 +581,18 @@ async function startRemoteMode(config: GatewayConfig): Promise<void> {
   });
   remoteManager = manager;
 
-  // Progress → log + status window. Each step repaints the same surface.
+  // Progress → log + status window + wizard window.
   const onProgress = (step: RemoteStep): void => {
     const detail = step.detail ? ` (${step.detail})` : '';
     console.log(`[superiu] remote ${step.id}: ${step.status}${detail}`);
     showGatewayStatus(config, step.status, { step, detail: step.detail });
+    if (remoteWizardWindow && !remoteWizardWindow.isDestroyed()) {
+      remoteWizardWindow.webContents.send(REMOTE_PROGRESS_CHANNEL, {
+        id: step.id,
+        status: step.status,
+        detail: step.detail
+      });
+    }
   };
 
   try {
@@ -703,6 +715,89 @@ function installIpcHandlers(): void {
     if (theme !== 'system' && theme !== 'dark' && theme !== 'light') return;
     nativeTheme.themeSource = theme;
   });
+
+  ipcMain.handle(INVOKE.getSshHosts, async () => {
+    try {
+      const entries = await readSshConfig();
+      return entries.map((e) => ({
+        alias: e.alias,
+        hostName: e.hostName,
+        user: e.user
+      }));
+    } catch {
+      return [];
+    }
+  });
+
+  ipcMain.handle(INVOKE.connectRemote, async (_event, options: { alias: string; workspace: string; saveDefault?: boolean }) => {
+    if (options.saveDefault) {
+      try {
+        const workspace = app.isPackaged ? app.getPath('home') : process.cwd();
+        const settingsFile = path.join(workspace, '.superiu', 'ui-settings.json');
+        let current: any = {};
+        if (fs.existsSync(settingsFile)) {
+          current = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
+        }
+        current.connectionMode = 'remote';
+        current.remote = {
+          alias: options.alias,
+          workspace: options.workspace
+        };
+        fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+        fs.writeFileSync(settingsFile, JSON.stringify(current, null, 2), 'utf-8');
+      } catch (e) {
+        console.warn('[superiu] failed to persist default remote settings:', e);
+      }
+    }
+
+    const config: GatewayConfig = {
+      mode: 'remote',
+      workspaceRoot: options.workspace,
+      remote: {
+        alias: options.alias,
+        workspace: options.workspace
+      }
+    };
+
+    await startRemoteMode(config);
+  });
+
+  ipcMain.handle(INVOKE.closeRemoteWizard, () => {
+    if (remoteWizardWindow && !remoteWizardWindow.isDestroyed()) {
+      remoteWizardWindow.close();
+      remoteWizardWindow = null;
+    }
+  });
+}
+
+function openRemoteWizard(): void {
+  if (remoteWizardWindow && !remoteWizardWindow.isDestroyed()) {
+    remoteWizardWindow.focus();
+    return;
+  }
+
+  const htmlPath = path.join(HERE, 'views', 'connect_remote.html');
+  remoteWizardWindow = new BrowserWindow({
+    width: 540,
+    height: 600,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    title: '连接远程 VPS',
+    titleBarStyle: 'hiddenInset',
+    vibrancy: 'under-window',
+    webPreferences: {
+      preload: path.join(HERE, 'preload.cjs'),
+      sandbox: true,
+      contextIsolation: true
+    }
+  });
+
+  remoteWizardWindow.on('closed', () => {
+    remoteWizardWindow = null;
+  });
+
+  void remoteWizardWindow.loadFile(htmlPath);
 }
 
 // ---------------------------------------------------------------------------

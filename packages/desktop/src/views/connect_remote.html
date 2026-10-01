@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>连接远程 VPS</title>
+  <style>
+    :root {
+      --bg: #ececec;
+      --card-bg: rgba(255, 255, 255, 0.85);
+      --border: rgba(0, 0, 0, 0.12);
+      --text: #1d1d1f;
+      --text-muted: #86868b;
+      --primary: #0071e3;
+      --primary-hover: #0077ed;
+      --primary-text: #ffffff;
+      --input-bg: #ffffff;
+      --success: #34c759;
+      --danger: #ff3b30;
+      --warning: #ff9500;
+      --step-pending: #d1d1d6;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1e1e1e;
+        --card-bg: rgba(36, 36, 38, 0.85);
+        --border: rgba(255, 255, 255, 0.15);
+        --text: #f5f5f7;
+        --text-muted: #a1a1a6;
+        --primary: #2997ff;
+        --primary-hover: #47a6ff;
+        --primary-text: #ffffff;
+        --input-bg: #2c2c2e;
+        --success: #30d158;
+        --danger: #ff453a;
+        --warning: #ffd60a;
+        --step-pending: #48484a;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 24px;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    header {
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      font-size: 19px;
+      font-weight: 600;
+      letter-spacing: -0.015em;
+    }
+
+    p.subtitle {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+    }
+
+    .form-group {
+      margin-bottom: 14px;
+    }
+
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      margin-bottom: 6px;
+      color: var(--text);
+    }
+
+    select, input[type="text"] {
+      width: 100%;
+      height: 32px;
+      padding: 0 10px;
+      font-size: 13px;
+      color: var(--text);
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      outline: none;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+      font-family: inherit;
+    }
+
+    select:focus, input[type="text"]:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(0, 113, 227, 0.25);
+    }
+
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 6px;
+      font-size: 13px;
+      cursor: pointer;
+    }
+
+    .checkbox-group input {
+      cursor: pointer;
+    }
+
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: auto;
+      padding-top: 14px;
+    }
+
+    button {
+      height: 32px;
+      padding: 0 16px;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--input-bg);
+      color: var(--text);
+      cursor: pointer;
+      outline: none;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    button.primary {
+      background: var(--primary);
+      color: var(--primary-text);
+      border: none;
+    }
+
+    button.primary:hover {
+      background: var(--primary-hover);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    /* Pipeline view */
+    #pipeline {
+      display: none;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 6px;
+    }
+
+    .step-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      font-size: 13px;
+      line-height: 20px;
+    }
+
+    .step-icon {
+      width: 18px;
+      height: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-top: 1px;
+      font-size: 13px;
+      color: var(--step-pending);
+    }
+
+    .step-item.active .step-icon {
+      color: var(--primary);
+      animation: spin 1s linear infinite;
+    }
+
+    .step-item.done .step-icon {
+      color: var(--success);
+      font-weight: bold;
+    }
+
+    .step-item.failed .step-icon {
+      color: var(--danger);
+      font-weight: bold;
+    }
+
+    .step-content {
+      flex: 1;
+    }
+
+    .step-name {
+      font-weight: 500;
+    }
+
+    .step-detail {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 2px;
+      word-break: break-all;
+    }
+
+    .step-item.failed .step-detail {
+      color: var(--danger);
+    }
+
+    .error-banner {
+      display: none;
+      background: rgba(255, 59, 48, 0.1);
+      border: 1px solid var(--danger);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 12px;
+      color: var(--danger);
+      margin-bottom: 12px;
+    }
+
+    @keyframes spin {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>连接远程 VPS Agent</h1>
+    <p class="subtitle">通过 SSH 隧道自动安装常驻守护进程并实现安全控制</p>
+  </header>
+
+  <div class="card">
+    <div id="errorBanner" class="error-banner"></div>
+
+    <form id="configForm">
+      <div class="form-group">
+        <label for="hostSelect">选择 SSH 主机 (~/.ssh/config)</label>
+        <select id="hostSelect">
+          <option value="">加载中...</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label for="workspaceInput">远端工作区路径</label>
+        <input type="text" id="workspaceInput" placeholder="/home/ubuntu/workspace" value="~/workspace" required>
+      </div>
+
+      <div class="form-group">
+        <label class="checkbox-group">
+          <input type="checkbox" id="saveDefaultCheck" checked>
+          <span>设为默认连接（下次启动自动连接）</span>
+        </label>
+      </div>
+
+      <div class="actions">
+        <button type="button" id="cancelBtn">取消</button>
+        <button type="submit" class="primary" id="connectBtn">一键部署并连接</button>
+      </div>
+    </form>
+
+    <div id="pipeline">
+      <div class="step-item" id="step-probe">
+        <span class="step-icon">○</span>
+        <div class="step-content">
+          <div class="step-name">1. 探测远端环境 (OS 与 CPU 架构)</div>
+          <div class="step-detail">等待就绪</div>
+        </div>
+      </div>
+      <div class="step-item" id="step-install">
+        <span class="step-icon">○</span>
+        <div class="step-content">
+          <div class="step-name">2. 检查或安装守护进程 (superiu-server)</div>
+          <div class="step-detail">等待就绪</div>
+        </div>
+      </div>
+      <div class="step-item" id="step-workspace">
+        <span class="step-icon">○</span>
+        <div class="step-content">
+          <div class="step-name">3. 准备远端工作区目录</div>
+          <div class="step-detail">等待就绪</div>
+        </div>
+      </div>
+      <div class="step-item" id="step-token">
+        <span class="step-icon">○</span>
+        <div class="step-content">
+          <div class="step-name">4. 生成安全配对凭证</div>
+          <div class="step-detail">等待就绪</div>
+        </div>
+      </div>
+      <div class="step-item" id="step-start">
+        <span class="step-icon">○</span>
+        <div class="step-content">
+          <div class="step-name">5. 启动云端 Agent 守护服务</div>
+          <div class="step-detail">等待就绪</div>
+        </div>
+      </div>
+      <div class="step-item" id="step-tunnel">
+        <span class="step-icon">○</span>
+        <div class="step-content">
+          <div class="step-name">6. 建立 SSH 本地安全加密隧道</div>
+          <div class="step-detail">等待就绪</div>
+        </div>
+      </div>
+      <div class="step-item" id="step-client">
+        <span class="step-icon">○</span>
+        <div class="step-content">
+          <div class="step-name">7. 客户端完成长连接配对</div>
+          <div class="step-detail">等待就绪</div>
+        </div>
+      </div>
+
+      <div class="actions" id="pipelineActions" style="display: none;">
+        <button type="button" id="retryBtn">重试</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('configForm');
+    const hostSelect = document.getElementById('hostSelect');
+    const workspaceInput = document.getElementById('workspaceInput');
+    const saveDefaultCheck = document.getElementById('saveDefaultCheck');
+    const connectBtn = document.getElementById('connectBtn');
+    const cancelBtn = document.getElementById('cancelBtn');
+    const pipeline = document.getElementById('pipeline');
+    const pipelineActions = document.getElementById('pipelineActions');
+    const retryBtn = document.getElementById('retryBtn');
+    const errorBanner = document.getElementById('errorBanner');
+
+    const steps = ['probe', 'install', 'workspace', 'token', 'start', 'tunnel', 'client'];
+
+    async function init() {
+      try {
+        if (window.superiuDesktop && window.superiuDesktop.getSshHosts) {
+          const hosts = await window.superiuDesktop.getSshHosts();
+          hostSelect.innerHTML = '';
+          if (hosts.length === 0) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = '未在 ~/.ssh/config 中发现主机，请手动输入';
+            hostSelect.appendChild(opt);
+          } else {
+            hosts.forEach(h => {
+              const opt = document.createElement('option');
+              opt.value = h.alias;
+              opt.textContent = `${h.alias} (${h.hostName}${h.user ? ` - ${h.user}` : ''})`;
+              hostSelect.appendChild(opt);
+            });
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load hosts', e);
+      }
+    }
+
+    function updateStep(id, status, detail) {
+      const el = document.getElementById(`step-${id}`);
+      if (!el) return;
+      el.className = `step-item ${status}`;
+      const icon = el.querySelector('.step-icon');
+      const detailEl = el.querySelector('.step-detail');
+
+      if (status === 'active') {
+        icon.textContent = '◐';
+      } else if (status === 'done') {
+        icon.textContent = '✓';
+      } else if (status === 'failed') {
+        icon.textContent = '✗';
+      } else {
+        icon.textContent = '○';
+      }
+
+      if (detail) {
+        detailEl.textContent = detail;
+      }
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const alias = hostSelect.value.trim();
+      const workspace = workspaceInput.value.trim();
+      const saveDefault = saveDefaultCheck.checked;
+
+      if (!alias) {
+        alert('请选择或指定有效的 SSH 主机');
+        return;
+      }
+
+      form.style.display = 'none';
+      pipeline.style.display = 'flex';
+      errorBanner.style.display = 'none';
+
+      try {
+        if (window.superiuDesktop && window.superiuDesktop.connectRemote) {
+          await window.superiuDesktop.connectRemote({ alias, workspace, saveDefault });
+        }
+      } catch (err) {
+        errorBanner.textContent = String(err.message || err);
+        errorBanner.style.display = 'block';
+        pipelineActions.style.display = 'flex';
+      }
+    });
+
+    if (window.superiuDesktop && window.superiuDesktop.onRemoteProgress) {
+      window.superiuDesktop.onRemoteProgress((step) => {
+        updateStep(step.id, step.status, step.detail);
+        if (step.status === 'failed') {
+          pipelineActions.style.display = 'flex';
+        }
+      });
+    }
+
+    cancelBtn.addEventListener('click', () => {
+      if (window.superiuDesktop && window.superiuDesktop.closeRemoteWizard) {
+        window.superiuDesktop.closeRemoteWizard();
+      }
+    });
+
+    retryBtn.addEventListener('click', () => {
+      pipelineActions.style.display = 'none';
+      pipeline.style.display = 'none';
+      form.style.display = 'block';
+    });
+
+    init();
+  </script>
+</body>
+</html>

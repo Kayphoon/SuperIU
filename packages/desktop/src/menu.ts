@@ -13,6 +13,8 @@ export interface MenuHandlers {
   openDocs(): void;
   /** Check GitHub Releases for a newer build and offer to install it. */
   checkForUpdates?(): void;
+  /** Open the wizard to configure and connect to a remote VPS over SSH. */
+  connectRemote?(): void;
 }
 
 /**
@@ -44,6 +46,7 @@ const MENU_LABELS = {
     app: 'SuperIU',
     settings: '设置…',
     checkForUpdates: '检查更新…',
+    connectRemote: '连接远程 VPS…',
     newSession: '新建会话',
     focusInput: '聚焦输入框',
     abort: '中止本轮',
@@ -60,6 +63,7 @@ const MENU_LABELS = {
     app: 'SuperIU',
     settings: 'Settings…',
     checkForUpdates: 'Check for Updates…',
+    connectRemote: 'Connect to Remote VPS…',
     newSession: 'New Session',
     focusInput: 'Focus Input',
     abort: 'Abort Turn',
@@ -148,6 +152,11 @@ export function buildMenuTemplate(
         label: L.newSession,
         accelerator: 'Cmd+N',
         click: () => dispatch('new-session')
+      },
+      {
+        label: L.connectRemote,
+        accelerator: 'Cmd+Shift+R',
+        click: () => handlers.connectRemote?.()
       },
       { type: 'separator' },
       {

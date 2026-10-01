@@ -24,8 +24,13 @@ export const INVOKE = {
   flashFrame: 'superiu:flash-frame',
   quit: 'superiu:quit',
   setLanguage: 'superiu:set-language',
-  setTheme: 'superiu:set-theme'
+  setTheme: 'superiu:set-theme',
+  getSshHosts: 'superiu:get-ssh-hosts',
+  connectRemote: 'superiu:connect-remote',
+  closeRemoteWizard: 'superiu:close-remote-wizard'
 } as const;
+
+export const REMOTE_PROGRESS_CHANNEL = 'superiu:remote-progress';
 
 /**
  * Menu actions the main process forwards to the renderer. The SPA also handles
@@ -89,4 +94,8 @@ export interface SuperiuDesktopBridge {
    * and vibrancy material are switched on the main-process side.
    */
   setTheme(theme: string): Promise<void>;
+  getSshHosts?(): Promise<Array<{ alias: string; hostName: string; user?: string }>>;
+  connectRemote?(options: { alias: string; workspace: string; saveDefault?: boolean }): Promise<void>;
+  closeRemoteWizard?(): Promise<void>;
+  onRemoteProgress?(callback: (step: { id: string; status: string; detail?: string }) => void): () => void;
 }
