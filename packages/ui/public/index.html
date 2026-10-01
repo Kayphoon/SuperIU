@@ -4256,10 +4256,14 @@
             return;
           }
 
-          // ⌘Q — Quit confirmation
+          // ⌘Q — Quit confirmation (or immediate desktop exit)
           if (meta && (key === 'q' || key === 'Q')) {
             event.preventDefault();
-            openModal('quit');
+            if (window.superiuDesktop?.quit) {
+              void window.superiuDesktop.quit();
+            } else {
+              openModal('quit');
+            }
             return;
           }
 
@@ -6618,7 +6622,18 @@
           { id: 'settings', label: tr('palette.settings'), hint: '⌘,', run: () => openSettings() },
           { id: 'notify', label: tr('palette.notify'), hint: '', run: () => enableNotifications() },
           { id: 'abort', label: tr('palette.abort'), hint: '⌘.', run: () => (state.running ? abortTurn() : toast(tr('toast.nothingRunning'))) },
-          { id: 'quit', label: tr('palette.quit'), hint: '⌘Q', run: () => openModal('quit') },
+          {
+            id: 'quit',
+            label: tr('palette.quit'),
+            hint: '⌘Q',
+            run: () => {
+              if (window.superiuDesktop?.quit) {
+                void window.superiuDesktop.quit();
+              } else {
+                openModal('quit');
+              }
+            }
+          },
           { id: 'focus', label: tr('palette.focus'), hint: '', run: () => promptInput.focus() }
         ];
       }
@@ -6714,6 +6729,10 @@
       $('btn-menu-close').addEventListener('click', () => closeMenu());
       $('menu-scrim').addEventListener('click', () => closeMenu());
       $('quit-confirm').addEventListener('click', async () => {
+        if (window.superiuDesktop?.quit) {
+          void window.superiuDesktop.quit();
+          return;
+        }
         try {
           await postJson('/api/shutdown', {});
         } catch {

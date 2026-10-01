@@ -338,8 +338,8 @@ describe('WorkspaceSandboxWorker.handleExecuteBash', () => {
     expect(onApprovalRequired).not.toHaveBeenCalled();
     expect(result.stdout.trim()).toBe('approved');
 
-    const dangerous = await worker.handleExecuteBash({ command: 'sudo echo approved' }, onApprovalRequired);
-    expect(onApprovalRequired).toHaveBeenCalledWith('sudo echo approved');
+    const dangerous = await worker.handleExecuteBash({ command: 'echo approved; true || shutdown' }, onApprovalRequired);
+    expect(onApprovalRequired).toHaveBeenCalledWith('echo approved; true || shutdown');
     expect(dangerous.exitCode).toBe(0);
     expect(dangerous.stdout.trim()).toBe('approved');
   });
