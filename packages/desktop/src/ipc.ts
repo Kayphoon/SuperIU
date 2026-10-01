@@ -27,10 +27,14 @@ export const INVOKE = {
   setTheme: 'superiu:set-theme',
   getSshHosts: 'superiu:get-ssh-hosts',
   connectRemote: 'superiu:connect-remote',
-  closeRemoteWizard: 'superiu:close-remote-wizard'
+  closeRemoteWizard: 'superiu:close-remote-wizard',
+  checkForUpdate: 'superiu:check-for-update',
+  installUpdate: 'superiu:install-update',
+  getUpdateState: 'superiu:get-update-state'
 } as const;
 
 export const REMOTE_PROGRESS_CHANNEL = 'superiu:remote-progress';
+export const UPDATE_STATE_CHANNEL = 'superiu:update-state';
 
 /**
  * Menu actions the main process forwards to the renderer. The SPA also handles
@@ -66,6 +70,15 @@ export interface ThemePayload {
   scheme: ColorScheme;
 }
 
+export interface UpdatePayload {
+  phase: 'idle' | 'checking' | 'downloading' | 'ready' | 'installing' | 'error';
+  currentVersion: string;
+  latestVersion: string;
+  releaseNotes?: string;
+  percent?: number;
+  error?: string;
+}
+
 /** Shape of `window.superiuDesktop`, mirrored here so both sides stay typed. */
 export interface SuperiuDesktopBridge {
   readonly isDesktop: true;
@@ -98,4 +111,8 @@ export interface SuperiuDesktopBridge {
   connectRemote?(options: { alias: string; workspace: string; saveDefault?: boolean }): Promise<void>;
   closeRemoteWizard?(): Promise<void>;
   onRemoteProgress?(callback: (step: { id: string; status: string; detail?: string }) => void): () => void;
+  checkForUpdate?(): Promise<void>;
+  installUpdate?(): Promise<void>;
+  getUpdateState?(): Promise<UpdatePayload>;
+  onUpdateState?(callback: (state: UpdatePayload) => void): () => void;
 }

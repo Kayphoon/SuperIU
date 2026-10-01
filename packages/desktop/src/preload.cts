@@ -24,7 +24,8 @@ import type {
   MenuPayload,
   NotificationPayload,
   SuperiuDesktopBridge,
-  ThemePayload
+  ThemePayload,
+  UpdatePayload
 } from './ipc.js';
 
 // Compile-time drift guards: each annotation pins the literal to the exact type
@@ -42,7 +43,10 @@ const GET_SSH_HOSTS: typeof import('./ipc.js').INVOKE.getSshHosts = 'superiu:get
 const CONNECT_REMOTE: typeof import('./ipc.js').INVOKE.connectRemote = 'superiu:connect-remote';
 const CLOSE_REMOTE_WIZARD: typeof import('./ipc.js').INVOKE.closeRemoteWizard = 'superiu:close-remote-wizard';
 const REMOTE_PROGRESS_CHANNEL: typeof import('./ipc.js').REMOTE_PROGRESS_CHANNEL = 'superiu:remote-progress';
-
+const CHECK_FOR_UPDATE: typeof import('./ipc.js').INVOKE.checkForUpdate = 'superiu:check-for-update';
+const INSTALL_UPDATE: typeof import('./ipc.js').INVOKE.installUpdate = 'superiu:install-update';
+const GET_UPDATE_STATE: typeof import('./ipc.js').INVOKE.getUpdateState = 'superiu:get-update-state';
+const UPDATE_STATE_CHANNEL: typeof import('./ipc.js').UPDATE_STATE_CHANNEL = 'superiu:update-state';
 const { contextBridge, ipcRenderer } = require('electron');
 
 const bridge: SuperiuDesktopBridge = {
@@ -116,6 +120,30 @@ const bridge: SuperiuDesktopBridge = {
     ipcRenderer.on(REMOTE_PROGRESS_CHANNEL, listener);
     return (): void => {
       ipcRenderer.off(REMOTE_PROGRESS_CHANNEL, listener);
+    };
+  },
+
+  checkForUpdate(): Promise<void> {
+    return ipcRenderer.invoke(CHECK_FOR_UPDATE);
+  },
+
+  installUpdate(): Promise<void> {
+    return ipcRenderer.invoke(INSTALL_UPDATE);
+  },
+
+  getUpdateState(): Promise<UpdatePayload> {
+    return ipcRenderer.invoke(GET_UPDATE_STATE);
+  },
+
+  onUpdateState(callback: (state: UpdatePayload) => void): () => void {
+    void ipcRenderer.invoke(GET_UPDATE_STATE).then((state: UpdatePayload) => {
+      if (state) callback(state);
+    }).catch(() => {});
+
+    const listener = (_event: unknown, state: UpdatePayload): void => callback(state);
+    ipcRenderer.on(UPDATE_STATE_CHANNEL, listener);
+    return (): void => {
+      ipcRenderer.off(UPDATE_STATE_CHANNEL, listener);
     };
   }
 };

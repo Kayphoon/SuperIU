@@ -3731,8 +3731,20 @@
             </header>
             <div class="siu-prefs-pane-body">
               <div class="rounded-lg border border-line bg-fill-subtle px-4 py-3 leading-relaxed">
-                <div class="text-primary" data-i18n="settings.about.product"></div>
-                <p class="siu-prefs-subtitle" data-i18n="settings.about.storage"></p>
+                <div class="text-primary font-medium" data-i18n="settings.about.product"></div>
+                <p class="siu-prefs-subtitle mt-0.5" data-i18n="settings.about.storage"></p>
+              </div>
+              <div id="settings-about-update" class="rounded-lg border border-line bg-fill-subtle px-4 py-3 flex flex-col gap-2.5">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <div id="settings-update-version" class="text-[13px] font-mono text-primary"></div>
+                    <div id="settings-update-status" class="text-[12px] text-muted mt-0.5"></div>
+                  </div>
+                  <button id="settings-update-action" type="button" class="siu-btn text-[12px] py-1 px-3 hidden"></button>
+                </div>
+                <div id="settings-update-progress-wrap" class="w-full bg-border rounded-full h-1.5 overflow-hidden hidden">
+                  <div id="settings-update-progress-bar" class="bg-primary h-full w-0 transition-all duration-200"></div>
+                </div>
               </div>
             </div>
           </section>
@@ -6280,8 +6292,110 @@
         renderSettingsDirty();
         renderProviderKeyToggle();
         renderNotifyButton();
+        renderAboutUpdate();
       }
 
+      let lastUpdatePayload = null;
+
+      function renderAboutUpdate() {
+        const card = $('settings-about-update');
+        if (!card) return;
+        if (!window.superiuDesktop) {
+          card.classList.add('hidden');
+          return;
+        }
+        card.classList.remove('hidden');
+
+        const versionEl = $('settings-update-version');
+        const statusEl = $('settings-update-status');
+        const actionBtn = $('settings-update-action');
+        const progressWrap = $('settings-update-progress-wrap');
+        const progressBar = $('settings-update-progress-bar');
+        if (!lastUpdatePayload) {
+          versionEl.textContent = '';
+          statusEl.textContent = '';
+          actionBtn.classList.remove('hidden');
+          actionBtn.textContent = tr('settings.about.checkUpdate');
+          actionBtn.onclick = () => {
+            actionBtn.disabled = true;
+            void window.superiuDesktop?.checkForUpdate?.().finally(() => {
+              actionBtn.disabled = false;
+            });
+          };
+          return;
+        }
+
+        const statePayload = lastUpdatePayload;
+        versionEl.textContent = statePayload.currentVersion
+          ? tr('settings.about.version', { version: statePayload.currentVersion })
+          : '';
+        // Reset visibility
+        actionBtn.classList.add('hidden');
+        actionBtn.className = 'siu-btn text-[12px] py-1 px-3';
+        progressWrap.classList.add('hidden');
+        progressBar.style.width = '0%';
+
+        switch (statePayload.phase) {
+          case 'checking':
+            statusEl.textContent = tr('settings.about.checking');
+            break;
+          case 'downloading': {
+            const pct = Math.max(0, Math.min(100, statePayload.percent || 0));
+            statusEl.textContent = tr('settings.about.downloading', { percent: pct });
+            progressWrap.classList.remove('hidden');
+            progressBar.style.width = `${pct}%`;
+            break;
+          }
+          case 'ready':
+            statusEl.textContent = tr('settings.about.downloadReady', { version: statePayload.latestVersion });
+            actionBtn.textContent = tr('settings.about.restartNow');
+            actionBtn.classList.remove('hidden');
+            actionBtn.classList.add('siu-btn--primary');
+            actionBtn.onclick = () => {
+              actionBtn.disabled = true;
+              void window.superiuDesktop?.installUpdate?.();
+            };
+            break;
+          case 'error':
+            statusEl.textContent = `${tr('settings.about.updateError')}: ${statePayload.error || ''}`;
+            actionBtn.textContent = tr('settings.about.checkUpdate');
+            actionBtn.classList.remove('hidden');
+            actionBtn.onclick = () => {
+              actionBtn.disabled = true;
+              void window.superiuDesktop?.checkForUpdate?.().finally(() => {
+                actionBtn.disabled = false;
+              });
+            };
+            break;
+          case 'idle':
+          default:
+            statusEl.textContent = tr('settings.about.upToDate');
+            actionBtn.textContent = tr('settings.about.checkUpdate');
+            actionBtn.classList.remove('hidden');
+            actionBtn.onclick = () => {
+              actionBtn.disabled = true;
+              void window.superiuDesktop?.checkForUpdate?.().finally(() => {
+                actionBtn.disabled = false;
+              });
+            };
+            break;
+        }
+      }
+
+      if (window.superiuDesktop?.onUpdateState) {
+        window.superiuDesktop.onUpdateState((payload) => {
+          lastUpdatePayload = payload;
+          renderAboutUpdate();
+        });
+      }
+      if (window.superiuDesktop?.getUpdateState) {
+        void window.superiuDesktop.getUpdateState().then((payload) => {
+          if (payload) {
+            lastUpdatePayload = payload;
+            renderAboutUpdate();
+          }
+        });
+      }
       async function openSettings() {
         try {
           fillSettingsForm(await api('/api/settings'));

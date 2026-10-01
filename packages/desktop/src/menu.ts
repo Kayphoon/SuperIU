@@ -13,6 +13,14 @@ export interface MenuHandlers {
   openDocs(): void;
   /** Check GitHub Releases for a newer build and offer to install it. */
   checkForUpdates?(): void;
+  /** Install the update already staged by a background download and relaunch. */
+  installUpdate?(): void;
+  /**
+   * Whether a staged update is waiting. The app menu renders the install item
+   * only when this is true, so the item cannot advertise an update that is not
+   * there. Absent handler means "no update", i.e. the item stays hidden.
+   */
+  canInstallUpdate?(): boolean;
   /** Open the wizard to configure and connect to a remote VPS over SSH. */
   connectRemote?(): void;
 }
@@ -46,6 +54,7 @@ const MENU_LABELS = {
     app: 'SuperIU',
     settings: '设置…',
     checkForUpdates: '检查更新…',
+    installUpdate: '重启以安装更新',
     connectRemote: '连接远程 VPS…',
     newSession: '新建会话',
     focusInput: '聚焦输入框',
@@ -63,6 +72,7 @@ const MENU_LABELS = {
     app: 'SuperIU',
     settings: 'Settings…',
     checkForUpdates: 'Check for Updates…',
+    installUpdate: 'Restart to Install Update',
     connectRemote: 'Connect to Remote VPS…',
     newSession: 'New Session',
     focusInput: 'Focus Input',
@@ -134,6 +144,17 @@ export function buildMenuTemplate(
         label: L.checkForUpdates,
         click: () => handlers.checkForUpdates?.()
       },
+      // Rendered only while an update is staged and waiting. The host rebuilds
+      // the menu when readiness flips, so this guard is re-evaluated then — a
+      // `ready` update makes the item appear, installing it makes it vanish.
+      ...(handlers.canInstallUpdate?.()
+        ? [
+            {
+              label: L.installUpdate,
+              click: () => handlers.installUpdate?.()
+            } satisfies MenuItemConstructorOptions
+          ]
+        : []),
       { type: 'separator' },
       { role: 'services' },
       { type: 'separator' },
