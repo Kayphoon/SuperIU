@@ -168,6 +168,18 @@ describe('selectMacAsset', () => {
     });
   });
 
+  it('picks the highest embedded version when stale assets coexist', () => {
+    const assets = [
+      { name: 'SuperIU-0.1.0-mac-arm64.zip', browser_download_url: 'https://x/old.zip' },
+      { name: 'SuperIU-0.2.0-mac-arm64.zip', browser_download_url: 'https://x/new.zip' }
+    ];
+    expect(selectMacAsset(assets, 'arm64')?.browser_download_url).toBe('https://x/new.zip');
+    // Reversed order must pick the same asset — order must not matter.
+    expect(selectMacAsset([...assets].reverse(), 'arm64')?.browser_download_url).toBe(
+      'https://x/new.zip'
+    );
+  });
+
   it('returns null when there is no macOS asset', () => {
     const assets = [
       { name: 'SuperIU-0.2.0-windows-x64.zip', browser_download_url: 'https://x/win.zip' }

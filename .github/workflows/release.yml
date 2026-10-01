@@ -115,6 +115,20 @@ jobs:
       - name: List release assets
         run: ls -l release
 
+      # The rolling `latest` release accumulates versioned asset names
+      # (`SuperIU-0.1.0-mac-arm64.zip`, then `…-0.2.0-…`). Clients pick the
+      # highest version regardless, but stale multi-hundred-MB assets bloat the
+      # release page and the repo's storage quota — clear them before upload.
+      - name: Clean stale rolling assets
+        if: github.ref == 'refs/heads/master'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for asset in $(gh release view latest -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' 2>/dev/null); do
+            echo "deleting stale asset: $asset"
+            gh release delete-asset latest "$asset" -R "$GITHUB_REPOSITORY" --yes || true
+          done
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:

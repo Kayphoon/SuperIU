@@ -145,17 +145,25 @@ export function selectMacAsset(
   );
 
   // Prefer a `.zip` naming both `mac` and the exact architecture.
-  const macArch = zips.find((asset) => {
+  const macArch = zips.filter((asset) => {
     const name = asset.name?.toLowerCase() ?? '';
     return name.includes('mac') && name.includes(wantedArch);
   });
-  if (macArch?.browser_download_url) return macArch;
-
   // Fall back to any macOS zip (e.g. a universal build that omits the arch).
-  const macAny = zips.find((asset) => (asset.name ?? '').toLowerCase().includes('mac'));
-  if (macAny?.browser_download_url) return macAny;
+  const candidates = macArch.length > 0 ? macArch : zips.filter((a) => (a.name ?? '').toLowerCase().includes('mac'));
 
-  return null;
+  if (candidates.length === 0) return null;
+
+  // The rolling release channel can briefly carry assets from more than one
+  // build (a re-run uploads alongside stale files), and GitHub's asset order is
+  // not guaranteed — always take the highest embedded version.
+  const best = candidates.reduce((acc, asset) => {
+    if (!acc.browser_download_url && asset.browser_download_url) return asset;
+    const accVersion = versionFromAssetName(acc.name) ?? '';
+    const assetVersion = versionFromAssetName(asset.name) ?? '';
+    return semverGt(assetVersion, accVersion) ? asset : acc;
+  });
+  return best.browser_download_url ? best : null;
 }
 
 /**
