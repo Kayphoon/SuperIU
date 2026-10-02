@@ -12,6 +12,13 @@
  *   - {@link parseVersion} / {@link semverGt} — version parsing and comparison.
  *   - {@link selectMacAsset} — picking the right `.zip` for the running arch.
  * Everything that touches `electron`, `fs` or the network lives behind those.
+ *
+ * Updates follow the VS Code / Chrome model rather than the "block the user
+ * with a modal progress window" one: a check may start a download that runs
+ * quietly in the background while the app stays fully usable, and the finished
+ * download is *staged* beside the temp directory until the user asks to
+ * restart. State is published through {@link onUpdateState} and rendered by the
+ * caller; nothing in this file opens a window of its own.
  */
 
 import { app, dialog } from 'electron';
@@ -25,6 +32,145 @@ export const DEFAULT_REPO = 'Kayphoon/SuperIU';
 
 /** The bundle name produced by `scripts/bundle-mac.ts`. */
 const APP_BUNDLE_NAME = 'SuperIU.app';
+
+/** App-temp directory where a downloaded update is unpacked and left staged. */
+const UPDATE_STAGE_DIR_NAME = 'superiu-update';
+
+/** The zip is downloaded beside the staging directory, never inside it. */
+const UPDATE_ZIP_NAME = 'superiu-update.zip';
+
+/**
+ * Records which version the staging directory currently holds.
+ *
+ * Without it, a build the user downloaded and then declined to install would be
+ * silently thrown away and re-fetched on the next launch — a second 100+ MB
+ * download for a decision the user already made. The marker is written once the
+ * staged bundle is validated and is what makes reuse across sessions truthful.
+ */
+const UPDATE_STAGED_VERSION_FILE = 'staged-version';
+
+/**
+ * The version currently staged on disk, or `null` when nothing usable is.
+ *
+ * A staged directory is only trusted when its marker, its bundle and its bundle
+ * version all agree — a half-extracted or hand-tampered directory must never be
+ * offered as an installable update.
+ */
+function stagedVersion(extractDir: string): string | null {
+  try {
+    const marker = fs.readFileSync(path.join(extractDir, UPDATE_STAGED_VERSION_FILE), 'utf-8').trim();
+    if (!marker) return null;
+    const bundle = path.join(extractDir, APP_BUNDLE_NAME);
+    if (!fs.existsSync(bundle)) return null;
+    return marker;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decide whether the already-staged bundle satisfies `latestVersion`.
+ *
+ * A staged build counts only as a fallback for the exact version GitHub
+ * advertises: it is what spares a returning user a redundant download, and it is
+ * deliberately conservative — an unknown or differing marker re-downloads.
+ */
+function stagedUpdateFor(extractDir: string, latestVersion: string): boolean {
+  const staged = stagedVersion(extractDir);
+  return staged !== null && staged === latestVersion;
+}
+
+/**
+ * Lifecycle of an update run.
+ *
+ * `ready` is the state the whole redesign exists for: the new build is already
+ * downloaded, extracted and validated on disk, and the app is expected to offer
+ * a "restart to update" affordance instead of restarting underneath the user.
+ * The swap into the running bundle only happens in
+ * {@link installPreparedUpdate}, when the user asks for it.
+ */
+export type UpdatePhase = 'idle' | 'checking' | 'downloading' | 'ready' | 'installing' | 'error';
+
+/** Snapshot of the updater, published to every listener on change. */
+export interface UpdateState {
+  phase: UpdatePhase;
+  currentVersion: string;
+  latestVersion: string;
+  releaseNotes?: string;
+  /** 0..100; set only while phase === 'downloading'. */
+  percent?: number;
+  /** Human-readable message; set only when phase === 'error'. */
+  error?: string;
+}
+
+export type UpdateListener = (state: UpdateState) => void;
+
+const listeners = new Set<UpdateListener>();
+let current: UpdateState | null = null;
+
+/**
+ * The live state object. Built lazily rather than at module load: resolving the
+ * running version reads from Electron, and importing this module outside a live
+ * app (unit tests, tooling) should stay cheap and free of side effects.
+ */
+function state(): UpdateState {
+  if (!current) {
+    const version = resolveCurrentVersion();
+    current = { phase: 'idle', currentVersion: version, latestVersion: version };
+  }
+  return current;
+}
+
+/**
+ * The single funnel for every state change in this file.
+ *
+ * Funnelling matters because subscribers are notified from here and nowhere
+ * else: a listener can never miss a transition that some other code path forgot
+ * to publish, and everyone observes the same snapshot of a change.
+ */
+function setState(partial: Partial<UpdateState>): UpdateState {
+  current = { ...state(), ...partial };
+  const snapshot = { ...current };
+  // Notify a copy of the set: a listener that unsubscribes, or subscribes, while
+  // being notified must not disturb delivery to the others.
+  for (const listener of [...listeners]) {
+    try {
+      listener({ ...snapshot });
+    } catch (err) {
+      console.warn(
+        '[superiu] update state listener failed:',
+        err instanceof Error ? err.message : err
+      );
+    }
+  }
+  return snapshot;
+}
+
+/** Subscribe to updater state; the returned function unsubscribes. */
+export function onUpdateState(listener: UpdateListener): () => void {
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+  };
+}
+
+/** Latest state snapshot (never null; starts as an 'idle' state). */
+export function getUpdateState(): UpdateState {
+  // A copy, so a caller cannot mutate module state by holding on to it.
+  return { ...state() };
+}
+
+/** Localize a thrown value into the one-line message the user is shown. */
+function describeUpdateFailure(err: unknown): string {
+  if (err instanceof Error && err.message) {
+    // Node surfaces an aborted fetch as a DOMException whose message is English
+    // ("This operation was aborted"); the watchdog's own reason is the localized
+    // text, so prefer that whenever the abort is what ended the download.
+    if (err.name === 'AbortError') return '下载超时：连接长时间无数据';
+    return err.message;
+  }
+  return '更新失败：未知错误';
+}
 
 /** Result of an update check. `downloadUrl`/`assetName` are absent when no update exists. */
 export interface UpdateCheckResult {
@@ -304,37 +450,82 @@ function runCommand(command: string, args: string[]): Promise<void> {
   });
 }
 
+/** Abort a download that has made no progress for this long. */
+const DOWNLOAD_IDLE_TIMEOUT_MS = 60_000;
+
+/** Bytes between progress ticks when the server sends no `content-length`. */
+const PROGRESS_BYTE_STEP = 1024 * 1024;
+
 /** Download a URL to a file, reporting integer progress percentages. */
 async function downloadFile(
   url: string,
   destination: string,
-  onProgress?: (percent: number) => void
+  onProgress?: (percent: number, received: number, total: number) => void
 ): Promise<void> {
-  const response = await fetch(url, {
-    headers: { 'User-Agent': 'SuperIU-Desktop', Accept: 'application/octet-stream' }
-  });
-  if (!response.ok) throw new Error(`download failed with status ${response.status}`);
+  // An idle (not total) timeout: a large release on a slow link must be allowed
+  // to finish, but a connection that stops delivering data must not hang the UI
+  // forever. The timer is re-armed on every chunk.
+  const controller = new AbortController();
+  let idleTimer: NodeJS.Timeout | undefined;
+  const armIdleTimeout = (): void => {
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(
+      () => controller.abort(new Error('下载超时：连接长时间无数据')),
+      DOWNLOAD_IDLE_TIMEOUT_MS
+    );
+  };
+  const clearIdleTimeout = (): void => {
+    clearTimeout(idleTimer);
+  };
+
+  let response: Response;
+  try {
+    armIdleTimeout();
+    response = await fetch(url, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'SuperIU-Desktop', Accept: 'application/octet-stream' }
+    });
+  } catch (err) {
+    clearIdleTimeout();
+    throw err;
+  }
+
+  if (!response.ok) {
+    clearIdleTimeout();
+    throw new Error(`下载失败：服务器返回 ${response.status}`);
+  }
 
   const total = Number(response.headers.get('content-length') ?? 0);
   const body = response.body;
-  if (!body) throw new Error('download response had no body');
+  if (!body) {
+    clearIdleTimeout();
+    throw new Error('下载失败：响应没有内容');
+  }
 
   const out = fs.createWriteStream(destination);
   let received = 0;
   let lastPercent = -1;
+  let lastReportedBytes = 0;
 
   try {
     // Node's fetch returns a web ReadableStream; iterate it as an async source.
     for await (const chunk of body as unknown as AsyncIterable<Uint8Array>) {
+      armIdleTimeout();
       received += chunk.length;
       if (!out.write(chunk)) {
         await new Promise<void>((resolve) => out.once('drain', () => resolve()));
       }
-      if (typeof onProgress === 'function' && total > 0) {
-        const percent = Math.min(100, Math.round((received / total) * 100));
-        if (percent !== lastPercent) {
+      if (typeof onProgress === 'function') {
+        const percent = total > 0 ? Math.min(100, Math.round((received / total) * 100)) : 0;
+        // With a known length, report on each whole percent; without one, fall
+        // back to a byte step so an unknown-length stream still shows movement
+        // without one renderer round-trip per chunk.
+        const shouldReport =
+          total > 0 ? percent !== lastPercent : received - lastReportedBytes >= PROGRESS_BYTE_STEP;
+        if (shouldReport) {
           lastPercent = percent;
-          onProgress(percent);
+          lastReportedBytes = received;
+          onProgress(percent, received, total);
         }
       }
     }
@@ -345,6 +536,8 @@ async function downloadFile(
   } catch (err) {
     out.destroy();
     throw err;
+  } finally {
+    clearIdleTimeout();
   }
 }
 
@@ -357,76 +550,169 @@ function runningBundlePath(execPath: string = process.execPath): string {
 }
 
 /**
- * Download and install the requested update, then relaunch into the new build.
+ * Install a prepared `.app` over the running bundle as atomically as the
+ * filesystem allows.
  *
- * Flow: download the zip into the app's temp directory, extract it with
- * `/usr/bin/ditto -x -k`, and — when packaged — replace the running
- * `SuperIU.app` before relaunching. In development (`!app.isPackaged`) the
- * bundle on disk is a source checkout, not an app, so the download is kept and
- * the user is told it cannot be installed.
+ * The naive `rm -rf target && ditto prepared target` has a window in which the
+ * installed app does not exist at all: an interrupted or failing copy leaves the
+ * user with nothing to launch. This stages the new bundle as a sibling first,
+ * then swaps the two with `rename` (an atomic metadata operation on one volume),
+ * and only then discards the old copy. If any step fails, the original bundle is
+ * restored from the backup.
  */
-export async function downloadAndInstallUpdate(
-  updateInfo: UpdateCheckResult,
-  onProgress?: (percent: number) => void
-): Promise<void> {
-  if (!updateInfo.downloadUrl) {
-    throw new Error('no download URL in update info');
+export async function replaceBundle(preparedApp: string, target: string): Promise<void> {
+  const targetParent = path.dirname(target);
+  const targetName = path.basename(target);
+  const stamp = Date.now();
+  const backupTarget = path.join(targetParent, `.${targetName}.old-${stamp}`);
+  const stagingTarget = path.join(targetParent, `.${targetName}.new-${stamp}`);
+
+  try {
+    // 1. Materialise the new bundle beside the target (same volume → cheap rename).
+    await runCommand('/usr/bin/ditto', [preparedApp, stagingTarget]);
+
+    // 2. Move the live bundle aside (the running process keeps its open inode).
+    await fsp.rename(target, backupTarget);
+
+    // 3. Put the new bundle in place.
+    await fsp.rename(stagingTarget, target);
+  } catch (err) {
+    // Roll back: restore the original if it was moved away and the swap failed.
+    if (fs.existsSync(backupTarget) && !fs.existsSync(target)) {
+      await fsp.rename(backupTarget, target).catch(() => undefined);
+    }
+    await fsp.rm(stagingTarget, { recursive: true, force: true }).catch(() => undefined);
+    throw err;
   }
 
-  const tempRoot = app.getPath('temp');
-  const zipPath = path.join(tempRoot, 'superiu-update.zip');
-  const extractDir = path.join(tempRoot, 'superiu-update');
-
-  await fsp.rm(extractDir, { recursive: true, force: true });
-  await fsp.mkdir(extractDir, { recursive: true });
-
-  await downloadFile(updateInfo.downloadUrl, zipPath, onProgress);
-
-  // `ditto -x -k` is the macOS-native way to unpack a zip while preserving the
-  // bundle's symlinks, extended attributes and code signature.
-  await runCommand('/usr/bin/ditto', ['-x', '-k', zipPath, extractDir]);
-
-  const extractedApp = path.join(extractDir, APP_BUNDLE_NAME);
-  if (!fs.existsSync(extractedApp)) {
-    throw new Error(`extracted archive did not contain ${APP_BUNDLE_NAME}`);
-  }
-
-  if (!app.isPackaged) {
-    await dialog.showMessageBox({
-      type: 'info',
-      title: 'SuperIU',
-      message: '更新已下载（开发模式，无法覆盖正在运行的源码）',
-      detail: `新版本 ${updateInfo.latestVersion} 已保存至 ${extractedApp}`
-    });
-    return;
-  }
-
-  // Replace the running bundle. The destination is cleared first so a renamed
-  // or removed bundle in the new version cannot leave stale files behind;
-  // `ditto` then writes a byte-faithful copy of the extracted app.
-  const target = runningBundlePath();
-  await fsp.rm(target, { recursive: true, force: true });
-  await runCommand('/usr/bin/ditto', [extractedApp, target]);
-
-  // Clean up the download before relaunching so the temp dir does not grow.
-  await fsp.rm(zipPath, { force: true }).catch(() => undefined);
-
-  app.relaunch();
-  app.exit(0);
+  // The new bundle is live; the old copy is only now safe to discard.
+  await fsp.rm(backupTarget, { recursive: true, force: true }).catch(() => undefined);
 }
 
 /**
- * Check for an update and, when interactive, walk the user through installing
- * it with native dialogs.
+ * Download an update into the staging directory and validate what came out.
+ *
+ * Staging is what makes the background download safe: nothing here touches the
+ * running bundle, so the app keeps working (and keeps writing to its own
+ * bundle's disk image) while the release streams down, and an abandoned or
+ * failed download leaves the installed app exactly as it was.
+ */
+async function prepareUpdate(updateInfo: UpdateCheckResult): Promise<void> {
+  if (!updateInfo.downloadUrl) {
+    throw new Error('更新信息缺少下载地址');
+  }
+
+  const tempRoot = app.getPath('temp');
+  const extractDir = path.join(tempRoot, UPDATE_STAGE_DIR_NAME);
+  const zipPath = path.join(tempRoot, UPDATE_ZIP_NAME);
+
+  // A build staged by an earlier session for this exact version is already the
+  // answer: reusing it keeps the "restart to install" offer immediate instead of
+  // making the user wait through the same download twice.
+  if (app.isPackaged && stagedUpdateFor(extractDir, updateInfo.latestVersion)) {
+    setState({ phase: 'ready', latestVersion: updateInfo.latestVersion, percent: undefined });
+    return;
+  }
+
+  // Drop whatever a previous attempt staged: a stale or half-extracted bundle
+  // must never be the thing the user is later offered to install.
+  await fsp.rm(extractDir, { recursive: true, force: true });
+  await fsp.mkdir(extractDir, { recursive: true });
+
+  // The extracted bundle is kept on the success path — it *is* the staged
+  // update — and also in development, where it is the only copy the user can
+  // act on; it is discarded only when extraction did not produce a usable app.
+  let keepExtracted = false;
+  try {
+    await downloadFile(updateInfo.downloadUrl, zipPath, (percent) => {
+      setState({ phase: 'downloading', latestVersion: updateInfo.latestVersion, percent });
+    });
+
+    // `ditto -x -k` is the macOS-native way to unpack a zip while preserving the
+    // bundle's symlinks, extended attributes and code signature.
+    await runCommand('/usr/bin/ditto', ['-x', '-k', zipPath, extractDir]);
+
+    const extractedApp = path.join(extractDir, APP_BUNDLE_NAME);
+    if (!fs.existsSync(extractedApp)) {
+      throw new Error(`解压后的压缩包中没有 ${APP_BUNDLE_NAME}`);
+    }
+
+    if (!app.isPackaged) {
+      // Development runs from a source checkout, not an app bundle, so there is
+      // nothing to swap and nothing to restart into. Keep the download and say
+      // so; the user can install it themselves.
+      keepExtracted = true;
+      await dialog.showMessageBox({
+        type: 'info',
+        title: 'SuperIU',
+        message: '更新已下载（开发模式，无法覆盖正在运行的源码）',
+        detail: `新版本 ${updateInfo.latestVersion} 已保存至 ${extractedApp}`
+      });
+      setState({ phase: 'idle', percent: undefined });
+      return;
+    }
+
+    keepExtracted = true;
+  } finally {
+    await fsp.rm(zipPath, { force: true }).catch(() => undefined);
+    if (!keepExtracted) {
+      await fsp.rm(extractDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
+  // Record what is staged, so the next launch recognises this download instead
+  // of repeating it. Written only after the bundle validated, above; the
+  // development path has already returned and never stages for a future session.
+  await fsp
+    .writeFile(path.join(extractDir, UPDATE_STAGED_VERSION_FILE), updateInfo.latestVersion, 'utf-8')
+    .catch(() => undefined);
+
+  // Packaged: the validated bundle stays staged until the user asks to restart.
+  setState({ phase: 'ready', latestVersion: updateInfo.latestVersion, percent: undefined });
+}
+
+/**
+ * Check GitHub for a newer build.
  *
  * `interactive` is `true` for the menu item (a click deserves feedback, even
  * when there is nothing to install) and `false` for the silent background probe
  * at startup (which stays completely quiet unless an update is found).
+ *
+ * When something IS newer the download starts immediately in the background and
+ * this function returns; the caller renders progress from {@link onUpdateState}.
+ * No dialog and no progress window blocks the app while the release streams
+ * down, and the app relaunches only through {@link installPreparedUpdate}.
  */
-export async function triggerUpdateCheck(interactive = true): Promise<void> {
+export async function checkForUpdate(interactive: boolean): Promise<void> {
+  const phaseAtEntry = state().phase;
+  if (phaseAtEntry === 'downloading' || phaseAtEntry === 'installing') {
+    // A download or an install already owns the updater; a second run would only
+    // fight it for the same staging paths.
+    return;
+  }
+
+  // 'checking' overwrites the phase, so remember this now: a build that is
+  // already staged must survive a re-check that finds nothing newer.
+  const hadStagedUpdate = phaseAtEntry === 'ready';
+
+  setState({ phase: 'checking', error: undefined });
+
   const result = await checkForUpdates({ silent: !interactive });
 
   if (!result.hasUpdate) {
+    if (hadStagedUpdate || state().phase === 'ready') {
+      // Still offer the restart: "nothing newer than what we already staged" is
+      // not a reason to make the staged build disappear.
+      setState({ phase: 'ready' });
+      return;
+    }
+    setState({
+      phase: 'idle',
+      currentVersion: result.currentVersion,
+      latestVersion: result.latestVersion,
+      releaseNotes: result.releaseNotes,
+      percent: undefined
+    });
     if (interactive) {
       await dialog.showMessageBox({
         type: 'info',
@@ -438,34 +724,54 @@ export async function triggerUpdateCheck(interactive = true): Promise<void> {
     return;
   }
 
-  const detail = [result.releaseNotes, '', '是否立即下载并更新？']
-    .filter((part): part is string => part !== undefined)
-    .join('\n');
-
-  const { response } = await dialog.showMessageBox({
-    type: 'info',
-    title: '发现新版本',
-    message: `SuperIU ${result.latestVersion} 已发布`,
-    detail,
-    buttons: ['立即更新并重启', '稍后'],
-    defaultId: 0,
-    cancelId: 1
+  setState({
+    phase: 'downloading',
+    currentVersion: result.currentVersion,
+    latestVersion: result.latestVersion,
+    releaseNotes: result.releaseNotes,
+    percent: 0
   });
 
-  if (response !== 0) return;
-
   try {
-    await downloadAndInstallUpdate(result, (percent) => {
-      console.log(`[superiu] update download ${percent}%`);
-    });
+    await prepareUpdate(result);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = describeUpdateFailure(err);
     console.error('[superiu] update failed:', message);
-    await dialog.showMessageBox({
-      type: 'error',
-      title: 'SuperIU',
-      message: '更新失败',
-      detail: message
-    });
+    setState({ phase: 'error', error: message, percent: undefined });
   }
+}
+
+/**
+ * Install the update that is already downloaded and staged, then restart into
+ * it.
+ *
+ * Throws unless a download has completed, so a stray call can never swap a
+ * half-prepared bundle into place; callers gate this behind the 'ready' state
+ * they render.
+ */
+export async function installPreparedUpdate(): Promise<void> {
+  if (state().phase !== 'ready') {
+    throw new Error('没有已下载完成的更新');
+  }
+
+  setState({ phase: 'installing' });
+
+  const stagedApp = path.join(app.getPath('temp'), UPDATE_STAGE_DIR_NAME, APP_BUNDLE_NAME);
+  try {
+    await replaceBundle(stagedApp, runningBundlePath());
+  } catch (err) {
+    // `replaceBundle` restores the original bundle before throwing, so the
+    // installed app keeps working; surfacing the error is what lets the user
+    // retry rather than wonder.
+    const message = describeUpdateFailure(err);
+    console.error('[superiu] update install failed:', message);
+    setState({ phase: 'error', error: message });
+    throw err;
+  }
+
+  // `app.quit()` rather than `app.exit(0)`: quit runs the `before-quit` handler
+  // in main.ts, which tears the UI server, gateway client and SSH tunnel down.
+  // `exit` would kill the process with that teardown skipped.
+  app.relaunch();
+  app.quit();
 }

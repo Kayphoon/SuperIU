@@ -24,7 +24,8 @@ import type {
   MenuPayload,
   NotificationPayload,
   SuperiuDesktopBridge,
-  ThemePayload
+  ThemePayload,
+  UpdatePayload
 } from './ipc.js';
 
 // Compile-time drift guards: each annotation pins the literal to the exact type
@@ -40,11 +41,11 @@ const SET_LANGUAGE: typeof import('./ipc.js').INVOKE.setLanguage = 'superiu:set-
 const SET_THEME: typeof import('./ipc.js').INVOKE.setTheme = 'superiu:set-theme';
 const GET_SSH_HOSTS: typeof import('./ipc.js').INVOKE.getSshHosts = 'superiu:get-ssh-hosts';
 const CONNECT_REMOTE: typeof import('./ipc.js').INVOKE.connectRemote = 'superiu:connect-remote';
-const GET_APP_VERSION: typeof import('./ipc.js').INVOKE.getAppVersion = 'superiu:get-app-version';
-const CHECK_FOR_UPDATES: typeof import('./ipc.js').INVOKE.checkForUpdates = 'superiu:check-for-updates';
-const START_UPDATE: typeof import('./ipc.js').INVOKE.startUpdate = 'superiu:start-update';
+const CHECK_FOR_UPDATE: typeof import('./ipc.js').INVOKE.checkForUpdate = 'superiu:check-for-update';
+const INSTALL_UPDATE: typeof import('./ipc.js').INVOKE.installUpdate = 'superiu:install-update';
+const GET_UPDATE_STATE: typeof import('./ipc.js').INVOKE.getUpdateState = 'superiu:get-update-state';
 const REMOTE_PROGRESS_CHANNEL: typeof import('./ipc.js').REMOTE_PROGRESS_CHANNEL = 'superiu:remote-progress';
-const UPDATE_PROGRESS_CHANNEL: typeof import('./ipc.js').UPDATE_PROGRESS_CHANNEL = 'superiu:update-progress';
+const UPDATE_STATE_CHANNEL: typeof import('./ipc.js').UPDATE_STATE_CHANNEL = 'superiu:update-state';
 
 const { contextBridge, ipcRenderer } = require('electron');
 
@@ -118,23 +119,27 @@ const bridge: SuperiuDesktopBridge = {
     };
   },
 
-  getAppVersion(): Promise<string> {
-    return ipcRenderer.invoke(GET_APP_VERSION);
+  checkForUpdate(): Promise<void> {
+    return ipcRenderer.invoke(CHECK_FOR_UPDATE);
   },
 
-  checkForUpdates(silent?: boolean): Promise<any> {
-    return ipcRenderer.invoke(CHECK_FOR_UPDATES, silent);
+  installUpdate(): Promise<void> {
+    return ipcRenderer.invoke(INSTALL_UPDATE);
   },
 
-  startUpdate(updateInfo: any): Promise<void> {
-    return ipcRenderer.invoke(START_UPDATE, updateInfo);
+  getUpdateState(): Promise<UpdatePayload> {
+    return ipcRenderer.invoke(GET_UPDATE_STATE);
   },
 
-  onUpdateProgress(callback: (payload: { percent: number }) => void): () => void {
-    const listener = (_event: unknown, payload: { percent: number }): void => callback(payload);
-    ipcRenderer.on(UPDATE_PROGRESS_CHANNEL, listener);
+  onUpdateState(callback: (state: UpdatePayload) => void): () => void {
+    void ipcRenderer.invoke(GET_UPDATE_STATE).then((state: UpdatePayload) => {
+      if (state) callback(state);
+    }).catch(() => {});
+
+    const listener = (_event: unknown, state: UpdatePayload): void => callback(state);
+    ipcRenderer.on(UPDATE_STATE_CHANNEL, listener);
     return (): void => {
-      ipcRenderer.off(UPDATE_PROGRESS_CHANNEL, listener);
+      ipcRenderer.off(UPDATE_STATE_CHANNEL, listener);
     };
   }
 };

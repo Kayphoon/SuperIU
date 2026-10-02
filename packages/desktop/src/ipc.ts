@@ -27,13 +27,13 @@ export const INVOKE = {
   setTheme: 'superiu:set-theme',
   getSshHosts: 'superiu:get-ssh-hosts',
   connectRemote: 'superiu:connect-remote',
-  getAppVersion: 'superiu:get-app-version',
-  checkForUpdates: 'superiu:check-for-updates',
-  startUpdate: 'superiu:start-update'
+  checkForUpdate: 'superiu:check-for-update',
+  installUpdate: 'superiu:install-update',
+  getUpdateState: 'superiu:get-update-state'
 } as const;
 
 export const REMOTE_PROGRESS_CHANNEL = 'superiu:remote-progress';
-export const UPDATE_PROGRESS_CHANNEL = 'superiu:update-progress';
+export const UPDATE_STATE_CHANNEL = 'superiu:update-state';
 
 /**
  * Menu actions the main process forwards to the renderer. The SPA also handles
@@ -58,13 +58,13 @@ export interface ThemePayload {
   scheme: ColorScheme;
 }
 
-export interface UpdateInfo {
-  hasUpdate: boolean;
+export interface UpdatePayload {
+  phase: 'idle' | 'checking' | 'downloading' | 'ready' | 'installing' | 'error';
   currentVersion: string;
   latestVersion: string;
   releaseNotes?: string;
-  downloadUrl?: string;
-  assetName?: string;
+  percent?: number;
+  error?: string;
 }
 
 /** Shape of `window.superiuDesktop`, mirrored here so both sides stay typed. */
@@ -85,7 +85,7 @@ export interface SuperiuDesktopBridge {
   quit(): Promise<void>;
   /**
    * Tell the main process which language to build the native application menu
-   * in. The renderer cannot reach Electron's `Menu`, so the menu bar is rebuilt
+  * in. The renderer cannot reach Electron's `Menu`, so the menu bar is rebuilt
    * on the main-process side.
    */
   setLanguage(language: string): Promise<void>;
@@ -98,8 +98,8 @@ export interface SuperiuDesktopBridge {
   getSshHosts?(): Promise<Array<{ alias: string; hostName: string; user?: string }>>;
   connectRemote?(options: { alias: string; workspace: string; saveDefault?: boolean }): Promise<void>;
   onRemoteProgress?(callback: (step: { id: string; status: string; detail?: string }) => void): () => void;
-  getAppVersion?(): Promise<string>;
-  checkForUpdates?(silent?: boolean): Promise<UpdateInfo>;
-  startUpdate?(updateInfo: UpdateInfo): Promise<void>;
-  onUpdateProgress?(callback: (payload: { percent: number }) => void): () => void;
+  checkForUpdate?(): Promise<void>;
+  installUpdate?(): Promise<void>;
+  getUpdateState?(): Promise<UpdatePayload>;
+  onUpdateState?(callback: (state: UpdatePayload) => void): () => void;
 }

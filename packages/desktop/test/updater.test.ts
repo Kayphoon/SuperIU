@@ -1,14 +1,81 @@
 /**
- * Unit tests for the pure half of the desktop updater: version parsing and
- * semver precedence, and macOS asset selection by architecture.
+ * Unit tests for the desktop updater: version parsing and semver precedence,
+ * macOS asset selection by architecture, the atomic bundle swap, and the
+ * silent-download state machine.
  *
- * The impure half (`checkForUpdates`, `downloadAndInstallUpdate`) requires a
- * live Electron runtime and the GitHub API, so it is deliberately not exercised
- * here.
+ * The GitHub API is stubbed rather than called, and the Electron runtime is
+ * mocked, so the whole file runs in the plain node environment.
  */
 
-import { describe, it, expect } from 'vitest';
-import { parseVersion, semverGt, selectMacAsset, versionFromAssetName } from '../src/updater.js';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import * as path from 'node:path';
+import type * as Fsp from 'node:fs/promises';
+import {
+  checkForUpdate,
+  getUpdateState,
+  installPreparedUpdate,
+  onUpdateState,
+  parseVersion,
+  replaceBundle,
+  semverGt,
+  selectMacAsset,
+  versionFromAssetName
+} from '../src/updater.js';
+import type { UpdateState } from '../src/updater.js';
+
+// ---------------------------------------------------------------------------
+// Module mocks
+// ---------------------------------------------------------------------------
+
+// `rename` is the one filesystem step of `replaceBundle` that has no cheaper
+// way to be made to fail, so the swap tests drive it through this switch. Every
+// other call passes straight through to the real implementation, keeping the
+// mock inert for the rest of the file.
+const renameControl = vi.hoisted(() => ({
+  failWhenDestination: null as string | null,
+  fired: false
+}));
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = (await importOriginal()) as typeof Fsp;
+  return {
+    ...actual,
+    rename: async (...args: Parameters<typeof Fsp.rename>): Promise<void> => {
+      if (
+        !renameControl.fired &&
+        renameControl.failWhenDestination !== null &&
+        String(args[1]) === renameControl.failWhenDestination
+      ) {
+        renameControl.fired = true;
+        throw new Error('simulated staging rename failure');
+      }
+      return actual.rename(...args);
+    }
+  };
+});
+
+// The updater imports `electron` unconditionally, so the module needs a runtime
+// to load in this plain-node test file. The stubs are inert: nothing here shows
+// dialogs or relaunches on the paths under test.
+vi.mock('electron', () => ({
+  app: {
+    getVersion: () => '0.0.0',
+    getPath: () => tmpdir(),
+    isPackaged: false,
+    relaunch: vi.fn(),
+    quit: vi.fn()
+  },
+  dialog: { showMessageBox: vi.fn(async () => ({ response: 0 })) }
+}));
 
 // ---------------------------------------------------------------------------
 // parseVersion
@@ -213,3 +280,112 @@ describe('selectMacAsset', () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// replaceBundle
+// ---------------------------------------------------------------------------
+
+describe('replaceBundle', () => {
+  let parentDir: string;
+
+  /** A minimal `.app` whose only meaningful content is a marker file. */
+  function makeBundle(at: string, marker: string): string {
+    const contents = path.join(at, 'Contents');
+    mkdirSync(contents, { recursive: true });
+    writeFileSync(path.join(contents, 'Info.plist'), marker);
+    return at;
+  }
+
+  beforeEach(() => {
+    parentDir = mkdtempSync(path.join(tmpdir(), 'superiu-swap-'));
+    renameControl.failWhenDestination = null;
+    renameControl.fired = false;
+  });
+
+  afterEach(() => {
+    rmSync(parentDir, { recursive: true, force: true });
+  });
+
+  it('swaps in the prepared bundle over the live one', async () => {
+    const target = makeBundle(path.join(parentDir, 'SuperIU.app'), 'old');
+    const prepared = makeBundle(path.join(parentDir, 'prepared', 'SuperIU.app'), 'new');
+
+    await replaceBundle(prepared, target);
+
+    expect(readFileSync(path.join(target, 'Contents', 'Info.plist'), 'utf-8')).toBe('new');
+  });
+
+  it('leaves no scratch directories behind after a successful swap', async () => {
+    const target = makeBundle(path.join(parentDir, 'SuperIU.app'), 'old');
+    const prepared = makeBundle(path.join(parentDir, 'prepared', 'SuperIU.app'), 'new');
+
+    await replaceBundle(prepared, target);
+
+    // Any sibling starting with a dot is one of the swap's own scratch copies.
+    expect(readdirSync(parentDir).filter((entry) => entry.startsWith('.SuperIU.app.'))).toEqual([]);
+  });
+
+  it('restores the original bundle when the staging rename fails', async () => {
+    const target = makeBundle(path.join(parentDir, 'SuperIU.app'), 'old');
+    const prepared = makeBundle(path.join(parentDir, 'prepared', 'SuperIU.app'), 'new');
+
+    // Fail the second rename — staging -> target — the exact step that would
+    // otherwise leave the user with no installed app. Failing the first rename
+    // would be vacuous: nothing has moved aside yet, so the restore never runs.
+    renameControl.failWhenDestination = target;
+
+    await expect(replaceBundle(prepared, target)).rejects.toThrow('simulated staging rename failure');
+
+    expect(renameControl.fired).toBe(true);
+    expect(readFileSync(path.join(target, 'Contents', 'Info.plist'), 'utf-8')).toBe('old');
+    expect(readdirSync(parentDir).filter((entry) => entry.startsWith('.SuperIU.app.'))).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// update state machine
+// ---------------------------------------------------------------------------
+
+describe('update state', () => {
+  // The offline probe is the cheapest way to make the state machine move: the
+  // GitHub call rejects, `checkForUpdates` swallows it, and the phase walks
+  // `checking` -> `idle` with no network and no download.
+  beforeEach(() => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('offline');
+      })
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('starts idle', () => {
+    expect(getUpdateState().phase).toBe('idle');
+  });
+
+  it('delivers changes to subscribers and stops after unsubscribe', async () => {
+    const kept: UpdateState[] = [];
+    const dropped: UpdateState[] = [];
+    onUpdateState((state) => kept.push(state));
+    const unsubscribe = onUpdateState((state) => dropped.push(state));
+    unsubscribe();
+
+    await checkForUpdate(false);
+
+    // Delivery must be real, otherwise the unsubscribe assertion proves nothing.
+    expect(kept.length).toBeGreaterThan(0);
+    expect(dropped).toEqual([]);
+  });
+
+  it('refuses to install before an update is prepared', async () => {
+    await expect(installPreparedUpdate()).rejects.toThrow();
+    // Rejection must not leave the machine looking mid-install.
+    expect(getUpdateState().phase).toBe('idle');
+  });
+});
+
+

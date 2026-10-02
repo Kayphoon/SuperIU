@@ -30,15 +30,20 @@ import {
   INVOKE,
   THEME_CHANNEL,
   REMOTE_PROGRESS_CHANNEL,
-  UPDATE_PROGRESS_CHANNEL,
+  UPDATE_STATE_CHANNEL,
   type NotificationPayload,
-  type ThemePayload,
-  type UpdateInfo
+  type ThemePayload
 } from './ipc.js';
 import { GatewayClient } from './gateway_client.js';
 import { WorkspaceSandboxWorker } from './sandbox/worker.js';
 import { ABOUT_LABELS, buildMenuTemplate, createMenuDispatcher } from './menu.js';
-import { checkForUpdates, downloadAndInstallUpdate, triggerUpdateCheck } from './updater.js';
+import {
+  checkForUpdate,
+  installPreparedUpdate,
+  getUpdateState,
+  onUpdateState,
+  type UpdateState
+} from './updater.js';
 import {
   RemoteConnectionManager,
   RemoteConnectionError,
@@ -331,6 +336,137 @@ function installAboutPanel(): void {
     credits: (ABOUT_LABELS[uiLanguage] ?? ABOUT_LABELS.zh).credits
   });
 }
+
+// ---------------------------------------------------------------------------
+// Silent updates
+// ---------------------------------------------------------------------------
+// The updater owns the network work and publishes a state machine; this shell
+// owns every user-visible consequence of it. The split exists because the
+// download must not block or decorate the app: it happens in a temp directory
+// while the user keeps working, and the only surfaces are the Dock progress
+// bar (during) and an offer to restart (after).
+
+/** Last version whose "restart to install" offer was shown, so it shows once. */
+let promptedUpdateVersion: string | null = null;
+/** Last error message surfaced, so a repeated failure does not re-open dialogs. */
+let shownUpdateError: string | null = null;
+/** Whether the current native menu shows the install item, so rebuilds are rare. */
+let menuInstallVisible = false;
+
+/**
+ * Mirror download progress onto the Dock, and clear it for every other phase.
+ *
+ * `-1` is the documented "remove the bar" value. The progress bar is a
+ * `BrowserWindow` property (Electron has no `app.setProgressBar`; verified
+ * against 44.4.3 at runtime — `app`, `app.dock` and the `Dock` prototype expose
+ * only `setBadge`/`setBadgeCount`), and it renders in the macOS Dock while the
+ * window exists. Window and call are both guarded: an update can be discovered
+ * before the window is up, and closing the window must not break the download.
+ */
+function mirrorUpdateProgress(state: UpdateState): void {
+  const progress =
+    state.phase === 'downloading' && typeof state.percent === 'number'
+      ? Math.min(1, Math.max(0, state.percent / 100))
+      : -1;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  try {
+    mainWindow.setProgressBar(progress);
+  } catch {
+    // No Dock (headless launch, unsupported platform): progress is a nicety.
+  }
+}
+
+/**
+ * Tell the user an update is staged, once per version.
+ *
+ * A native notification reaches a backgrounded app; the dialog is the durable
+ * surface with the actual choice. The version is recorded by the caller BEFORE
+ * this runs, so a second `ready` state for the same version cannot double-show.
+ */
+async function announceUpdateReady(version: string, releaseNotes?: string): Promise<void> {
+  if (Notification.isSupported()) {
+    new Notification({
+      title: '更新已就绪',
+      body: `SuperIU ${version} 已在后台下载完成，重启即可安装。`
+    }).show();
+  }
+
+  const options = {
+    type: 'info' as const,
+    buttons: ['立即重启并安装', '稍后'],
+    defaultId: 0,
+    cancelId: 1,
+    noLink: true,
+    title: '更新已就绪',
+    message: `SuperIU ${version} 已下载完成`,
+    detail: releaseNotes?.trim()
+      ? releaseNotes.slice(0, 2000)
+      : '更新已在后台下载并校验完成，重启应用即可安装。'
+  };
+  const { response } =
+    mainWindow && !mainWindow.isDestroyed()
+      ? await dialog.showMessageBox(mainWindow, options)
+      : await dialog.showMessageBox(options);
+
+  if (response === 0) {
+    // Failures publish an 'error' state, which the listener below reports; this
+    // catch only keeps a rejected promise from going unhandled.
+    void installPreparedUpdate().catch((err) => {
+      console.error('[superiu] failed to install update:', err);
+    });
+  }
+}
+
+/** Report a failed download once per distinct message. */
+async function announceUpdateFailure(message: string): Promise<void> {
+  const options = {
+    type: 'error' as const,
+    buttons: ['好'],
+    defaultId: 0,
+    noLink: true,
+    title: '更新失败',
+    message
+  };
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    await dialog.showMessageBox(mainWindow, options);
+  } else {
+    await dialog.showMessageBox(options);
+  }
+}
+
+/**
+ * The one subscription that translates updater state into shell behaviour.
+ *
+ * Registered at module scope (before `ready`, like the other installs) so no
+ * state published during early bootstrap is missed.
+ */
+onUpdateState((state: UpdateState) => {
+  mirrorUpdateProgress(state);
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(UPDATE_STATE_CHANNEL, state);
+  }
+  // Rebuild on a readiness CHANGE, not on every state: this is what makes
+  // 重启以安装更新 appear and disappear (the item is rendered from
+  // `canInstallUpdate()`), while progress ticks — one per download chunk — stay
+  // cheap instead of re-creating the whole native menu thousands of times. The
+  // cached flag starts false, matching the initial `idle` menu built at module
+  // scope, so no rebuild is owed until the phase actually changes.
+  const canInstall = state.phase === 'ready';
+  if (canInstall !== menuInstallVisible) {
+    menuInstallVisible = canInstall;
+    installApplicationMenu();
+  }
+
+  if (state.phase === 'ready' && promptedUpdateVersion !== state.latestVersion) {
+    promptedUpdateVersion = state.latestVersion;
+    void announceUpdateReady(state.latestVersion, state.releaseNotes);
+  }
+
+  if (state.phase === 'error' && state.error && shownUpdateError !== state.error) {
+    shownUpdateError = state.error;
+    void announceUpdateFailure(state.error);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // Window
@@ -756,20 +892,16 @@ function installIpcHandlers(): void {
     await startRemoteMode(config);
   });
 
-  ipcMain.handle(INVOKE.getAppVersion, () => {
-    return app.getVersion();
+  ipcMain.handle(INVOKE.checkForUpdate, async () => {
+    await checkForUpdate(true);
   });
 
-  ipcMain.handle(INVOKE.checkForUpdates, async (_event, silent?: boolean) => {
-    return checkForUpdates({ silent: silent ?? true });
+  ipcMain.handle(INVOKE.installUpdate, async () => {
+    await installPreparedUpdate();
   });
 
-  ipcMain.handle(INVOKE.startUpdate, async (_event, updateInfo: UpdateInfo) => {
-    await downloadAndInstallUpdate(updateInfo, (percent) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(UPDATE_PROGRESS_CHANNEL, { percent });
-      }
-    });
+  ipcMain.handle(INVOKE.getUpdateState, () => {
+    return getUpdateState();
   });
 }
 
@@ -886,10 +1018,12 @@ async function bootstrap(): Promise<void> {
   mainWindow = createWindow(serverHandle.url);
 
   // Silent background update probe. Delayed so it never competes with startup
-  // work, and skipped in development where there is no installable bundle.
+  // work, and skipped in development where there is no installable bundle. The
+  // download it may start is invisible by design: progress and the restart
+  // offer reach the user through the update-state listener above.
   if (app.isPackaged) {
     setTimeout(() => {
-      void triggerUpdateCheck(false);
+      void checkForUpdate(false);
     }, 5000);
   }
 }
