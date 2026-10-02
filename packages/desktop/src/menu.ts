@@ -11,10 +11,6 @@ export interface MenuHandlers {
   dispatch(action: MenuAction): void;
   /** Reveal the project documentation. */
   openDocs(): void;
-  /** Check GitHub Releases for a newer build and offer to install it. */
-  checkForUpdates?(): void;
-  /** Open the wizard to configure and connect to a remote VPS over SSH. */
-  connectRemote?(): void;
 }
 
 /**
@@ -45,13 +41,7 @@ const MENU_LABELS = {
   zh: {
     app: 'SuperIU',
     settings: '设置…',
-    checkForUpdates: '检查更新…',
-    connectRemote: '连接远程 VPS…',
     newSession: '新建会话',
-    focusInput: '聚焦输入框',
-    abort: '中止本轮',
-    more: '更多',
-    toggleSidebar: '切换侧边栏',
     file: '文件',
     edit: '编辑',
     view: '视图',
@@ -62,13 +52,7 @@ const MENU_LABELS = {
   en: {
     app: 'SuperIU',
     settings: 'Settings…',
-    checkForUpdates: 'Check for Updates…',
-    connectRemote: 'Connect to Remote VPS…',
     newSession: 'New Session',
-    focusInput: 'Focus Input',
-    abort: 'Abort Turn',
-    more: 'More',
-    toggleSidebar: 'Toggle Sidebar',
     file: 'File',
     edit: 'Edit',
     view: 'View',
@@ -98,18 +82,6 @@ export const ABOUT_LABELS = {
  * Accelerators here are REAL main-process menu accelerators — they are handled
  * by Electron before the renderer ever sees a `keydown`, which is precisely why
  * `Cmd+Q` and `Cmd+,` are impossible to deliver from a plain browser tab.
- *
- * `Cmd+K`, `Cmd+.` and `Cmd+J` are marked `registerAccelerator: false`. That
- * option is documented `@platform linux,win32`, so on macOS the accelerator may
- * still be registered and take the key before the renderer; on linux/win32 the
- * page keeps the key and the item only dispatches when clicked.
- *
- * Whether that divergence is harmless depends on the item:
- *   - `Cmd+J` (More) and `Cmd+.` (Abort) dispatch exactly what the SPA's own
- *     keydown handler does, so both paths converge on one behaviour.
- *   - `Cmd+K` does NOT: the menu item is "Focus Input" (`focus-input`), while
- *     the SPA binds ⌘K to the command palette. This is a pre-existing semantic
- *     divergence, out of scope here, and is NOT fixed by this file.
  */
 export function buildMenuTemplate(
   handlers: MenuHandlers,
@@ -130,10 +102,6 @@ export function buildMenuTemplate(
         accelerator: 'Cmd+,',
         click: () => dispatch('settings')
       },
-      {
-        label: L.checkForUpdates,
-        click: () => handlers.checkForUpdates?.()
-      },
       { type: 'separator' },
       { role: 'services' },
       { type: 'separator' },
@@ -152,42 +120,6 @@ export function buildMenuTemplate(
         label: L.newSession,
         accelerator: 'Cmd+N',
         click: () => dispatch('new-session')
-      },
-      {
-        label: L.connectRemote,
-        accelerator: 'Cmd+Shift+R',
-        click: () => handlers.connectRemote?.()
-      },
-      { type: 'separator' },
-      {
-        label: L.focusInput,
-        accelerator: 'Cmd+K',
-        // KNOWN DIVERGENCE (pre-existing, not introduced here): the SPA binds
-        // ⌘K to the command palette (`openModal('palette')`), while this item
-        // focuses the composer. If macOS registers this accelerator, ⌘K in the
-        // desktop shell does something different from ⌘K in a browser tab.
-        registerAccelerator: false,
-        click: () => dispatch('focus-input')
-      },
-      {
-        label: L.abort,
-        accelerator: 'Cmd+.',
-        // Converges with the SPA: its ⌘. handler also calls abortTurn().
-        registerAccelerator: false,
-        click: () => dispatch('abort')
-      },
-      {
-        label: L.more,
-        accelerator: 'Cmd+J',
-        // On linux/win32 `registerAccelerator: false` keeps the key with the
-        // page; on macOS the accelerator may be registered and dispatched by
-        // the native menu instead. Either way this is safe: the item dispatches
-        // the same action the SPA's own ⌘J handler performs, so the drawer
-        // toggles exactly once.
-        // Deliberately NOT Cmd+M — `{ role: 'minimize' }` below already owns
-        // that accelerator (verified against electron 44.4.3's role table).
-        registerAccelerator: false,
-        click: () => dispatch('more')
       },
       { type: 'separator' },
       { role: 'close', accelerator: 'Cmd+W' }
@@ -210,16 +142,10 @@ export function buildMenuTemplate(
   const viewMenu: MenuItemConstructorOptions = {
     label: L.view,
     submenu: [
-      {
-        label: L.toggleSidebar,
-        accelerator: 'Cmd+B',
-        registerAccelerator: false,
-        click: () => dispatch('toggle-sidebar')
-      },
-      { type: 'separator' },
       { role: 'reload', accelerator: 'Cmd+R' },
       { role: 'forceReload' },
       { role: 'toggleDevTools', accelerator: 'Alt+Cmd+I' },
+      { type: 'separator' },
       { role: 'resetZoom' },
       { role: 'zoomIn' },
       { role: 'zoomOut' },

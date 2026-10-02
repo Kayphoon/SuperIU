@@ -40,8 +40,11 @@ const SET_LANGUAGE: typeof import('./ipc.js').INVOKE.setLanguage = 'superiu:set-
 const SET_THEME: typeof import('./ipc.js').INVOKE.setTheme = 'superiu:set-theme';
 const GET_SSH_HOSTS: typeof import('./ipc.js').INVOKE.getSshHosts = 'superiu:get-ssh-hosts';
 const CONNECT_REMOTE: typeof import('./ipc.js').INVOKE.connectRemote = 'superiu:connect-remote';
-const CLOSE_REMOTE_WIZARD: typeof import('./ipc.js').INVOKE.closeRemoteWizard = 'superiu:close-remote-wizard';
+const GET_APP_VERSION: typeof import('./ipc.js').INVOKE.getAppVersion = 'superiu:get-app-version';
+const CHECK_FOR_UPDATES: typeof import('./ipc.js').INVOKE.checkForUpdates = 'superiu:check-for-updates';
+const START_UPDATE: typeof import('./ipc.js').INVOKE.startUpdate = 'superiu:start-update';
 const REMOTE_PROGRESS_CHANNEL: typeof import('./ipc.js').REMOTE_PROGRESS_CHANNEL = 'superiu:remote-progress';
+const UPDATE_PROGRESS_CHANNEL: typeof import('./ipc.js').UPDATE_PROGRESS_CHANNEL = 'superiu:update-progress';
 
 const { contextBridge, ipcRenderer } = require('electron');
 
@@ -107,15 +110,31 @@ const bridge: SuperiuDesktopBridge = {
     return ipcRenderer.invoke(CONNECT_REMOTE, options);
   },
 
-  closeRemoteWizard(): Promise<void> {
-    return ipcRenderer.invoke(CLOSE_REMOTE_WIZARD);
-  },
-
   onRemoteProgress(callback: (step: any) => void): () => void {
     const listener = (_event: unknown, step: any): void => callback(step);
     ipcRenderer.on(REMOTE_PROGRESS_CHANNEL, listener);
     return (): void => {
       ipcRenderer.off(REMOTE_PROGRESS_CHANNEL, listener);
+    };
+  },
+
+  getAppVersion(): Promise<string> {
+    return ipcRenderer.invoke(GET_APP_VERSION);
+  },
+
+  checkForUpdates(silent?: boolean): Promise<any> {
+    return ipcRenderer.invoke(CHECK_FOR_UPDATES, silent);
+  },
+
+  startUpdate(updateInfo: any): Promise<void> {
+    return ipcRenderer.invoke(START_UPDATE, updateInfo);
+  },
+
+  onUpdateProgress(callback: (payload: { percent: number }) => void): () => void {
+    const listener = (_event: unknown, payload: { percent: number }): void => callback(payload);
+    ipcRenderer.on(UPDATE_PROGRESS_CHANNEL, listener);
+    return (): void => {
+      ipcRenderer.off(UPDATE_PROGRESS_CHANNEL, listener);
     };
   }
 };

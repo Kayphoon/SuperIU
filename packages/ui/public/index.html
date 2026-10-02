@@ -3073,6 +3073,176 @@
           overflow: visible;
         }
       }
+
+      /* ── Remote VPS & Updater in Settings ───────────────────────────────── */
+      .siu-remote-pipeline {
+        display: flex;
+        flex-direction: column;
+        gap: var(--siu-space-3);
+        margin-top: var(--siu-space-2);
+        padding: var(--siu-space-4);
+        background: var(--siu-bg-inset);
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-lg);
+      }
+      .siu-pipeline-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .siu-pipeline-title {
+        font-size: var(--siu-text-sm);
+        font-weight: 600;
+        color: var(--siu-text-primary);
+      }
+      .siu-pipeline-counter {
+        font-size: var(--siu-text-tiny);
+        font-family: var(--siu-font-mono);
+        color: var(--siu-text-muted);
+      }
+      .siu-progressbar {
+        height: 4px;
+        border-radius: var(--siu-radius-full);
+        background: var(--siu-bg-hover);
+        overflow: hidden;
+      }
+      .siu-progressbar-fill {
+        height: 100%;
+        width: 0%;
+        background: var(--siu-accent);
+        border-radius: var(--siu-radius-full);
+        transition: width 0.35s ease, background 0.25s ease;
+      }
+      .siu-progressbar[data-state='done'] .siu-progressbar-fill {
+        background: var(--siu-success-fg);
+      }
+      .siu-progressbar[data-state='failed'] .siu-progressbar-fill {
+        background: var(--siu-danger-fg);
+      }
+      .siu-step-list {
+        display: flex;
+        flex-direction: column;
+        list-style: none;
+        padding: 0;
+        margin: var(--siu-space-2) 0 0;
+      }
+      .siu-step-item {
+        display: flex;
+        gap: var(--siu-space-3);
+      }
+      .siu-step-rail {
+        position: relative;
+        width: 18px;
+        flex: none;
+        display: flex;
+        justify-content: center;
+      }
+      .siu-step-item:not(:last-child) .siu-step-rail::after {
+        content: '';
+        position: absolute;
+        top: 22px;
+        bottom: -4px;
+        left: 50%;
+        width: 2px;
+        margin-left: -1px;
+        background: var(--siu-border);
+        transition: background 0.3s ease;
+      }
+      .siu-step-item[data-state='done']:not(:last-child) .siu-step-rail::after {
+        background: var(--siu-success-fg);
+      }
+      .siu-step-node {
+        position: relative;
+        z-index: 1;
+        width: 18px;
+        height: 18px;
+        margin-top: 2px;
+        border-radius: var(--siu-radius-full);
+        display: grid;
+        place-items: center;
+        background: var(--siu-bg-card);
+        border: 2px solid var(--siu-border-strong);
+        transition: border-color 0.25s ease, background-color 0.25s ease;
+      }
+      .siu-step-item[data-state='active'] .siu-step-node {
+        border-color: var(--siu-accent);
+        background: var(--siu-accent-weak);
+      }
+      .siu-step-item[data-state='done'] .siu-step-node {
+        border-color: var(--siu-success-fg);
+        background: var(--siu-success-fg);
+        color: #fff;
+      }
+      .siu-step-item[data-state='failed'] .siu-step-node {
+        border-color: var(--siu-danger-fg);
+        background: var(--siu-danger-fg);
+        color: #fff;
+      }
+      .siu-step-content {
+        padding-bottom: var(--siu-space-3);
+        min-width: 0;
+      }
+      .siu-step-item:last-child .siu-step-content {
+        padding-bottom: 0;
+      }
+      .siu-step-label {
+        font-size: var(--siu-text-sm);
+        color: var(--siu-text-muted);
+        transition: color 0.2s ease;
+      }
+      .siu-step-item[data-state='active'] .siu-step-label {
+        color: var(--siu-text-primary);
+        font-weight: 600;
+      }
+      .siu-step-item[data-state='done'] .siu-step-label {
+        color: var(--siu-text-primary);
+      }
+      .siu-step-detail {
+        font-size: var(--siu-text-micro);
+        color: var(--siu-text-secondary);
+        font-family: var(--siu-font-mono);
+        word-break: break-all;
+        margin-top: 1px;
+      }
+      .siu-step-item[data-state='failed'] .siu-step-detail {
+        color: var(--siu-danger-fg);
+      }
+      .siu-banner {
+        display: flex;
+        align-items: flex-start;
+        gap: var(--siu-space-3);
+        padding: var(--siu-space-3) var(--siu-space-4);
+        border-radius: var(--siu-radius-md);
+        font-size: var(--siu-text-sm);
+      }
+      .siu-banner-error {
+        background: var(--siu-danger-bg);
+        border: 1px solid var(--siu-danger-border);
+        color: var(--siu-danger-fg);
+      }
+      .siu-banner-success {
+        background: var(--siu-success-bg);
+        border: 1px solid var(--siu-success-border);
+        color: var(--siu-success-fg);
+      }
+      .siu-banner-info {
+        background: var(--siu-bg-inset);
+        border: 1px solid var(--siu-border);
+        color: var(--siu-text-secondary);
+      }
+      .siu-release-notes {
+        max-height: 180px;
+        overflow-y: auto;
+        padding: var(--siu-space-3);
+        background: var(--siu-bg-inset);
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-md);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: var(--siu-text-secondary);
+      }
     </style>
   </head>
   <body>
@@ -3518,6 +3688,7 @@
             <button type="button" class="siu-nav-item" role="tab" data-pane="notifications" aria-controls="settings-pane-notifications" aria-selected="false" data-i18n="settings.nav.notifications"></button>
             <button type="button" class="siu-nav-item" role="tab" data-pane="providers" aria-controls="settings-pane-providers" aria-selected="false" data-i18n="settings.nav.providers"></button>
             <button type="button" class="siu-nav-item" role="tab" data-pane="models" aria-controls="settings-pane-models" aria-selected="false" data-i18n="settings.nav.models"></button>
+            <button type="button" class="siu-nav-item" role="tab" data-pane="remote" aria-controls="settings-pane-remote" aria-selected="false" data-i18n="settings.nav.remote"></button>
             <button type="button" class="siu-nav-item" role="tab" data-pane="about" aria-controls="settings-pane-about" aria-selected="false" data-i18n="settings.nav.about"></button>
           </nav>
           <!-- ================= Pane: General ================= -->
@@ -3723,6 +3894,96 @@
             </div>
           </section>
 
+          <!-- ================= Pane: Remote VPS ================= -->
+          <section id="settings-pane-remote" class="siu-prefs-pane" role="tabpanel" data-pane="remote" data-active="false">
+            <header class="siu-prefs-head">
+              <h3 class="siu-prefs-title" data-i18n="settings.remote.title">远程 VPS 连接</h3>
+              <p class="siu-prefs-subtitle" data-i18n="settings.remote.subtitle">通过 SSH 隧道连接并使用云端 VPS 执行环境</p>
+            </header>
+            <div class="siu-prefs-pane-body">
+              <div id="remote-desktop-warning" class="siu-banner siu-banner-info" hidden>
+                <p data-i18n="settings.remote.desktopOnly"></p>
+              </div>
+
+              <div id="remote-form-wrap" class="flex flex-col gap-4">
+                <div>
+                  <label class="siu-field-label" for="remote-host-select" data-i18n="settings.remote.host">SSH 主机</label>
+                  <div class="flex flex-col gap-2">
+                    <select id="remote-host-select" class="siu-field"></select>
+                    <input id="remote-host-custom" type="text" class="siu-field" spellcheck="false" data-i18n-placeholder="settings.remote.customHostPlaceholder" placeholder="主机别名，例如 myserver" hidden />
+                  </div>
+                  <p id="remote-host-hint" class="siu-field-hint"></p>
+                </div>
+
+                <div>
+                  <label class="siu-field-label" for="remote-workspace" data-i18n="settings.remote.workspace">远程工作目录</label>
+                  <input id="remote-workspace" type="text" class="siu-field" spellcheck="false" data-i18n-placeholder="settings.remote.workspacePlaceholder" placeholder="远程目录绝对路径" />
+                  <p class="siu-field-hint" data-i18n="settings.remote.workspaceHint">superiu-server 将在该目录内运行并保存状态。</p>
+                </div>
+
+                <div>
+                  <div class="flex items-center justify-between">
+                    <label class="siu-field-label" for="remote-port" data-i18n="settings.remote.port">本地转发端口</label>
+                    <span class="text-[11px] text-muted font-mono" data-i18n="settings.remote.portOptional">可选</span>
+                  </div>
+                  <input id="remote-port" type="number" min="1024" max="65535" class="siu-field" data-i18n-placeholder="settings.remote.portPlaceholder" placeholder="自动分配" />
+                  <p class="siu-field-hint" data-i18n="settings.remote.portHint">留空则自动分配一个空闲的本地端口（推荐）。</p>
+                </div>
+
+                <div class="siu-toggle-row">
+                  <div class="flex-1">
+                    <div class="siu-toggle-row-title" data-i18n="settings.remote.remember">设为启动时默认连接</div>
+                    <p class="siu-toggle-row-hint" data-i18n="settings.remote.rememberHint">下次启动 SuperIU 时自动连接此主机。</p>
+                  </div>
+                  <button id="remote-remember" class="siu-switch" data-on="false" role="switch" aria-checked="false" aria-label="设为启动时默认连接" data-i18n-aria-label="settings.remote.remember"></button>
+                </div>
+
+                <div class="flex items-center justify-between pt-2">
+                  <p class="text-[11.5px] text-muted max-w-[340px]" data-i18n="settings.remote.trust">全部流量经 SSH 加密隧道传输，配对凭据仅保存在本机。</p>
+                  <button id="btn-remote-connect" type="button" class="siu-btn siu-btn--primary" data-i18n="settings.remote.connect">连接并部署</button>
+                </div>
+              </div>
+
+              <!-- Pipeline progress view -->
+              <div id="remote-pipeline-wrap" class="siu-remote-pipeline" hidden>
+                <div class="siu-pipeline-head">
+                  <span id="remote-pipeline-title" class="siu-pipeline-title" data-i18n="settings.remote.deploying">正在部署</span>
+                  <span id="remote-pipeline-counter" class="siu-pipeline-counter">0 / 7</span>
+                </div>
+                <div id="remote-progressbar" class="siu-progressbar">
+                  <div id="remote-progress-fill" class="siu-progressbar-fill"></div>
+                </div>
+
+                <div id="remote-banner-error" class="siu-banner siu-banner-error" hidden>
+                  <div class="flex-1">
+                    <div id="remote-error-title" class="font-semibold mb-1" data-i18n="settings.remote.errorTitle">连接失败</div>
+                    <div id="remote-error-detail" class="font-mono text-[11px] opacity-90 break-all"></div>
+                    <div class="flex gap-2 mt-3">
+                      <button id="btn-remote-retry" type="button" class="siu-btn siu-btn--primary text-[12px]" data-i18n="settings.remote.retry">重试</button>
+                      <button id="btn-remote-back" type="button" class="siu-btn text-[12px]" data-i18n="settings.remote.back">返回编辑</button>
+                    </div>
+                  </div>
+                </div>
+
+                <div id="remote-banner-success" class="siu-banner siu-banner-success" hidden>
+                  <div class="flex-1">
+                    <div class="font-semibold mb-1" data-i18n="settings.remote.successTitle">已连接，远程环境就绪</div>
+                    <div id="remote-success-detail" class="font-mono text-[11px] opacity-90 break-all"></div>
+                    <div class="flex gap-2 mt-3">
+                      <button id="btn-remote-finish" type="button" class="siu-btn siu-btn--primary text-[12px]" data-i18n="settings.remote.finish">完成</button>
+                    </div>
+                  </div>
+                </div>
+
+                <ol id="remote-steps" class="siu-step-list"></ol>
+
+                <div class="flex justify-end pt-2 border-t border-line">
+                  <button id="btn-remote-cancel" type="button" class="siu-btn" data-i18n="settings.remote.cancel">取消</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
           <!-- ================= Pane: About ================= -->
           <section id="settings-pane-about" class="siu-prefs-pane" role="tabpanel" data-pane="about" data-active="false">
             <header class="siu-prefs-head">
@@ -3731,8 +3992,47 @@
             </header>
             <div class="siu-prefs-pane-body">
               <div class="rounded-lg border border-line bg-fill-subtle px-4 py-3 leading-relaxed">
-                <div class="text-primary" data-i18n="settings.about.product"></div>
-                <p class="siu-prefs-subtitle" data-i18n="settings.about.storage"></p>
+                <div class="flex items-center justify-between">
+                  <div class="text-primary font-medium" data-i18n="settings.about.product"></div>
+                  <span id="about-app-version" class="font-mono text-[12px] text-muted"></span>
+                </div>
+                <p class="siu-prefs-subtitle mt-1" data-i18n="settings.about.storage"></p>
+              </div>
+
+              <!-- In-App Auto Updater -->
+              <div id="about-updater-section" class="flex flex-col gap-3 rounded-lg border border-line p-4">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <h4 class="text-[13px] font-semibold text-primary" data-i18n="settings.about.checkUpdates">检查更新</h4>
+                    <p id="about-updater-status" class="text-[12px] text-muted mt-0.5" data-i18n="settings.about.upToDate"></p>
+                  </div>
+                  <button id="btn-check-updates" type="button" class="siu-btn" data-i18n="settings.about.checkUpdates">检查更新</button>
+                </div>
+
+                <!-- Update Available Card -->
+                <div id="about-update-card" class="flex flex-col gap-3 pt-3 border-t border-line" hidden>
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <span class="text-[13px] font-semibold text-primary" data-i18n="settings.about.updateAvailable">发现新版本</span>
+                      <span id="about-update-target-version" class="ml-2 font-mono text-[12px] text-accent"></span>
+                    </div>
+                    <button id="btn-start-update" type="button" class="siu-btn siu-btn--primary" data-i18n="settings.about.downloadAndRestart">立即更新并重启</button>
+                  </div>
+                  <div id="about-release-notes" class="siu-release-notes" hidden></div>
+                </div>
+
+                <!-- Downloading Progress -->
+                <div id="about-update-progress-wrap" class="flex flex-col gap-2 pt-2 border-t border-line" hidden>
+                  <div class="flex items-center justify-between text-[12px]">
+                    <span id="about-update-progress-label" class="text-primary" data-i18n="settings.about.downloading">正在下载更新…</span>
+                    <span id="about-update-progress-percent" class="font-mono text-muted">0%</span>
+                  </div>
+                  <div class="siu-progressbar">
+                    <div id="about-update-progress-fill" class="siu-progressbar-fill"></div>
+                  </div>
+                </div>
+
+                <div id="about-web-notice" class="text-[12px] text-muted" hidden data-i18n="settings.about.webNotice"></div>
               </div>
             </div>
           </section>
@@ -4368,20 +4668,6 @@
               break;
             case 'new-session':
               if (!anyModalOpen()) void createNewSession();
-              break;
-            case 'abort':
-              if (!anyModalOpen() && state.running) void abortTurn();
-              break;
-            case 'more':
-              // Toggle semantics, like the in-page ⌘J handler.
-              toggleMenuUnobstructed();
-              break;
-            case 'toggle-sidebar':
-              toggleSidebar();
-              break;
-            case 'focus-input':
-              closeAllModals();
-              promptInput.focus();
               break;
           }
         });
@@ -5760,7 +6046,7 @@
       // Settings modal
       // =======================================================================
       /** The panes the nav can switch between, in the order the markup lists them. */
-      const SETTINGS_PANES = ['general', 'autoreview', 'notifications', 'providers', 'models', 'about'];
+      const SETTINGS_PANES = ['general', 'autoreview', 'notifications', 'providers', 'models', 'remote', 'about'];
       /**
        * One provider, shaped for editing. The stored credential is deliberately
        * NOT copied in: the view only ever carries a mask, and seeding the input
@@ -5969,6 +6255,12 @@
         if (pane === 'providers') {
           renderProviderList();
           renderProviderDetail();
+        }
+        if (pane === 'remote') {
+          renderRemotePane();
+        }
+        if (pane === 'about') {
+          renderAboutPane();
         }
       }
 
@@ -6280,16 +6572,18 @@
         renderSettingsDirty();
         renderProviderKeyToggle();
         renderNotifyButton();
+        renderRemotePane();
+        renderAboutPane();
       }
 
-      async function openSettings() {
+      async function openSettings(targetPane) {
         try {
           fillSettingsForm(await api('/api/settings'));
         } catch (err) {
           toast(err.message, 'error');
         }
-        // Reopen on the pane the user left, defaulting to General.
-        setSettingsPane(state.settingsPane || 'general');
+        // Reopen on the target pane or the pane the user left, defaulting to General.
+        setSettingsPane(targetPane || state.settingsPane || 'general');
         openModal('settings');
       }
 
@@ -6603,6 +6897,408 @@
           message.textContent = '✕ ' + err.message;
           message.className = 'siu-approval-status mr-auto';
           message.dataset.tone = 'error';
+        }
+      });
+
+      // -----------------------------------------------------------------------
+      // Remote VPS & Updater Panes
+      // -----------------------------------------------------------------------
+      const REMOTE_STEPS_META = [
+        { id: 'probe', labelKey: 'settings.remote.step.probe', descKey: 'settings.remote.step.probeDesc' },
+        { id: 'install', labelKey: 'settings.remote.step.install', descKey: 'settings.remote.step.installDesc' },
+        { id: 'workspace', labelKey: 'settings.remote.step.workspace', descKey: 'settings.remote.step.workspaceDesc' },
+        { id: 'token', labelKey: 'settings.remote.step.token', descKey: 'settings.remote.step.tokenDesc' },
+        { id: 'start', labelKey: 'settings.remote.step.start', descKey: 'settings.remote.step.startDesc' },
+        { id: 'tunnel', labelKey: 'settings.remote.step.tunnel', descKey: 'settings.remote.step.tunnelDesc' },
+        { id: 'client', labelKey: 'settings.remote.step.client', descKey: 'settings.remote.step.clientDesc' }
+      ];
+
+      let remoteSshHosts = [];
+      let unsubscribeRemoteProgress = null;
+      let remoteConnecting = false;
+      let lastRemotePayload = null;
+
+      function renderRemotePane() {
+        const isDesktop = Boolean(window.superiuDesktop?.connectRemote);
+        const warning = $('remote-desktop-warning');
+        const formWrap = $('remote-form-wrap');
+        const pipelineWrap = $('remote-pipeline-wrap');
+        if (!isDesktop) {
+          if (warning) warning.hidden = false;
+          if (formWrap) formWrap.hidden = true;
+          if (pipelineWrap) pipelineWrap.hidden = true;
+          return;
+        }
+        if (warning) warning.hidden = true;
+        if (!remoteConnecting && pipelineWrap?.hidden) {
+          if (formWrap) formWrap.hidden = false;
+        }
+        void loadRemoteSshHosts();
+      }
+
+      async function loadRemoteSshHosts() {
+        if (!window.superiuDesktop?.getSshHosts) return;
+        try {
+          const hosts = await window.superiuDesktop.getSshHosts();
+          remoteSshHosts = Array.isArray(hosts) ? hosts : [];
+          updateRemoteHostSelect();
+        } catch {
+          remoteSshHosts = [];
+          updateRemoteHostSelect();
+        }
+      }
+
+      function updateRemoteHostSelect() {
+        const select = $('remote-host-select');
+        const customInput = $('remote-host-custom');
+        if (!select || !customInput) return;
+        const previousVal = select.value;
+        select.innerHTML = '';
+
+        const placeholder = el('option', '', tr('settings.remote.hostPlaceholder'));
+        placeholder.value = '';
+        placeholder.disabled = true;
+        select.appendChild(placeholder);
+
+        for (const host of remoteSshHosts) {
+          const opt = el('option', '', host.alias);
+          opt.value = host.alias;
+          select.appendChild(opt);
+        }
+
+        const customOpt = el('option', '', tr('settings.remote.customHost'));
+        customOpt.value = '__custom';
+        select.appendChild(customOpt);
+
+        if (remoteSshHosts.length > 0) {
+          select.hidden = false;
+          if (previousVal && (previousVal === '__custom' || remoteSshHosts.some((h) => h.alias === previousVal))) {
+            select.value = previousVal;
+          } else {
+            select.value = remoteSshHosts[0].alias;
+          }
+          customInput.hidden = select.value !== '__custom';
+        } else {
+          select.hidden = true;
+          customInput.hidden = false;
+          select.value = '__custom';
+        }
+        updateRemoteHostHint();
+      }
+
+      function updateRemoteHostHint() {
+        const hint = $('remote-host-hint');
+        const select = $('remote-host-select');
+        if (!hint || !select) return;
+        if (select.value === '__custom' || select.hidden) {
+          hint.textContent = '';
+          return;
+        }
+        const entry = remoteSshHosts.find((h) => h.alias === select.value);
+        if (!entry) {
+          hint.textContent = '';
+          return;
+        }
+        const user = entry.user ? entry.user + '@' : '';
+        const target = user + (entry.hostName || entry.alias);
+        hint.textContent = target;
+      }
+
+      function buildRemoteStepsDom() {
+        const list = $('remote-steps');
+        if (!list) return;
+        list.innerHTML = '';
+        for (const step of REMOTE_STEPS_META) {
+          const li = el('li', 'siu-step-item');
+          li.dataset.state = 'pending';
+          li.dataset.stepId = step.id;
+
+          const rail = el('span', 'siu-step-rail');
+          const node = el('span', 'siu-step-node');
+          rail.appendChild(node);
+          li.appendChild(rail);
+
+          const content = el('div', 'siu-step-content');
+          const label = el('div', 'siu-step-label', tr(step.labelKey));
+          const detail = el('div', 'siu-step-detail', tr(step.descKey));
+          content.appendChild(label);
+          content.appendChild(detail);
+          li.appendChild(content);
+
+          list.appendChild(li);
+        }
+      }
+
+      function setRemotePipelineStep(stepId, status, detailText) {
+        const list = $('remote-steps');
+        if (!list) return;
+        const item = list.querySelector(`.siu-step-item[data-step-id="${stepId}"]`);
+        if (!item) return;
+        item.dataset.state = status;
+        const meta = REMOTE_STEPS_META.find((s) => s.id === stepId);
+        const detailEl = item.querySelector('.siu-step-detail');
+        if (detailEl) {
+          if (detailText) {
+            detailEl.textContent = detailText;
+          } else if (status === 'pending' && meta) {
+            detailEl.textContent = tr(meta.descKey);
+          }
+        }
+        updateRemotePipelineProgress();
+      }
+
+      function updateRemotePipelineProgress() {
+        const list = $('remote-steps');
+        const counter = $('remote-pipeline-counter');
+        const fill = $('remote-progress-fill');
+        const bar = $('remote-progressbar');
+        if (!list || !counter || !fill || !bar) return;
+        const items = [...list.querySelectorAll('.siu-step-item')];
+        let doneCount = 0;
+        let hasFailed = false;
+        for (const it of items) {
+          if (it.dataset.state === 'done') doneCount += 1;
+          if (it.dataset.state === 'failed') hasFailed = true;
+        }
+        counter.textContent = `${doneCount} / ${items.length}`;
+        fill.style.width = Math.round((doneCount / items.length) * 100) + '%';
+        if (hasFailed) {
+          bar.dataset.state = 'failed';
+        } else if (doneCount === items.length) {
+          bar.dataset.state = 'done';
+        } else {
+          delete bar.dataset.state;
+        }
+      }
+
+      async function triggerRemoteConnect(payload) {
+        if (!window.superiuDesktop?.connectRemote) return;
+        remoteConnecting = true;
+        lastRemotePayload = payload;
+
+        $('remote-form-wrap').hidden = true;
+        $('remote-pipeline-wrap').hidden = false;
+        $('remote-banner-error').hidden = true;
+        $('remote-banner-success').hidden = true;
+        $('btn-remote-connect').disabled = true;
+
+        buildRemoteStepsDom();
+        setRemotePipelineStep('probe', 'active', '');
+
+        if (unsubscribeRemoteProgress) {
+          unsubscribeRemoteProgress();
+          unsubscribeRemoteProgress = null;
+        }
+
+        if (window.superiuDesktop.onRemoteProgress) {
+          unsubscribeRemoteProgress = window.superiuDesktop.onRemoteProgress((step) => {
+            if (step?.id) {
+              setRemotePipelineStep(step.id, step.status, step.detail);
+            }
+          });
+        }
+
+        try {
+          await window.superiuDesktop.connectRemote(payload);
+          setRemotePipelineStep('client', 'done', '');
+          $('remote-banner-success').hidden = false;
+          $('remote-success-detail').textContent = payload.alias;
+        } catch (err) {
+          const errMessage = err?.message || String(err);
+          const activeStep = $('remote-steps')?.querySelector('.siu-step-item[data-state="active"]');
+          if (activeStep?.dataset?.stepId) {
+            setRemotePipelineStep(activeStep.dataset.stepId, 'failed', errMessage);
+          }
+          $('remote-banner-error').hidden = false;
+          $('remote-error-detail').textContent = errMessage;
+        } finally {
+          remoteConnecting = false;
+          $('btn-remote-connect').disabled = false;
+          if (unsubscribeRemoteProgress) {
+            unsubscribeRemoteProgress();
+            unsubscribeRemoteProgress = null;
+          }
+        }
+      }
+
+      let currentAppUpdate = null;
+      let isCheckingUpdates = false;
+
+      function renderAboutPane() {
+        const isDesktop = Boolean(window.superiuDesktop?.checkForUpdates);
+        const webNotice = $('about-web-notice');
+        const checkBtn = $('btn-check-updates');
+        const versionEl = $('about-app-version');
+        if (!isDesktop) {
+          if (webNotice) webNotice.hidden = false;
+          if (checkBtn) checkBtn.hidden = true;
+          return;
+        }
+        if (webNotice) webNotice.hidden = true;
+        if (checkBtn) checkBtn.hidden = false;
+        if (versionEl && window.superiuDesktop.getAppVersion) {
+          window.superiuDesktop.getAppVersion().then((v) => {
+            if (v && versionEl) versionEl.textContent = 'v' + v;
+          }).catch(() => {});
+        }
+      }
+
+      async function checkAppUpdates() {
+        if (!window.superiuDesktop?.checkForUpdates || isCheckingUpdates) return;
+        isCheckingUpdates = true;
+        const statusEl = $('about-updater-status');
+        const checkBtn = $('btn-check-updates');
+        const updateCard = $('about-update-card');
+        const targetVersionEl = $('about-update-target-version');
+        const notesEl = $('about-release-notes');
+
+        if (checkBtn) checkBtn.disabled = true;
+        if (statusEl) statusEl.textContent = tr('settings.about.checking');
+        if (updateCard) updateCard.hidden = true;
+
+        try {
+          const result = await window.superiuDesktop.checkForUpdates(false);
+          currentAppUpdate = result;
+          if (result?.hasUpdate) {
+            if (statusEl) statusEl.textContent = tr('settings.about.updateAvailable');
+            if (updateCard) updateCard.hidden = false;
+            if (targetVersionEl) targetVersionEl.textContent = 'v' + (result.latestVersion || '');
+            if (notesEl) {
+              if (result.releaseNotes) {
+                notesEl.hidden = false;
+                notesEl.textContent = result.releaseNotes;
+              } else {
+                notesEl.hidden = true;
+              }
+            }
+          } else {
+            if (statusEl) statusEl.textContent = tr('settings.about.upToDate');
+            if (updateCard) updateCard.hidden = true;
+          }
+        } catch (err) {
+          if (statusEl) statusEl.textContent = tr('settings.about.updateFailed') + ': ' + (err.message || String(err));
+        } finally {
+          isCheckingUpdates = false;
+          if (checkBtn) checkBtn.disabled = false;
+        }
+      }
+
+      // Remote VPS events
+      $('remote-host-select')?.addEventListener('change', () => {
+        const select = $('remote-host-select');
+        const customInput = $('remote-host-custom');
+        if (select && customInput) {
+          customInput.hidden = select.value !== '__custom';
+          if (select.value === '__custom') customInput.focus();
+        }
+        updateRemoteHostHint();
+      });
+
+      $('remote-remember')?.addEventListener('click', () => {
+        const btn = $('remote-remember');
+        if (!btn) return;
+        const next = btn.dataset.on !== 'true';
+        btn.dataset.on = String(next);
+        btn.setAttribute('aria-checked', String(next));
+      });
+
+      $('btn-remote-connect')?.addEventListener('click', () => {
+        const select = $('remote-host-select');
+        const customInput = $('remote-host-custom');
+        const workspaceInput = $('remote-workspace');
+        const portInput = $('remote-port');
+        const rememberBtn = $('remote-remember');
+
+        const alias = (select && !select.hidden && select.value !== '__custom')
+          ? select.value
+          : customInput?.value?.trim?.() || '';
+
+        if (!alias) {
+          toast(tr('settings.remote.customHostPlaceholder'), 'error');
+          if (customInput && !customInput.hidden) customInput.focus();
+          return;
+        }
+
+        const workspace = workspaceInput?.value?.trim?.() || '';
+        if (!workspace || !(workspace.startsWith('/') || workspace.startsWith('~'))) {
+          toast(tr('settings.remote.workspacePlaceholder'), 'error');
+          workspaceInput?.focus();
+          return;
+        }
+
+        let localPort = undefined;
+        const portRaw = portInput?.value?.trim?.();
+        if (portRaw) {
+          const num = Number(portRaw);
+          if (!Number.isInteger(num) || num < 1024 || num > 65535) {
+            toast(tr('settings.remote.portPlaceholder'), 'error');
+            portInput?.focus();
+            return;
+          }
+          localPort = num;
+        }
+
+        const payload = {
+          alias,
+          workspace,
+          saveDefault: rememberBtn?.dataset?.on === 'true',
+          ...(localPort ? { localPort } : {})
+        };
+        void triggerRemoteConnect(payload);
+      });
+
+      $('btn-remote-retry')?.addEventListener('click', () => {
+        if (lastRemotePayload) void triggerRemoteConnect(lastRemotePayload);
+      });
+
+      $('btn-remote-back')?.addEventListener('click', () => {
+        $('remote-pipeline-wrap').hidden = true;
+        $('remote-form-wrap').hidden = false;
+      });
+
+      $('btn-remote-cancel')?.addEventListener('click', () => {
+        $('remote-pipeline-wrap').hidden = true;
+        $('remote-form-wrap').hidden = false;
+      });
+
+      $('btn-remote-finish')?.addEventListener('click', () => {
+        closeModal('settings');
+      });
+
+      // About Updater events
+      $('btn-check-updates')?.addEventListener('click', () => {
+        void checkAppUpdates();
+      });
+
+      $('btn-start-update')?.addEventListener('click', async () => {
+        if (!currentAppUpdate || !window.superiuDesktop?.startUpdate) return;
+        const startBtn = $('btn-start-update');
+        const progressWrap = $('about-update-progress-wrap');
+        const progressFill = $('about-update-progress-fill');
+        const progressPercent = $('about-update-progress-percent');
+        const progressLabel = $('about-update-progress-label');
+
+        if (startBtn) startBtn.disabled = true;
+        if (progressWrap) progressWrap.hidden = false;
+        if (progressLabel) progressLabel.textContent = tr('settings.about.downloading');
+
+        let unsubscribeUpdate = null;
+        if (window.superiuDesktop.onUpdateProgress) {
+          unsubscribeUpdate = window.superiuDesktop.onUpdateProgress(({ percent }) => {
+            const pct = Math.min(100, Math.max(0, Math.round(percent || 0)));
+            if (progressPercent) progressPercent.textContent = pct + '%';
+            if (progressFill) progressFill.style.width = pct + '%';
+          });
+        }
+
+        try {
+          await window.superiuDesktop.startUpdate(currentAppUpdate);
+          if (progressLabel) progressLabel.textContent = tr('settings.about.relaunching');
+        } catch (err) {
+          toast(err?.message || String(err), 'error');
+          if (startBtn) startBtn.disabled = false;
+        } finally {
+          if (unsubscribeUpdate) unsubscribeUpdate();
         }
       });
 

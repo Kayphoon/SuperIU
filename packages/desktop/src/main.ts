@@ -30,13 +30,15 @@ import {
   INVOKE,
   THEME_CHANNEL,
   REMOTE_PROGRESS_CHANNEL,
+  UPDATE_PROGRESS_CHANNEL,
   type NotificationPayload,
-  type ThemePayload
+  type ThemePayload,
+  type UpdateInfo
 } from './ipc.js';
 import { GatewayClient } from './gateway_client.js';
 import { WorkspaceSandboxWorker } from './sandbox/worker.js';
 import { ABOUT_LABELS, buildMenuTemplate, createMenuDispatcher } from './menu.js';
-import { triggerUpdateCheck } from './updater.js';
+import { checkForUpdates, downloadAndInstallUpdate, triggerUpdateCheck } from './updater.js';
 import {
   RemoteConnectionManager,
   RemoteConnectionError,
@@ -80,7 +82,6 @@ let mainWindow: BrowserWindow | null = null;
 let serverHandle: ServerHandle | null = null;
 let gatewayClient: GatewayClient | null = null;
 let remoteManager: RemoteConnectionManager | null = null;
-let remoteWizardWindow: BrowserWindow | null = null;
 let shuttingDown = false;
 
 // ---------------------------------------------------------------------------
@@ -299,13 +300,7 @@ function installApplicationMenu(): void {
   const template = buildMenuTemplate(
     {
       dispatch: dispatchToRenderer,
-      openDocs,
-      checkForUpdates: () => {
-        void triggerUpdateCheck(true);
-      },
-      connectRemote: () => {
-        openRemoteWizard();
-      }
+      openDocs
     },
     APP_NAME,
     uiLanguage
@@ -581,13 +576,12 @@ async function startRemoteMode(config: GatewayConfig): Promise<void> {
   });
   remoteManager = manager;
 
-  // Progress → log + status window + wizard window.
+  // Progress → log + status window + main window.
   const onProgress = (step: RemoteStep): void => {
     const detail = step.detail ? ` (${step.detail})` : '';
     console.log(`[superiu] remote ${step.id}: ${step.status}${detail}`);
-    showGatewayStatus(config, step.status, { step, detail: step.detail });
-    if (remoteWizardWindow && !remoteWizardWindow.isDestroyed()) {
-      remoteWizardWindow.webContents.send(REMOTE_PROGRESS_CHANNEL, {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(REMOTE_PROGRESS_CHANNEL, {
         id: step.id,
         status: step.status,
         detail: step.detail
@@ -762,42 +756,21 @@ function installIpcHandlers(): void {
     await startRemoteMode(config);
   });
 
-  ipcMain.handle(INVOKE.closeRemoteWizard, () => {
-    if (remoteWizardWindow && !remoteWizardWindow.isDestroyed()) {
-      remoteWizardWindow.close();
-      remoteWizardWindow = null;
-    }
-  });
-}
-
-function openRemoteWizard(): void {
-  if (remoteWizardWindow && !remoteWizardWindow.isDestroyed()) {
-    remoteWizardWindow.focus();
-    return;
-  }
-
-  const htmlPath = path.join(HERE, 'views', 'connect_remote.html');
-  remoteWizardWindow = new BrowserWindow({
-    width: 540,
-    height: 600,
-    resizable: false,
-    maximizable: false,
-    minimizable: false,
-    title: '连接远程 VPS',
-    titleBarStyle: 'hiddenInset',
-    vibrancy: 'under-window',
-    webPreferences: {
-      preload: path.join(HERE, 'preload.cjs'),
-      sandbox: true,
-      contextIsolation: true
-    }
+  ipcMain.handle(INVOKE.getAppVersion, () => {
+    return app.getVersion();
   });
 
-  remoteWizardWindow.on('closed', () => {
-    remoteWizardWindow = null;
+  ipcMain.handle(INVOKE.checkForUpdates, async (_event, silent?: boolean) => {
+    return checkForUpdates({ silent: silent ?? true });
   });
 
-  void remoteWizardWindow.loadFile(htmlPath);
+  ipcMain.handle(INVOKE.startUpdate, async (_event, updateInfo: UpdateInfo) => {
+    await downloadAndInstallUpdate(updateInfo, (percent) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(UPDATE_PROGRESS_CHANNEL, { percent });
+      }
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------

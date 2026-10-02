@@ -27,28 +27,20 @@ export const INVOKE = {
   setTheme: 'superiu:set-theme',
   getSshHosts: 'superiu:get-ssh-hosts',
   connectRemote: 'superiu:connect-remote',
-  closeRemoteWizard: 'superiu:close-remote-wizard'
+  getAppVersion: 'superiu:get-app-version',
+  checkForUpdates: 'superiu:check-for-updates',
+  startUpdate: 'superiu:start-update'
 } as const;
 
 export const REMOTE_PROGRESS_CHANNEL = 'superiu:remote-progress';
+export const UPDATE_PROGRESS_CHANNEL = 'superiu:update-progress';
 
 /**
  * Menu actions the main process forwards to the renderer. The SPA also handles
- * these keystrokes itself, so the items are advertised with
- * `registerAccelerator: false` and dispatch on click — keeping the two paths in
- * sync and making the accelerators discoverable in the menu bar.
- *
- * Note `focus-input`: its accelerator is `Cmd+K`, but the SPA binds ⌘K to the
- * command palette, not to focusing the composer. That divergence predates this
- * contract and is deliberately left as-is.
+ * these keystrokes itself, so the items are advertised with native accelerators
+ * and dispatch on click — keeping the two paths in sync.
  */
-export type MenuAction =
-  | 'settings'
-  | 'new-session'
-  | 'abort'
-  | 'focus-input'
-  | 'more'
-  | 'toggle-sidebar';
+export type MenuAction = 'settings' | 'new-session';
 
 export interface MenuPayload {
   action: MenuAction;
@@ -64,6 +56,15 @@ export type ColorScheme = 'dark' | 'light';
 
 export interface ThemePayload {
   scheme: ColorScheme;
+}
+
+export interface UpdateInfo {
+  hasUpdate: boolean;
+  currentVersion: string;
+  latestVersion: string;
+  releaseNotes?: string;
+  downloadUrl?: string;
+  assetName?: string;
 }
 
 /** Shape of `window.superiuDesktop`, mirrored here so both sides stay typed. */
@@ -96,6 +97,9 @@ export interface SuperiuDesktopBridge {
   setTheme(theme: string): Promise<void>;
   getSshHosts?(): Promise<Array<{ alias: string; hostName: string; user?: string }>>;
   connectRemote?(options: { alias: string; workspace: string; saveDefault?: boolean }): Promise<void>;
-  closeRemoteWizard?(): Promise<void>;
   onRemoteProgress?(callback: (step: { id: string; status: string; detail?: string }) => void): () => void;
+  getAppVersion?(): Promise<string>;
+  checkForUpdates?(silent?: boolean): Promise<UpdateInfo>;
+  startUpdate?(updateInfo: UpdateInfo): Promise<void>;
+  onUpdateProgress?(callback: (payload: { percent: number }) => void): () => void;
 }

@@ -1576,10 +1576,6 @@ const SHARED_CONCEPTS = [
   // translated concept and is enforced; the en casing is a native-HIG choice
   // (allowlisted below).
   { concept: 'menu [newSession]', left: { dict: 'menu', key: 'newSession' }, right: { dict: 'web', key: 'sidebar.new.title' }, languages: LANGUAGES },
-  { concept: 'menu [abort]', left: { dict: 'menu', key: 'abort' }, right: { dict: 'web', key: 'composer.stop.title' }, languages: LANGUAGES },
-  { concept: 'menu [focusInput]', left: { dict: 'menu', key: 'focusInput' }, right: { dict: 'web', key: 'palette.focus' }, languages: LANGUAGES },
-  { concept: 'menu [more]', left: { dict: 'menu', key: 'more' }, right: { dict: 'web', key: 'menu.title' }, languages: LANGUAGES },
-  { concept: 'menu [toggleSidebar]', left: { dict: 'menu', key: 'toggleSidebar' }, right: { dict: 'web', key: 'sidebar.toggle' }, languages: LANGUAGES },
 
   // The streaming "thinking" indicator. zh agrees; the en ellipsis differs.
   { concept: 'transcript thinking', left: { dict: 'web', key: 'transcript.thinking' }, right: { dict: 'cli', key: 'cli.thinking' }, languages: LANGUAGES }
@@ -1636,20 +1632,6 @@ const ALLOWED_DIVERGENCES = [
     left: { dict: 'menu', key: 'newSession', value: 'New Session' },
     right: { dict: 'web', key: 'sidebar.new.title', value: 'New session' },
     reason: 'Desktop-vs-web English casing: a native macOS menu item follows AppKit Title Case (`New Session`) while the SPA label is sentence case (`New session`). The zh wording agrees and IS enforced. Tolerated because the desktop label is an AppKit surface with its own HIG convention.'
-  },
-  {
-    concept: 'menu [abort]',
-    language: 'en',
-    left: { dict: 'menu', key: 'abort', value: 'Abort Turn' },
-    right: { dict: 'web', key: 'composer.stop.title', value: 'Abort' },
-    reason: 'Desktop-vs-web English casing: the menu item names the operation (`Abort Turn`) where the composer button tooltip is the short verb (`Abort`). The zh wording agrees (`中止本轮`) and IS enforced.'
-  },
-  {
-    concept: 'menu [focusInput]',
-    language: 'en',
-    left: { dict: 'menu', key: 'focusInput', value: 'Focus Input' },
-    right: { dict: 'web', key: 'palette.focus', value: 'Focus Prompt Input' },
-    reason: 'Desktop-vs-web English casing: the menu item is terse (`Focus Input`) while the command-palette row names the target (`Focus Prompt Input`). The zh wording agrees (`聚焦输入框`) and IS enforced.'
   }
 ];
 
@@ -1665,8 +1647,8 @@ const FLOORS = {
   'web en keys': 250, // 292
   'cli zh keys': 70, // 88
   'cli en keys': 70, // 88
-  'menu zh keys': 10, // 13
-  'menu en keys': 10, // 13
+  'menu zh keys': 8, // 9
+  'menu en keys': 8, // 9
   'about zh keys': 1, // 1
   'about en keys': 1, // 1
   'AgentStatus union states': 8, // 8
@@ -1681,8 +1663,8 @@ const FLOORS = {
   // slice yields zero entries, and zero entries is zero findings, so the value
   // scan needs the floor to distinguish "clean" from "read nothing".
   'value detail scan values': 700, // 806
-  'concept comparisons': 60, // 68 (34 concepts x 2 languages)
-  'value comparisons': 75 // 84 (68 concept + 16 join)
+  'concept comparisons': 50, // 60 (30 concepts x 2 languages)
+  'value comparisons': 65 // 76 (60 concept + 16 join)
 };
 
 /** Which floors the measured metrics fail. Empty array = non-vacuous. */
