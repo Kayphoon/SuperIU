@@ -163,6 +163,13 @@ description: |
 - **图标**: `scripts/make-icon.swift` 生成 HIG 风格图标——白色 Big Sur squircle 底板，**环境阴影**（`offsetY -12` / `blur 24` / `alpha 0.18`，经 100px 留白区承托）叠加 **1pt 发丝描边**（`alpha 0.08`）勾勒阴影不足处的轮廓。
 - **安装与注册**: `codesign --force --deep --sign -` 自签名并 `--verify`；安装到 `~/Applications/SuperIU.app`；`xattr -cr` 清除陈旧隔离标记；以 `lsregister -f` 注册 LaunchServices、`mdimport` 强制建立 Spotlight 元数据记录（二者均先于索引器返回，故脚本在发布记录后回查 `mdfind`），使 `⌘+Space` 立即可检索。
 
+#### 9.4 发布与更新通道 (`.github/workflows/release.yml` + `src/updater.ts`)
+- **触发即发布**: `release.yml` 在 `push: tags: v*` **或 `push: branches: master`**（以及 `workflow_dispatch`）上运行。`master` 推送 → 滚动预发布版，`tag_name` 恒为 **`latest`**、`prerelease: true`；`v*` 标签 → 版本化稳定版。因此**合并到 master 就等于发版**，发布产物由 workflow 自动构建（两个 Linux server 二进制 + macOS zip），无需本地打包。
+- **滚动通道清场**: master 运行时先 `gh release delete-asset latest` 逐个删除旧产物（旧版本号的大体积 zip 与服务器二进制会累积占满配额），`softprops/action-gh-release@v2` 再上传新产物并 `generate_release_notes: true`。稳定版 tag（如 `v0.2.0`）与滚动 `latest` **互不干扰**，是两条独立发布记录。
+- **版本号是包版本而非 tag**: 桌面产物名 `${productName}-${desktop/package.json version}-mac-${arch}.zip`（由 `bundle-mac.ts` 从 `packages/desktop/package.json` 读出并写入 bundle 的 `CFBundleShortVersionString`）。滚动 tag `latest` 不可解析为 semver，故 `updater.ts` 的 `versionFromAssetName()` **从产物名解析版本**，`fetchLatestRelease()` 先试 `/releases/latest`（永不返回预发布，故对滚动通道恒 404）再回落到 `/releases?per_page=20` 取第一个带 mac 产物的记录。
+- **改 UI 必须 bump `packages/desktop/package.json`**: 更新判定是「产物名里的版本 > 当前版本」。桌面端通过**进程内复用** `@agent/ui` 的 `startServer()` 交付**同一份** SPA，所以任何 `packages/ui/public/*` 改动都靠桌面更新送达——**版本号不变则已安装的桌面客户端收不到更新**（自更新比较的是它自己的版本）。仓库既有惯例见 `92f537e`（`bump @agent/desktop to 0.2.0 so existing 0.1.0 clients see the update`）；发布 UI 修复时按 patch 递增该版本。
+- **`pnpm test` 在 Linux 上的既有失败**: `packages/desktop/test/updater.test.ts` 的 `replaceBundle` 三个用例调用 macOS 专有 `/usr/bin/ditto`，在 `ubuntu-latest`（CI 的 `check (ubuntu-latest)` job、本地 Linux）必然 `spawn /usr/bin/ditto ENOENT` 失败；`check (macos-latest)` job 通过。这是**环境缺失导致的既有红**，与改动无关——发布前用它对照即可，不要为此改产品代码。
+
 ## 相关知识
 
 - [[wiki-execa-process-tree-kill]] - Bash 工具沙箱进程树安全机制
