@@ -7003,6 +7003,29 @@
       let unsubscribeRemoteProgress = null;
       let remoteConnecting = false;
       let lastRemotePayload = null;
+      let lastAutoRemoteWorkspace = null;
+
+      function remoteWorkspaceDefault(alias) {
+        const entry = remoteSshHosts.find((h) => h.alias === alias);
+        const user = entry && entry.user ? entry.user : 'root';
+        const home = user === 'root' ? '/root' : '/' + 'home/' + user;
+        return home + '/.superiu/workspace';
+      }
+
+      function applyRemoteWorkspaceDefault() {
+        const input = $('remote-workspace');
+        const select = $('remote-host-select');
+        const customInput = $('remote-host-custom');
+        if (!input) return;
+        const alias = (select && !select.hidden && select.value !== '__custom')
+          ? select.value
+          : (customInput?.value?.trim?.() || '__custom');
+        const d = remoteWorkspaceDefault(alias);
+        if (!input.value || input.value === lastAutoRemoteWorkspace) {
+          input.value = d;
+        }
+        lastAutoRemoteWorkspace = d;
+      }
 
       function renderRemotePane() {
         const isDesktop = Boolean(window.superiuDesktop?.connectRemote);
@@ -7019,6 +7042,7 @@
         if (!remoteConnecting && pipelineWrap?.hidden) {
           if (formWrap) formWrap.hidden = false;
         }
+        applyRemoteWorkspaceDefault();
         void loadRemoteSshHosts();
       }
 
@@ -7070,6 +7094,7 @@
           select.value = '__custom';
         }
         updateRemoteHostHint();
+        applyRemoteWorkspaceDefault();
       }
 
       function updateRemoteHostHint() {
@@ -7216,6 +7241,13 @@
           if (select.value === '__custom') customInput.focus();
         }
         updateRemoteHostHint();
+        applyRemoteWorkspaceDefault();
+      });
+
+      // A custom alias is typed rather than picked, so the host-select change
+      // event never fires; re-derive the workspace default on each keystroke.
+      $('remote-host-custom')?.addEventListener('input', () => {
+        applyRemoteWorkspaceDefault();
       });
 
       $('remote-remember')?.addEventListener('click', () => {
