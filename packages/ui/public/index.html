@@ -2650,6 +2650,17 @@
          ===================================================================== */
       .siu-modal--prefs {
         max-width: 56rem;
+        /* The window is a FIXED height on purpose. Panes differ wildly in
+           content height (about ≈290px, general ≈660px, providers/remote up to
+           the cap), and `.siu-overlay` centres the modal — so a content-sized
+           window re-centres on every pane switch and drags the nav column with
+           it, which reads as the whole submenu jumping. Pinning the height
+           anchors the nav (System Settings behaves the same way); each pane
+           body absorbs the difference by scrolling.
+           `max-height` must be kept *and* kept equal: the base `.siu-modal`
+           rule caps at min(78vh, 640px), so dropping the override would snap
+           the window down to 640px at tall viewports. */
+        height: min(84vh, 720px);
         max-height: min(84vh, 720px);
       }
       .siu-prefs-body {
