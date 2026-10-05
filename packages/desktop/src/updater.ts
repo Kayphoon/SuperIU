@@ -570,8 +570,9 @@ export async function replaceBundle(preparedApp: string, target: string): Promis
   try {
     // 1. Materialise the new bundle beside the target (same volume → cheap rename).
     // `ditto` preserves macOS code signatures, extended attributes and resource
-    // forks. When ditto is missing (e.g. Linux CI test environments), fall back
-    // to recursive `fs.cp`.
+    // forks. It is missing off macOS, so THIS COPY falls back to recursive
+    // `fs.cp`; note the zip unpack in `prepareUpdate` still requires
+    // `/usr/bin/ditto -x -k` and this branch does not make the module portable.
     if (process.platform === 'darwin' && fs.existsSync('/usr/bin/ditto')) {
       await runCommand('/usr/bin/ditto', [preparedApp, stagingTarget]);
     } else {
