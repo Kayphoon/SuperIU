@@ -12,6 +12,7 @@
 
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
+import { REPO_SLUG } from '../constants.js';
 
 /** Result of running a command on the remote host. */
 export interface RemoteRunResult {
@@ -87,7 +88,7 @@ export const REMOTE_BIN_DIR = '$HOME/.superiu/bin';
 export const REMOTE_BIN_NAME = 'superiu-server';
 export const REMOTE_BIN_PATH = `${REMOTE_BIN_DIR}/${REMOTE_BIN_NAME}`;
 
-const DEFAULT_RELEASE_BASE = 'https://github.com/superiu/superiu/releases/latest/download';
+const DEFAULT_RELEASE_BASE = `https://github.com/${REPO_SLUG}/releases/latest/download`;
 
 /**
  * Quote a value for safe single-argument interpolation into a POSIX shell

@@ -26,9 +26,10 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
+import { REPO_SLUG } from './constants.js';
 
 /** The GitHub repository that publishes released desktop builds. */
-export const DEFAULT_REPO = 'Kayphoon/SuperIU';
+export const DEFAULT_REPO = REPO_SLUG;
 
 /** The bundle name produced by `scripts/bundle-mac.ts`. */
 const APP_BUNDLE_NAME = 'SuperIU.app';

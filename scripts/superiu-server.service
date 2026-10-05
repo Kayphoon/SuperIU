@@ -24,7 +24,7 @@
 
 [Unit]
 Description=SuperIU headless server (web shell + WebSocket gateway)
-Documentation=https://github.com/superiu/superiu
+Documentation=https://github.com/Kayphoon/SuperIU
 After=network-online.target
 Wants=network-online.target
 

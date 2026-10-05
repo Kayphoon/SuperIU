@@ -6,12 +6,15 @@
 #
 # Environment:
 #   SUPERIU_RELEASE_BASE  Release download base URL.
-#                         Default: https://github.com/superiu/superiu/releases/latest/download
+#                         Default: https://github.com/Kayphoon/SuperIU/releases/latest/download
+#                         Keep this default in sync with REPO_SLUG in
+#                         packages/desktop/src/constants.ts (install.sh cannot
+#                         import TS).
 #   SUPERIU_VERSION       Pin a release tag (e.g. 0.1.0). Prefixes the asset URL
 #                         with /download/v<version> instead of /latest/download.
 set -eu
 
-RELEASE_BASE="${SUPERIU_RELEASE_BASE:-https://github.com/superiu/superiu/releases/latest/download}"
+RELEASE_BASE="${SUPERIU_RELEASE_BASE:-https://github.com/Kayphoon/SuperIU/releases/latest/download}"
 INSTALL_DIR="${HOME}/.superiu/bin"
 BINARY_NAME="superiu-server"
 
