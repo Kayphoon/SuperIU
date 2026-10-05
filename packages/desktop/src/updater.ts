@@ -569,8 +569,14 @@ export async function replaceBundle(preparedApp: string, target: string): Promis
 
   try {
     // 1. Materialise the new bundle beside the target (same volume → cheap rename).
-    await runCommand('/usr/bin/ditto', [preparedApp, stagingTarget]);
-
+    // `ditto` preserves macOS code signatures, extended attributes and resource
+    // forks. When ditto is missing (e.g. Linux CI test environments), fall back
+    // to recursive `fs.cp`.
+    if (process.platform === 'darwin' && fs.existsSync('/usr/bin/ditto')) {
+      await runCommand('/usr/bin/ditto', [preparedApp, stagingTarget]);
+    } else {
+      await fsp.cp(preparedApp, stagingTarget, { recursive: true });
+    }
     // 2. Move the live bundle aside (the running process keeps its open inode).
     await fsp.rename(target, backupTarget);
 
