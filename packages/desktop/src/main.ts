@@ -34,6 +34,13 @@ import {
   type NotificationPayload,
   type ThemePayload
 } from './ipc.js';
+import {
+  needsOnboarding,
+  readDesktopSettings,
+  resolveGatewayConfig,
+  writeDesktopSettings,
+  type GatewayConfig
+} from './settings.js';
 import { GatewayClient } from './gateway_client.js';
 import { WorkspaceSandboxWorker } from './sandbox/worker.js';
 import { ABOUT_LABELS, buildMenuTemplate, createMenuDispatcher } from './menu.js';
@@ -84,6 +91,7 @@ if (!gotTheLock) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let onboardingWindow: BrowserWindow | null = null;
 let serverHandle: ServerHandle | null = null;
 let gatewayClient: GatewayClient | null = null;
 let remoteManager: RemoteConnectionManager | null = null;
@@ -115,130 +123,9 @@ let shuttingDown = false;
 // presence of either, so an operator can pin local startup while a gateway or
 // remote host is still configured.
 
-type ConnectionMode = 'local' | 'gateway' | 'remote';
-
-interface GatewayConfig {
-  mode: ConnectionMode;
-  /** WebSocket endpoint, when a gateway is configured. */
-  url?: string;
-  /** Pre-shared token presented during the handshake. */
-  token?: string;
-  /** Local workspace directory the sandbox is anchored to. */
-  workspaceRoot: string;
-  /** Stable device id persisted across launches, when one is configured. */
-  deviceId?: string;
-  /** SSH-managed remote settings, when `mode === 'remote'`. */
-  remote?: RemoteConfig;
-}
-
-/** Resolved settings for the SSH-managed `remote` mode. */
-interface RemoteConfig {
-  /** ssh host alias (resolved against `~/.ssh/config`). */
-  alias: string;
-  /** Remote workspace directory on the VPS. */
-  workspace: string;
-  /** Overrides the release download base URL. */
-  releaseBase?: string;
-  /** Pins a specific daemon version. */
-  version?: string;
-  /** Fixed local tunnel port; an ephemeral port is chosen when omitted. */
-  localPort?: number;
-}
-
-/** Parsed subset of `ui-settings.json` relevant to the desktop connection. */
-interface DesktopSettings {
-  connectionMode?: string;
-  gateway?: { url?: string; token?: string; deviceId?: string; deviceName?: string };
-  remote?: { alias?: string; workspace?: string; releaseBase?: string; version?: string; localPort?: number };
-  workspaceRoot?: string;
-}
-
-/** Read `<workspace>/.superiu/ui-settings.json`, tolerating a missing/broken file. */
-function readDesktopSettings(workspaceRoot: string): DesktopSettings {
-  const file = path.join(workspaceRoot, '.superiu', 'ui-settings.json');
-  try {
-    const raw = JSON.parse(fs.readFileSync(file, 'utf-8')) as DesktopSettings;
-    return raw && typeof raw === 'object' ? raw : {};
-  } catch {
-    return {};
-  }
-}
-
-/**
- * Resolve the effective connection configuration.
- *
- * Environment variables take precedence over the settings file, matching how
- * every other shell reads provider credentials. An empty string is treated as
- * "unset" so a blank env var cannot shadow a configured setting.
- *
- * Mode precedence: an explicit `connectionMode` (env then settings) wins; that
- * falls back to `remote` when an ssh alias is configured, then `gateway` when
- * both a url and token are present, then `local`.
- */
-function resolveGatewayConfig(workspaceRoot: string): GatewayConfig {
-  const settings = readDesktopSettings(workspaceRoot);
-
-  const envUrl = process.env.SUPERIU_GATEWAY_URL?.trim() || undefined;
-  const envToken = process.env.SUPERIU_GATEWAY_TOKEN?.trim() || undefined;
-  const settingUrl = settings.gateway?.url?.trim() || undefined;
-  const settingToken = settings.gateway?.token?.trim() || undefined;
-
-  const url = envUrl ?? settingUrl;
-  const token = envToken ?? settingToken;
-
-  // Remote alias: env wins, empty string is "unset".
-  const envAlias = process.env.SUPERIU_REMOTE_ALIAS?.trim() || undefined;
-  const settingAlias = settings.remote?.alias?.trim() || undefined;
-  const alias = envAlias ?? settingAlias;
-
-  // Remote workspace: env wins, empty string is "unset"; falls back to the
-  // local workspace root when unset (a sensible default remote path).
-  const envRemoteWorkspace = process.env.SUPERIU_REMOTE_WORKSPACE?.trim() || undefined;
-  const settingRemoteWorkspace = settings.remote?.workspace?.trim() || undefined;
-
-  const rawMode = (process.env.SUPERIU_CONNECTION_MODE ?? settings.connectionMode ?? '')
-    .trim()
-    .toLowerCase();
-  const explicitMode: ConnectionMode | undefined =
-    rawMode === 'local' ? 'local' : rawMode === 'gateway' ? 'gateway' : rawMode === 'remote' ? 'remote' : undefined;
-
-  // A gateway is usable only with both halves of the credential pair. Without
-  // them the shell would connect and be rejected, which is strictly worse than
-  // falling back to the working local experience.
-  const hasGateway = Boolean(url && token);
-  const hasRemote = Boolean(alias);
-  const mode: ConnectionMode =
-    explicitMode ?? (hasRemote ? 'remote' : hasGateway ? 'gateway' : 'local');
-
-  const workspace = settings.workspaceRoot?.trim();
-  const resolvedWorkspaceRoot = workspace
-    ? path.isAbsolute(workspace)
-      ? workspace
-      : path.resolve(workspaceRoot, workspace)
-    : workspaceRoot;
-
-  const remote: RemoteConfig | undefined = alias
-    ? {
-        alias,
-        workspace: envRemoteWorkspace ?? settingRemoteWorkspace ?? resolvedWorkspaceRoot,
-        releaseBase: settings.remote?.releaseBase?.trim() || undefined,
-        version: settings.remote?.version?.trim() || undefined,
-        localPort:
-          typeof settings.remote?.localPort === 'number' && Number.isFinite(settings.remote.localPort)
-            ? settings.remote.localPort
-            : undefined
-      }
-    : undefined;
-
-  return {
-    mode,
-    url,
-    token,
-    deviceId: settings.gateway?.deviceId?.trim() || undefined,
-    workspaceRoot: resolvedWorkspaceRoot,
-    remote
-  };
-}
+// The settings/connection-mode resolution itself lives in `./settings.js`, a
+// pure (Electron-free) module so it can be unit-tested without an Electron
+// runtime and imported before `app.whenReady()`.
 
 // The native menu is installed at module scope, before `ready` — too early to
 // read the persisted settings file. It is therefore seeded again in `bootstrap`
@@ -514,6 +401,15 @@ function createWindow(url: string): BrowserWindow {
 
 /** Focus the existing window (dock click, or a blocked second launch). */
 function focusMainWindow(): void {
+  // A first-run window takes precedence while it is still needed: on macOS a
+  // dock click must reopen it rather than leaving the app as a windowless
+  // zombie (the local server / main window does not exist yet).
+  if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+    if (onboardingWindow.isMinimized()) onboardingWindow.restore();
+    onboardingWindow.show();
+    onboardingWindow.focus();
+    return;
+  }
   if (!mainWindow || mainWindow.isDestroyed()) {
     if (serverHandle) {
       mainWindow = createWindow(serverHandle.url);
@@ -524,12 +420,118 @@ function focusMainWindow(): void {
       );
     } else if (gatewayClient) {
       showGatewayStatus(resolveGatewayConfig(process.cwd()), gatewayClient.connectionState);
+    } else if (needsOnboarding(readDesktopSettings(resolveWorkspace()), resolveGatewayConfig(resolveWorkspace()))) {
+      // Dock click with no window at all and no mode chosen yet: reopen the
+      // first-run window instead of doing nothing.
+      openOnboarding();
     }
     return;
   }
   if (mainWindow.isMinimized()) mainWindow.restore();
   mainWindow.show();
   mainWindow.focus();
+}
+
+// ---------------------------------------------------------------------------
+// First-run onboarding window
+// ---------------------------------------------------------------------------
+// A SEPARATE window from `mainWindow`. Remote mode paints a status page BEFORE
+// any ssh work begins (and `showGatewayStatus` loadURLs it into `mainWindow`);
+// if the wizard were `mainWindow`, the mode cards and the 7-step pipeline would
+// be replaced the moment the pipeline started, and progress events would land on
+// a page that cannot render them. So the wizard keeps its own window, fed
+// progress through `RemoteModeOptions.progressTarget`.
+
+/** The workspace root shared by `bootstrap` and the local starter. */
+function resolveWorkspace(): string {
+  return app.isPackaged ? app.getPath('home') : process.cwd();
+}
+
+/** Open the first-run window (idempotent: an open wizard is only re-focused). */
+function openOnboarding(): void {
+  if (onboardingWindow && !onboardingWindow.isDestroyed()) {
+    onboardingWindow.show();
+    onboardingWindow.focus();
+    return;
+  }
+
+  const win = new BrowserWindow({
+    width: 560,
+    height: 760,
+    minWidth: 520,
+    minHeight: 640,
+    show: false,
+    resizable: true,
+    title: '首次启动 · SuperIU',
+    // Same native chrome shape as `createWindow`: inset traffic lights and the
+    // translucent under-window material the wizard's own tokens expect.
+    titleBarStyle: 'hiddenInset',
+    vibrancy: 'under-window',
+    backgroundColor: '#00000000',
+    transparent: false,
+    webPreferences: {
+      preload: path.join(HERE, 'preload.cjs'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+
+  win.once('ready-to-show', () => win.show());
+  win.on('closed', () => {
+    if (onboardingWindow === win) onboardingWindow = null;
+  });
+
+  onboardingWindow = win;
+  void win.loadFile(path.join(HERE, 'views', 'onboarding.html'));
+}
+
+/** Close the first-run window (idempotent). */
+function closeOnboarding(): void {
+  const win = onboardingWindow;
+  onboardingWindow = null;
+  if (win && !win.isDestroyed()) win.destroy();
+}
+
+// ---------------------------------------------------------------------------
+// Mode starters
+// ---------------------------------------------------------------------------
+
+/**
+ * Boot local mode: the historical standalone experience, extracted verbatim
+ * from `bootstrap` so the first-run flow can start it after the user chooses
+ * 本地 Agent without re-entering the (already-consumed) `bootstrap`.
+ */
+async function startLocalMode(): Promise<void> {
+  const workspace = resolveWorkspace();
+  serverHandle = await startServer({ port: 0, quiet: true, workspaceDir: workspace });
+  console.log(`[superiu] workspace ${workspace}`);
+  console.log(`[superiu] UI server listening on ${serverHandle.url}`);
+
+  // Now that the settings file has been read, rebuild the menu so the first
+  // paint matches it instead of the module-scope default.
+  uiLanguage = serverHandle.language;
+  installApplicationMenu();
+  installAboutPanel();
+
+  // Mirror the persisted appearance onto the native side BEFORE the window
+  // exists: `nativeTheme.themeSource` is what makes `prefers-color-scheme`
+  // inside the renderer agree with a pinned Dark/Light choice, and the page
+  // reads that query in its pre-paint script. Applying it after `loadURL` would
+  // leave the very first paint resolving against the OS default.
+  nativeTheme.themeSource = serverHandle.theme;
+
+  mainWindow = createWindow(serverHandle.url);
+
+  // Silent background update probe. Delayed so it never competes with startup
+  // work, and skipped in development where there is no installable bundle. The
+  // download it may start is invisible by design: progress and the restart
+  // offer reach the user through the update-state listener above.
+  if (app.isPackaged) {
+    setTimeout(() => {
+      void checkForUpdate(false);
+    }, 5000);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -676,6 +678,20 @@ function closeGateway(): void {
 // ---------------------------------------------------------------------------
 
 /**
+ * Knobs for {@link startRemoteMode} used by the first-run flow.
+ *
+ * The wizard owns its own window, so when the connect request comes from it the
+ * status page must NOT be painted (it would steal the wizard's window contents)
+ * and progress must be routed to the wizard instead of `mainWindow`.
+ */
+interface RemoteModeOptions {
+  /** Paint the live status window. Default true. */
+  paint?: boolean;
+  /** Window that receives `REMOTE_PROGRESS_CHANNEL` step events. Default: `() => mainWindow`. */
+  progressTarget?: () => BrowserWindow | null;
+}
+
+/**
  * Boot remote mode: parse `~/.ssh/config`, provision/start the daemon on the VPS
  * over ssh, open a local port-forward, and connect a `GatewayClient` to the
  * tunnelled local port — all via {@link RemoteConnectionManager}.
@@ -686,17 +702,22 @@ function closeGateway(): void {
  * never throws: when `~/.ssh/config` is missing it returns `[]` and the alias is
  * passed to ssh unresolved, which ssh itself then resolves.
  */
-async function startRemoteMode(config: GatewayConfig): Promise<void> {
+async function startRemoteMode(config: GatewayConfig, opts: RemoteModeOptions = {}): Promise<void> {
   const remote = config.remote;
   if (!remote) {
     throw new Error('remote mode requires a remote alias');
   }
 
+  const paint = opts.paint !== false;
+  const progressTarget = opts.progressTarget ?? ((): BrowserWindow | null => mainWindow);
+
   // First paint before any ssh work begins, so the user sees the flow start
   // instead of a blank window during a slow probe/install.
-  showGatewayStatus(config, 'connecting', {
-    step: { id: 'probe', status: 'active' }
-  });
+  if (paint) {
+    showGatewayStatus(config, 'connecting', {
+      step: { id: 'probe', status: 'active' }
+    });
+  }
 
   const manager = new RemoteConnectionManager({
     resolveHost: async (alias) => {
@@ -712,12 +733,14 @@ async function startRemoteMode(config: GatewayConfig): Promise<void> {
   });
   remoteManager = manager;
 
-  // Progress → log + status window + main window.
+  // Progress → log + status window + progress target (main window, or the
+  // first-run wizard).
   const onProgress = (step: RemoteStep): void => {
     const detail = step.detail ? ` (${step.detail})` : '';
     console.log(`[superiu] remote ${step.id}: ${step.status}${detail}`);
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(REMOTE_PROGRESS_CHANNEL, {
+    const target = progressTarget();
+    if (target && !target.isDestroyed()) {
+      target.webContents.send(REMOTE_PROGRESS_CHANNEL, {
         id: step.id,
         status: step.status,
         detail: step.detail
@@ -746,10 +769,12 @@ async function startRemoteMode(config: GatewayConfig): Promise<void> {
     console.log(
       `[superiu] remote mode → ${result.localUrl} via ${remote.alias} (workspace ${remote.workspace})`
     );
-    showGatewayStatus(config, result.gatewayClient.connectionState, {
-      step: { id: 'client', status: 'done' },
-      detail: `tunnel port ${result.tunnelPort}`
-    });
+    if (paint) {
+      showGatewayStatus(config, result.gatewayClient.connectionState, {
+        step: { id: 'client', status: 'done' },
+        detail: `tunnel port ${result.tunnelPort}`
+      });
+    }
   } catch (err) {
     // Surface the failing step and STOP. Deliberately no silent fallback to
     // local mode: that would boot a second AgentRunner/DB handle set the user
@@ -758,10 +783,14 @@ async function startRemoteMode(config: GatewayConfig): Promise<void> {
     const step = err instanceof RemoteConnectionError ? err.step : undefined;
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[superiu] remote mode failed at step ${step ?? 'unknown'}: ${message}`);
-    showGatewayStatus(config, `failed (${step ?? 'unknown'})`, {
-      step: step ? { id: step, status: 'failed' } : undefined,
-      detail: message
-    });
+    // With `paint:false` the caller's view (the wizard) renders the error banner
+    // itself, so the status page is skipped.
+    if (paint) {
+      showGatewayStatus(config, `failed (${step ?? 'unknown'})`, {
+        step: step ? { id: step, status: 'failed' } : undefined,
+        detail: message
+      });
+    }
     // Tear the half-open manager down (closes the tunnel + client) but never the
     // remote daemon.
     await manager.disconnect().catch(() => undefined);
@@ -859,37 +888,82 @@ function installIpcHandlers(): void {
     }
   });
 
-  ipcMain.handle(INVOKE.connectRemote, async (_event, options: { alias: string; workspace: string; saveDefault?: boolean }) => {
-    if (options.saveDefault) {
-      try {
-        const workspace = app.isPackaged ? app.getPath('home') : process.cwd();
-        const settingsFile = path.join(workspace, '.superiu', 'ui-settings.json');
-        let current: any = {};
-        if (fs.existsSync(settingsFile)) {
-          current = JSON.parse(fs.readFileSync(settingsFile, 'utf-8'));
+  ipcMain.handle(
+    INVOKE.connectRemote,
+    async (
+      event,
+      options: { alias: string; workspace: string; localPort?: number; saveDefault?: boolean }
+    ) => {
+      // A connect request that originated in the first-run wizard: skip the
+      // status paint (the wizard owns its window) and route progress to it.
+      const onboarding =
+        onboardingWindow && !onboardingWindow.isDestroyed() ? onboardingWindow : null;
+      const fromOnboarding = Boolean(onboarding && event.sender === onboarding.webContents);
+
+      // A fixed local forward port is honoured, not dropped. `resolveGatewayConfig`
+      // reads `settings.remote.localPort` back on the next boot, so persisting it
+      // here is what makes the wizard's "本地转发端口" field survive a restart.
+      const localPort =
+        typeof options.localPort === 'number' && Number.isFinite(options.localPort)
+          ? options.localPort
+          : undefined;
+
+      if (options.saveDefault) {
+        try {
+          // Read-modify-write through the settings module so the SPA's own keys
+          // (apiKey, providers, …) survive. Recording the choice also marks the
+          // first run complete so the wizard is never shown again.
+          writeDesktopSettings(resolveWorkspace(), {
+            connectionMode: 'remote',
+            remote: { alias: options.alias, workspace: options.workspace, localPort },
+            onboardingCompleted: true
+          });
+        } catch (e) {
+          console.warn('[superiu] failed to persist default remote settings:', e);
         }
-        current.connectionMode = 'remote';
-        current.remote = {
+      }
+
+      const config: GatewayConfig = {
+        mode: 'remote',
+        workspaceRoot: options.workspace,
+        remote: {
           alias: options.alias,
-          workspace: options.workspace
-        };
-        fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
-        fs.writeFileSync(settingsFile, JSON.stringify(current, null, 2), 'utf-8');
-      } catch (e) {
-        console.warn('[superiu] failed to persist default remote settings:', e);
+          workspace: options.workspace,
+          localPort
+        }
+      };
+
+      // Returns as soon as `connect()` is initiated (the handshake is async by
+      // design); the wizard keeps rendering progress until then.
+      await startRemoteMode(
+        config,
+        fromOnboarding ? { paint: false, progressTarget: () => onboardingWindow } : {}
+      );
+
+      if (fromOnboarding) {
+        // The choice is on disk: close the wizard and give the user a live
+        // status screen instead of a vanished window. `startRemoteMode` already
+        // returned, so this reflects the manager's current client state.
+        closeOnboarding();
+        showGatewayStatus(config, remoteManager?.gatewayClient?.connectionState ?? 'connecting');
       }
     }
+  );
 
-    const config: GatewayConfig = {
-      mode: 'remote',
-      workspaceRoot: options.workspace,
-      remote: {
-        alias: options.alias,
-        workspace: options.workspace
-      }
-    };
-
-    await startRemoteMode(config);
+  ipcMain.handle(INVOKE.completeOnboarding, async (_event, opts: { mode: 'local' }) => {
+    if (!opts || opts.mode !== 'local') throw new Error('unsupported onboarding mode');
+    // Start the engine BEFORE closing the wizard: `startLocalMode` can throw
+    // (port bind, directory permissions, memory-dir resolution), and closing
+    // first would destroy the only window while `bootstrap` has long since
+    // returned — leaving a windowless process and an error the page can never
+    // show. On failure the wizard stays up and its own `.catch` renders the
+    // error. This mirrors the remote path, which closes only after success.
+    await startLocalMode();
+    writeDesktopSettings(resolveWorkspace(), {
+      connectionMode: 'local',
+      onboardingCompleted: true
+    });
+    closeOnboarding();
   });
 
   ipcMain.handle(INVOKE.checkForUpdate, async () => {
@@ -971,7 +1045,7 @@ async function bootstrap(): Promise<void> {
   // engine already falls back to for memory. `chdir` (rather than only passing
   // `workspaceDir`) keeps every cwd-relative path in the engine coherent, and
   // the explicit option means the session store never depends on that.
-  const workspace = app.isPackaged ? app.getPath('home') : process.cwd();
+  const workspace = resolveWorkspace();
   process.chdir(workspace);
 
   // Resolve the transport first: in gateway/remote mode the shell is a remote
@@ -981,6 +1055,16 @@ async function bootstrap(): Promise<void> {
   // standalone experience and remains the fallback whenever no gateway/remote is
   // configured or the mode is pinned to `local`.
   const gateway = resolveGatewayConfig(workspace);
+
+  // First run: no mode has ever been recorded. Show the wizard and stop — the
+  // server/main window is started later, once the user makes a choice, via the
+  // `completeOnboarding` / `connectRemote` IPC handlers. Logging the workspace
+  // here matches every other branch.
+  if (needsOnboarding(readDesktopSettings(workspace), gateway)) {
+    console.log(`[superiu] workspace ${workspace}`);
+    openOnboarding();
+    return;
+  }
 
   if (gateway.mode === 'remote') {
     console.log(`[superiu] workspace ${workspace}`);
@@ -998,34 +1082,7 @@ async function bootstrap(): Promise<void> {
     return;
   }
 
-  serverHandle = await startServer({ port: 0, quiet: true, workspaceDir: workspace });
-  console.log(`[superiu] workspace ${workspace}`);
-  console.log(`[superiu] UI server listening on ${serverHandle.url}`);
-
-  // Now that the settings file has been read, rebuild the menu so the first
-  // paint matches it instead of the module-scope default.
-  uiLanguage = serverHandle.language;
-  installApplicationMenu();
-  installAboutPanel();
-
-  // Mirror the persisted appearance onto the native side BEFORE the window
-  // exists: `nativeTheme.themeSource` is what makes `prefers-color-scheme`
-  // inside the renderer agree with a pinned Dark/Light choice, and the page
-  // reads that query in its pre-paint script. Applying it after `loadURL` would
-  // leave the very first paint resolving against the OS default.
-  nativeTheme.themeSource = serverHandle.theme;
-
-  mainWindow = createWindow(serverHandle.url);
-
-  // Silent background update probe. Delayed so it never competes with startup
-  // work, and skipped in development where there is no installable bundle. The
-  // download it may start is invisible by design: progress and the restart
-  // offer reach the user through the update-state listener above.
-  if (app.isPackaged) {
-    setTimeout(() => {
-      void checkForUpdate(false);
-    }, 5000);
-  }
+  await startLocalMode();
 }
 
 if (gotTheLock) {

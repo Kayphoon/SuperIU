@@ -365,6 +365,25 @@ pnpm --filter @agent/desktop run package:zip
 
 `--zip` runs the same assembly, then writes `packages/desktop/dist/SuperIU-<version>-mac-<arch>.zip` via `ditto -c -k --keepParent`. The bundle is ~309 MB on disk (286 MB of it the Electron framework); the archive is ~126 MB, which is what a download costs. `ditto` is used rather than `zip` because it preserves the symlinks and extended attributes inside `Electron Framework.framework` that codesign verifies.
 
+### First-run onboarding
+
+The desktop shell can drive two different agents, and which one it drives has to be decided **before** the app boots, because the choice determines whether the shell starts its own in-process engine at all. So a fresh install (no `.superiu/ui-settings.json`, or one that records neither `onboardingCompleted` nor a `connectionMode`) opens a dedicated onboarding window instead of the console, and nothing else is started until a mode is picked.
+
+**Step 1 — 运行方式.** Two cards:
+
+| Choice | What boots | When to pick it |
+| --- | --- | --- |
+| **本地 Agent** | The in-process `@agent/ui` server, exactly like `pnpm ui` | You want the engine on this Mac, with the user's home directory as the workspace. Zero setup; nothing leaves the machine. |
+| **VPS 远程 Agent** | The SSH-managed remote flow: `~/.ssh/config` host → provision/start `superiu-server` on the VPS → local port-forward → `GatewayClient` | You want a 7×24 agent on a server, with the desktop as a thin client. |
+
+**Step 2 — guidance.** Choosing *本地 Agent* shows a one-screen explanation (workspace = the user's home directory; API key and models are configured afterwards in Settings) and a single confirm button. Choosing *VPS 远程 Agent* hands off to the same seven-step deployment pipeline the Settings → 远程 VPS pane runs, rendered as a wizard: 探测远程系统 → 安装 / 校验 superiu-server → 准备远程工作目录 → 生成安全配对凭据 → 启动云端 Agent 守护进程 → 建立 SSH 加密隧道 → 连接并配对桌面客户端. Failures stop the pipeline on the offending step and offer 重试 / 返回编辑.
+
+The choice is recorded in `.superiu/ui-settings.json` (`connectionMode` plus `onboardingCompleted: true`), so the wizard does not come back. **Both choices persist it when the wizard is used**: the local branch always records it, and the remote branch records it when the wizard's 设为启动时默认连接 switch is on — which it is by default. With that switch turned *off*, the remote session is deliberately session-only: nothing is written, so the wizard reappears on the next launch rather than the app silently reconnecting to a host the user declined to make the default. A machine that already carries a `connectionMode`, a configured gateway (`SUPERIU_GATEWAY_URL` + `SUPERIU_GATEWAY_TOKEN`), or a remote alias boots straight into that mode and never sees the wizard — which is also how an existing installation is migrated.
+
+The onboarding window is a **separate window** from the console, and deliberately so: the remote pipeline paints its progress into the window it was given, so running the wizard inside the console window would replace the wizard with a status page the moment the first step starts. Two environment variables exist for scripted and CI runs: `SUPERIU_FORCE_ONBOARDING=1` shows the wizard regardless of what the settings file says, `SUPERIU_SKIP_ONBOARDING=1` suppresses it.
+
+Because the desktop shell and the web console share one settings file, the file's keys have owners: the SPA owns the provider/model/appearance keys, the desktop shell owns `connectionMode` / `gateway` / `remote` / `onboardingCompleted`. Every write is a read-modify-write that preserves the keys the writer does not own — otherwise a trip through Settings → Save would delete the connection mode and the wizard would come back on every launch.
+
 ### Why a native shell exists at all
 
 In a browser tab the OS and the browser own `Cmd+Q` and `Cmd+,` — a web page cannot intercept them. "Native macOS operations" (quit, settings, window control) is therefore undeliverable from `pnpm ui` alone. That gap is precisely what this package fills: it installs a real application menu whose accelerators are handled by Electron *before* the renderer ever sees a `keydown`.
