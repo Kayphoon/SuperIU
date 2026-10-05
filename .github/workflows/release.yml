@@ -83,13 +83,13 @@ jobs:
       - name: Build
         run: pnpm -r build
 
-      - name: Package macOS app zip
-        run: pnpm --filter @agent/desktop run package:zip --no-install
+      - name: Package macOS app (zip and dmg)
+        run: pnpm --filter @agent/desktop run package:dist --no-install
 
       - name: Checksum
         working-directory: packages/desktop/dist
         run: |
-          for f in *.zip; do
+          for f in *.zip *.dmg; do
             [ -f "$f" ] && shasum -a 256 "$f" > "$f.sha256"
           done
 
@@ -100,6 +100,8 @@ jobs:
           path: |
             packages/desktop/dist/*.zip
             packages/desktop/dist/*.zip.sha256
+            packages/desktop/dist/*.dmg
+            packages/desktop/dist/*.dmg.sha256
           if-no-files-found: error
 
   release:

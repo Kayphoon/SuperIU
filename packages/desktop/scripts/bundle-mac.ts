@@ -104,6 +104,7 @@ const ENTRY_PACKAGES = ['@agent/core', '@agent/ui'];
 
 const INSTALL = !process.argv.includes('--no-install');
 const CREATE_ZIP = process.argv.includes('--zip');
+const CREATE_DMG = process.argv.includes('--dmg');
 
 // ---------------------------------------------------------------------------
 // Small helpers
@@ -676,6 +677,33 @@ function main(): void {
     run('/usr/bin/ditto', ['-c', '-k', '--keepParent', APP_PATH, zipPath]);
     const sizeMb = (fs.statSync(zipPath).size / (1024 * 1024)).toFixed(1);
     log('zip', `distribution archive ${path.relative(REPO_ROOT, zipPath)} (${sizeMb} MB)`);
+  }
+
+  if (CREATE_DMG) {
+    const dmgName = `${APP_NAME}-${version}-mac-${process.arch}.dmg`;
+    const dmgPath = path.join(DIST_DIR, dmgName);
+    fs.rmSync(dmgPath, { force: true });
+
+    // Stage a clean folder with SuperIU.app and an Applications symlink
+    const dmgStage = path.join(DIST_DIR, `.dmg-stage-${Date.now()}`);
+    fs.rmSync(dmgStage, { recursive: true, force: true });
+    fs.mkdirSync(dmgStage, { recursive: true });
+
+    run('/usr/bin/ditto', [APP_PATH, path.join(dmgStage, `${APP_NAME}.app`)]);
+    fs.symlinkSync('/Applications', path.join(dmgStage, 'Applications'));
+
+    run('/usr/bin/hdiutil', [
+      'create',
+      '-volname', APP_NAME,
+      '-srcfolder', dmgStage,
+      '-ov',
+      '-format', 'UDZO',
+      dmgPath
+    ]);
+
+    fs.rmSync(dmgStage, { recursive: true, force: true });
+    const sizeMb = (fs.statSync(dmgPath).size / (1024 * 1024)).toFixed(1);
+    log('dmg', `disk image ${path.relative(REPO_ROOT, dmgPath)} (${sizeMb} MB)`);
   }
 
   console.log(`\n✓ ${APP_NAME} ${version} packaged${INSTALL ? ' and installed' : ''}.\n`);

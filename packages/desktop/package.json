@@ -1,6 +1,6 @@
 {
   "name": "@agent/desktop",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "license": "MIT",
   "private": true,
   "productName": "SuperIU",
@@ -12,7 +12,9 @@
     "clean": "rm -rf dist",
     "start": "electron .",
     "package:mac": "tsx scripts/bundle-mac.ts",
-    "package:zip": "tsx scripts/bundle-mac.ts --zip"
+    "package:zip": "tsx scripts/bundle-mac.ts --zip",
+    "package:dmg": "tsx scripts/bundle-mac.ts --dmg",
+    "package:dist": "tsx scripts/bundle-mac.ts --zip --dmg"
   },
   "dependencies": {
     "@agent/core": "workspace:*",
