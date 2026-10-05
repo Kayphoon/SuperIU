@@ -14,6 +14,16 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.8 (2026-10-05)
+
+### 中文
+
+- 修复 SSH 本地端口转发在默认端口 0 时的规格错误（Bad local forwarding specification），将无效端口及 0 自动解析为操作系统分配的空闲端口。
+
+### English
+
+- Fix SSH local port forwarding specification failure on port 0 by treating invalid and zero ports as ephemeral requests and dynamically picking an OS-assigned free port.
+
 ## v0.2.7 (2026-10-05)
 
 ### 中文

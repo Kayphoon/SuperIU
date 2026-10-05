@@ -70,8 +70,11 @@ const DEFAULT_POLL_INTERVAL_MS = 250;
 /** How long to wait for SIGTERM to take effect before escalating to SIGKILL. */
 const SIGKILL_ESCALATION_MS = 3_000;
 
-/** Returns true when the local port can be bound. */
+/** Returns true when the local port can be bound. Port 0 is not a bindable fixed port. */
 export function isPortFree(port: number, host = '127.0.0.1'): Promise<boolean> {
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+    return Promise.resolve(false);
+  }
   return new Promise((resolve) => {
     const server = net.createServer();
     server.once('error', () => resolve(false));
