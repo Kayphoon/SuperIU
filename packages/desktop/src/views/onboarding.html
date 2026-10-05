@@ -859,7 +859,7 @@ input[type="number"] { -moz-appearance: textfield; }
             <div class="field-head">
               <label for="workspace">远程工作目录</label>
             </div>
-            <input type="text" id="workspace" placeholder="/home/ubuntu/my-project"
+            <input type="text" id="workspace" placeholder="远程目录绝对路径"
                    spellcheck="false" autocapitalize="off" autocorrect="off">
             <p class="hint">superiu-server 将在该目录内运行并保存状态。</p>
             <p class="field-error" id="workspace-error">请输入远程工作目录（绝对路径或以 ~ 开头）。</p>
@@ -1037,6 +1037,9 @@ var state = {
   connecting: false,
   startingLocal: false,
   lastPayload: null,
+  // Last workspace value injected by `applyRemoteWorkspaceDefault`, so a manual
+  // edit is never clobbered by a host switch.
+  lastAutoWorkspace: null,
   stepEls: {},          // id -> { row, detail }
   demo: new URLSearchParams(location.search).get('demo')
 };
@@ -1115,6 +1118,12 @@ function setHosts(hosts) {
     els.hostSelectWrap.hidden = false;
     els.hostCustomWrap.hidden = true;
     state.usingCustomHost = false;
+    // Pre-select the first host, matching the Settings → 远程 VPS pane: an
+    // unselected placeholder would derive the workspace default from an
+    // unresolvable alias (root) and open the form on a different path than the
+    // picker actually implies.
+    els.hostSelect.value = state.hosts[0].alias;
+    els.hostSelectWrap.classList.remove('is-empty');
     updateHostHint();
   }
 }
@@ -1123,6 +1132,39 @@ function currentHostAlias() {
   if (state.usingCustomHost) return els.hostCustom.value.trim();
   var v = els.hostSelect.value;
   return v === '__custom' ? els.hostCustom.value.trim() : v;
+}
+
+/**
+ * The default remote workspace for a host: `${home}/.superiu/workspace`, with
+ * home derived from the selected SSH host's `user` (root → `/root`, anyone else
+ * → `/home/<user>`; an unresolvable alias — a typed custom host — falls back to
+ * root). Mirrors the Settings → 远程 VPS pane so the two surfaces agree.
+ *
+ * ABSOLUTE, never `~`: nothing downstream expands a tilde — the bootstrap
+ * single-quotes it into `mkdir -p '~/x'`, which would make a literal `~`
+ * directory on the VPS.
+ */
+function remoteWorkspaceDefault(alias) {
+  var entry = null;
+  for (var i = 0; i < state.hosts.length; i++) {
+    if (state.hosts[i].alias === alias) { entry = state.hosts[i]; break; }
+  }
+  var user = entry && entry.user ? entry.user : 'root';
+  var home = user === 'root' ? '/root' : '/home/' + user;
+  return home + '/.superiu/workspace';
+}
+
+/**
+ * Pre-fill the workspace field unless the user has typed their own value.
+ * `lastAutoWorkspace` tracks the last value this function injected, so a manual
+ * edit is never clobbered by a later host switch.
+ */
+function applyRemoteWorkspaceDefault() {
+  var value = remoteWorkspaceDefault(currentHostAlias());
+  if (!els.workspace.value || els.workspace.value === state.lastAutoWorkspace) {
+    els.workspace.value = value;
+  }
+  state.lastAutoWorkspace = value;
 }
 
 function updateHostHint() {
@@ -1155,6 +1197,14 @@ els.hostSelect.addEventListener('change', function () {
   els.hostSelectWrap.classList.toggle('is-empty', !els.hostSelect.value);
   clearFieldError(els.fieldHost);
   updateHostHint();
+  applyRemoteWorkspaceDefault();
+});
+
+// A custom alias is typed rather than picked, so the host-select change event
+// never fires; re-derive the workspace default on each keystroke.
+els.hostCustom.addEventListener('input', function () {
+  clearFieldError(els.fieldHost);
+  applyRemoteWorkspaceDefault();
 });
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -1308,6 +1358,10 @@ els.cardLocal.addEventListener('click', function () {
 
 els.cardRemote.addEventListener('click', function () {
   showPanel('form');
+  // The workspace default depends on the selected host, so apply it once the
+  // form is actually visible (boot may not have seeded hosts yet for a real
+  // preload that resolves asynchronously).
+  applyRemoteWorkspaceDefault();
   var first = state.usingCustomHost ? els.hostCustom : els.hostSelect;
   first.focus();
 });
@@ -1561,6 +1615,11 @@ function restoreForm() {
     }
     updateHostHint();
   }
+
+  // Seed the workspace default for the host now in force (the saved/restored
+  // alias when present, otherwise the pre-selected first host). Runs after the
+  // restore so a saved workspace is never overwritten.
+  applyRemoteWorkspaceDefault();
 }
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -1636,7 +1695,7 @@ function simulate(payload) {
     // ?demo=ok|fail|auth — auto-run the scenario for design review.
     var payload = validate() || {
       alias: currentHostAlias() || 'prod-1',
-      workspace: els.workspace.value.trim() || '/home/ubuntu/my-project',
+      workspace: els.workspace.value.trim() || remoteWorkspaceDefault(currentHostAlias()),
       saveDefault: false
     };
     setTimeout(function () { beginConnect(payload); }, 650);
