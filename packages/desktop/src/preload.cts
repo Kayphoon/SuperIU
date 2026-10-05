@@ -41,6 +41,8 @@ const SET_LANGUAGE: typeof import('./ipc.js').INVOKE.setLanguage = 'superiu:set-
 const SET_THEME: typeof import('./ipc.js').INVOKE.setTheme = 'superiu:set-theme';
 const GET_SSH_HOSTS: typeof import('./ipc.js').INVOKE.getSshHosts = 'superiu:get-ssh-hosts';
 const CONNECT_REMOTE: typeof import('./ipc.js').INVOKE.connectRemote = 'superiu:connect-remote';
+const COMPLETE_ONBOARDING: typeof import('./ipc.js').INVOKE.completeOnboarding =
+  'superiu:complete-onboarding';
 const CHECK_FOR_UPDATE: typeof import('./ipc.js').INVOKE.checkForUpdate = 'superiu:check-for-update';
 const INSTALL_UPDATE: typeof import('./ipc.js').INVOKE.installUpdate = 'superiu:install-update';
 const GET_UPDATE_STATE: typeof import('./ipc.js').INVOKE.getUpdateState = 'superiu:get-update-state';
@@ -109,6 +111,10 @@ const bridge: SuperiuDesktopBridge = {
 
   connectRemote(options: any): Promise<void> {
     return ipcRenderer.invoke(CONNECT_REMOTE, options);
+  },
+
+  completeOnboarding(options: { mode: 'local' }): Promise<void> {
+    return ipcRenderer.invoke(COMPLETE_ONBOARDING, options);
   },
 
   onRemoteProgress(callback: (step: any) => void): () => void {

@@ -430,7 +430,7 @@ function writeAppResources(version: string): void {
       filter: (source) => path.resolve(source) !== path.resolve(APP_PATH)
     });
 
-    // Copy views (e.g. connect_remote.html) into staging dist/views
+    // Copy views (e.g. onboarding.html) into staging dist/views
     const viewsDir = path.join(PKG_DIR, 'src', 'views');
     if (fs.existsSync(viewsDir)) {
       fs.cpSync(viewsDir, path.join(staging, 'dist', 'views'), { recursive: true });

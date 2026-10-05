@@ -1,55 +1,38 @@
 <!doctype html>
 <!--
   ─────────────────────────────────────────────────────────────────────────────
-  SuperIU Desktop · “连接到远程 VPS” 向导
+  SuperIU Desktop · 首次启动引导
   ─────────────────────────────────────────────────────────────────────────────
 
-  Loadable directly in an Electron BrowserWindow:
+  Loaded by the desktop shell into a dedicated onboarding BrowserWindow:
 
     const win = new BrowserWindow({
-      width: 520, height: 720,
+      width: 560, height: 760,
       titleBarStyle: 'hiddenInset',
       vibrancy: 'under-window',
       webPreferences: { preload: path.join(__dirname, 'preload.cjs') }
     });
-    win.loadFile(path.join(__dirname, 'views', 'connect_remote.html'));
+    win.loadFile(path.join(__dirname, 'views', 'onboarding.html'));
 
-  Optional prefill via query string (also usable through a data: URL wrapper):
-    connect_remote.html?alias=prod-1&workspace=/home/ubuntu/app&port=51234
+  Three panels:
+    1. #panel-mode   — 选择运行方式：本地 Agent / VPS 远程 Agent
+    2. #panel-local  — 本地模式说明 + 开始按钮
+    3. #panel-form   — 远程 SSH 部署表单（与 #panel-progress 交叉淡入）
 
-  ── Renderer bridge contract ──────────────────────────────────────────────────
-  Preferred: the preload exposes `window.superiuDesktop.remote`:
+  ── Renderer bridge contract (flat, on window.superiuDesktop) ────────────────
+    getSshHosts(): Promise<Array<{ alias; hostName; user? }>>
+    connectRemote({ alias, workspace, localPort?, saveDefault? }): Promise<void>
+    onRemoteProgress(cb: (step: { id; status; detail? }) => void): () => void
+    completeOnboarding({ mode: 'local' }): Promise<void>   // 本 slice 新增
+    onTheme?, isDesktop?
 
-    interface RemoteViewBridge {
-      listHosts(): Promise<SshHostEntry[]>;               // parsed ~/.ssh/config
-      connect(payload: {                                  // resolves on success
-        alias: string; workspace: string;
-        localPort?: number; remember: boolean;
-      }): Promise<{ localUrl: string; tunnelPort: number }>;
-      cancel(): Promise<void>;                            // abort a running flow
-      dismiss?(): Promise<void>;                          // close wizard on success
-      onProgress(cb: (step: {                             // step-by-step updates
-        id: 'probe'|'install'|'workspace'|'token'|'start'|'tunnel'|'client';
-        status: 'pending'|'active'|'done'|'failed';
-        detail?: string;
-      }) => void): () => void;
-    }
+  Degradation: with no `window.superiuDesktop` at all (opened as a plain file for
+  review) the remote form still runs a scripted simulation and the ?demo=
+  scenarios work; #btn-start-local shows the pending state and a note that the
+  change takes effect in the real app. When only `getSshHosts` is missing the
+  typed alias input still works.
 
-  Fallback transport (no preload changes required): the page speaks a small
-  postMessage protocol, so the main process can drive it today via
-  `webContents.executeJavaScript("window.postMessage(..., '*')")`.
-
-    main → page:  { source:'superiu-host', type:'remote:hosts',    hosts:[...] }
-                  { source:'superiu-host', type:'remote:progress', step:{...} }
-                  { source:'superiu-host', type:'remote:done',     result:{...} }
-                  { source:'superiu-host', type:'remote:error',    step, message }
-    page → main:  { source:'superiu-remote', type:'ready' }
-                  { source:'superiu-remote', type:'connect', payload:{...} }
-                  { source:'superiu-remote', type:'cancel' }
-                  { source:'superiu-remote', type:'dismiss' }
-
-  With neither transport present the view runs a scripted simulation so the
-  surface stays fully reviewable. Demo modes (skip the form / force states):
+  Demo modes (skip the form / force states):
     ?demo=ok     run the full pipeline to success
     ?demo=fail   fail at the SSH tunnel step
     ?demo=auth   fail at the probe step (authentication)
@@ -58,7 +41,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="color-scheme" content="light dark">
-<title>连接到远程 VPS</title>
+<title>首次启动 · SuperIU</title>
 <style>
 /* ── Design tokens ──────────────────────────────────────────────────────── */
 :root {
@@ -240,8 +223,8 @@ body {
   transition: background-color 0.25s ease, border-color 0.25s ease;
 }
 
-/* The two wizard panels occupy the same grid cell so the card cross-fades
-   between form and pipeline without a height jump. */
+/* The wizard panels occupy the same grid cell so the card cross-fades
+   between mode selection, local note, form and pipeline without a jump. */
 .panels { display: grid; }
 .panel {
   grid-area: 1 / 1;
@@ -256,7 +239,136 @@ body {
   transition: opacity 0.26s ease, transform 0.26s ease, visibility 0s linear 0.26s;
 }
 
+/* ── Panel headings ─────────────────────────────────────────────────────── */
+.panel-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+.panel-sub {
+  margin-top: 4px;
+  margin-bottom: 16px;
+  font-size: 12.5px;
+  color: var(--secondary);
+}
+
+/* ── Mode cards ─────────────────────────────────────────────────────────── */
+.mode-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mode-card {
+  appearance: none;
+  font: inherit;
+  text-align: left;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 14px 15px;
+  border-radius: 10px;
+  background: var(--card-bg);
+  color: var(--label);
+  border: 0.5px solid var(--card-border);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.18s ease, border-color 0.18s ease,
+    background-color 0.25s ease;
+}
+.mode-card:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3.5px var(--focus-ring);
+}
+.mode-card:active { transform: translateY(0); }
+.mode-card:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3.5px var(--focus-ring);
+}
+.mode-icon {
+  flex: none;
+  width: 36px; height: 36px;
+  border-radius: 9px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+}
+.mode-icon.is-local { background: linear-gradient(150deg, #0a84ff 0%, #5e5ce6 100%); }
+.mode-icon.is-remote { background: linear-gradient(150deg, #30d158 0%, #0a84ff 100%); }
+.mode-body { min-width: 0; flex: 1; }
+.mode-name {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.mode-desc {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--secondary);
+}
+.mode-chevron {
+  flex: none;
+  color: var(--tertiary);
+  font-size: 18px;
+  line-height: 1;
+}
+
+/* ── Local panel ────────────────────────────────────────────────────────── */
+.local-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 2px 0;
+}
+.local-list li {
+  position: relative;
+  padding-left: 20px;
+  font-size: 12.5px;
+  color: var(--secondary);
+}
+.local-list li::before {
+  content: "";
+  position: absolute;
+  left: 3px; top: 6px;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.local-note {
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--green-text);
+}
+.local-error {
+  margin-top: 14px;
+  font-size: 12px;
+  color: var(--red-text);
+}
+.local-error[hidden], .local-note[hidden] { display: none; }
+
 /* ── Form ───────────────────────────────────────────────────────────────── */
+.btn-back {
+  appearance: none;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--accent);
+  padding: 0;
+  margin-bottom: 16px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 4px;
+}
+.btn-back:hover { text-decoration: underline; }
+.btn-back:focus-visible { outline: none; box-shadow: 0 0 0 3.5px var(--focus-ring); }
+
 .field { margin-bottom: 16px; }
 .field:last-of-type { margin-bottom: 0; }
 
@@ -403,6 +515,7 @@ input[type="number"] { -moz-appearance: textfield; }
   border-top-color: #fff;
   animation: spin 0.7s linear infinite;
 }
+.btn .mini-spinner[hidden] { display: none; }
 
 .actions {
   display: flex;
@@ -481,6 +594,10 @@ input[type="number"] { -moz-appearance: textfield; }
 }
 .banner .b-actions { display: flex; gap: 8px; margin-top: 9px; }
 .banner .btn { min-height: 24px; padding: 3px 11px; font-size: 12.5px; }
+/* `display: flex` above outranks the UA's `[hidden] { display: none }`, so the
+   attribute alone would leave BOTH banners painted at all times — an alert and
+   a success notice side by side before a single step has run. Restore it. */
+.banner[hidden] { display: none; }
 
 .banner-error {
   background: var(--red-soft);
@@ -635,22 +752,85 @@ input[type="number"] { -moz-appearance: textfield; }
   <header class="header">
     <div class="glyph" aria-hidden="true">
       <svg width="30" height="30" viewBox="0 0 24 24" fill="none">
-        <path d="M7 18a4.5 4.5 0 1 1 .42-8.98 5.5 5.5 0 0 1 10.66 1.7A3.75 3.75 0 0 1 17.5 18H7Z"
-              stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/>
-        <path d="M12 21v-6.2m0 0-2.4 2.4M12 14.8l2.4 2.4"
-              stroke="#fff" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M12 3.2 14.1 9l5.8 2.1-5.8 2.1L12 19l-2.1-5.8L4.1 11.1 9.9 9 12 3.2Z"
+              stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/>
       </svg>
     </div>
-    <h1>连接到远程 VPS</h1>
-    <p>通过 SSH 一键部署 superiu-server，并建立端到端加密隧道</p>
+    <h1>开始使用 SuperIU</h1>
+    <p>选择运行方式，随时可在设置中更改</p>
   </header>
 
   <!-- ── Card ───────────────────────────────────────────────────────────── -->
   <section class="card">
     <div class="panels">
 
-      <!-- ░░ Panel 1 · connection form ░░ -->
-      <form class="panel" id="panel-form" novalidate autocomplete="off">
+      <!-- ░░ Panel 1 · mode selection ░░ -->
+      <div class="panel" id="panel-mode">
+        <h2 class="panel-title">选择运行方式</h2>
+        <p class="panel-sub">本地运行零配置；部署到 VPS 可获得 7×24 在线与更强性能。</p>
+
+        <div class="mode-cards">
+          <button type="button" class="mode-card" id="card-local"
+                  aria-label="本地 Agent：在这台 Mac 上运行引擎，零配置，数据不出本机">
+            <span class="mode-icon is-local" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <rect x="3.5" y="5" width="17" height="12" rx="2" stroke="#fff" stroke-width="1.7"/>
+                <path d="M8.5 20h7M12 17v3" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/>
+              </svg>
+            </span>
+            <span class="mode-body">
+              <span class="mode-name">本地 Agent</span>
+              <span class="mode-desc">在这台 Mac 上运行引擎，零配置，数据不出本机。</span>
+            </span>
+            <span class="mode-chevron" aria-hidden="true">›</span>
+          </button>
+
+          <button type="button" class="mode-card" id="card-remote"
+                  aria-label="VPS 远程 Agent：通过 SSH 一键部署 superiu-server，7×24 在线，性能更强">
+            <span class="mode-icon is-remote" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <rect x="3.5" y="4" width="17" height="7" rx="1.8" stroke="#fff" stroke-width="1.7"/>
+                <rect x="3.5" y="13" width="17" height="7" rx="1.8" stroke="#fff" stroke-width="1.7"/>
+                <circle cx="7" cy="7.5" r="1" fill="#fff"/>
+                <circle cx="7" cy="16.5" r="1" fill="#fff"/>
+              </svg>
+            </span>
+            <span class="mode-body">
+              <span class="mode-name">VPS 远程 Agent</span>
+              <span class="mode-desc">通过 SSH 一键部署 superiu-server，7×24 在线，性能更强。</span>
+            </span>
+            <span class="mode-chevron" aria-hidden="true">›</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ░░ Panel 2 · local mode ░░ -->
+      <div class="panel is-hidden" id="panel-local" aria-hidden="true">
+        <h2 class="panel-title">本地 Agent</h2>
+        <p class="panel-sub">引擎将在这台 Mac 上以本地进程运行。</p>
+
+        <ul class="local-list">
+          <li>工作目录为用户主目录。</li>
+          <li>稍后可在设置中配置 API Key 与模型。</li>
+          <li>数据不出本机，无需部署远程服务。</li>
+        </ul>
+
+        <p class="local-error" id="local-error" role="alert" hidden></p>
+        <p class="local-note" id="local-note" role="status" hidden></p>
+
+        <div class="actions">
+          <button type="button" class="btn btn-secondary" id="btn-local-back">返回</button>
+          <button type="button" class="btn btn-primary" id="btn-start-local">
+            <span class="mini-spinner" id="local-spinner" hidden aria-hidden="true"></span>
+            <span id="local-btn-label">开始使用</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ░░ Panel 3 · remote connection form ░░ -->
+      <form class="panel is-hidden" id="panel-form" novalidate autocomplete="off" aria-hidden="true">
+        <button type="button" class="btn-back" id="btn-form-back">‹ 返回选择运行方式</button>
+
         <fieldset id="form-fields" style="border:none;min-width:0;">
 
           <div class="field" id="field-host">
@@ -697,7 +877,7 @@ input[type="number"] { -moz-appearance: textfield; }
 
           <div class="field">
             <div class="switch-row">
-              <input type="checkbox" id="remember">
+              <input type="checkbox" id="remember" checked>
               <label for="remember">
                 设为启动时默认连接
                 <span class="sub">下次启动 SuperIU 时自动连接此主机。</span>
@@ -720,7 +900,7 @@ input[type="number"] { -moz-appearance: textfield; }
         </div>
       </form>
 
-      <!-- ░░ Panel 2 · deployment pipeline ░░ -->
+      <!-- ░░ Panel 4 · deployment pipeline ░░ -->
       <div class="panel is-hidden" id="panel-progress" aria-hidden="true">
         <div class="pipeline-head">
           <span class="title" id="pipeline-title">正在部署</span>
@@ -776,7 +956,7 @@ input[type="number"] { -moz-appearance: textfield; }
     </div>
   </section>
 
-  <footer class="page-foot">SuperIU Desktop · 远程部署向导</footer>
+  <footer class="page-foot">SuperIU Desktop · 首次启动引导</footer>
   <p class="visually-hidden" role="status" aria-live="polite" id="sr-status"></p>
 </main>
 
@@ -808,10 +988,19 @@ var ERROR_TITLES = {
 var $ = function (id) { return document.getElementById(id); };
 
 var els = {
-  form: $('panel-form'),
-  fields: $('form-fields'),
+  panelMode: $('panel-mode'),
+  panelLocal: $('panel-local'),
   panelForm: $('panel-form'),
   panelProgress: $('panel-progress'),
+  cardLocal: $('card-local'),
+  cardRemote: $('card-remote'),
+  btnStartLocal: $('btn-start-local'),
+  btnLocalBack: $('btn-local-back'),
+  btnFormBack: $('btn-form-back'),
+  localSpinner: $('local-spinner'),
+  localBtnLabel: $('local-btn-label'),
+  localError: $('local-error'),
+  localNote: $('local-note'),
   hostSelectWrap: $('host-select-wrap'),
   hostSelect: $('host-select'),
   hostCustomWrap: $('host-custom-wrap'),
@@ -843,9 +1032,10 @@ var els = {
 };
 
 var state = {
-  hosts: [],            // SshHostEntry[] from the bridge
+  hosts: [],            // { alias, hostName, user? }[] from the bridge
   usingCustomHost: true,
   connecting: false,
+  startingLocal: false,
   lastPayload: null,
   stepEls: {},          // id -> { row, detail }
   demo: new URLSearchParams(location.search).get('demo')
@@ -856,9 +1046,9 @@ var state = {
    can additionally pin a scheme via data-theme on <html>.
    ════════════════════════════════════════════════════════════════════════ */
 (function initTheme() {
-  var bridge = window.superiuDesktop;
-  if (bridge && typeof bridge.onTheme === 'function') {
-    bridge.onTheme(function (payload) {
+  var b = window.superiuDesktop;
+  if (b && typeof b.onTheme === 'function') {
+    b.onTheme(function (payload) {
       if (payload && (payload.scheme === 'dark' || payload.scheme === 'light')) {
         document.documentElement.dataset.theme = payload.scheme;
       }
@@ -867,67 +1057,31 @@ var state = {
 })();
 
 /* ════════════════════════════════════════════════════════════════════════
-   Bridge resolution — direct preload bridge first, postMessage transport
-   second, scripted simulation last (keeps the surface reviewable anywhere).
+   Bridge resolution — the flat `window.superiuDesktop` surface. With no
+   preload at all (opened as a plain file) every capability is absent and the
+   remote form falls back to the scripted simulation so the surface stays
+   reviewable.
    ════════════════════════════════════════════════════════════════════════ */
-var bridge = (function resolveBridge() {
-  var direct = window.superiuDesktop && window.superiuDesktop.remote;
-  if (direct && typeof direct.connect === 'function') {
-    return {
-      kind: 'ipc',
-      listHosts: function () { return typeof direct.listHosts === 'function' ? direct.listHosts() : Promise.resolve([]); },
-      connect: function (payload) { return direct.connect(payload); },
-      cancel: function () { return typeof direct.cancel === 'function' ? direct.cancel() : Promise.resolve(); },
-      dismiss: function () { return typeof direct.dismiss === 'function' ? direct.dismiss() : Promise.resolve(); },
-      onProgress: function (cb) { return typeof direct.onProgress === 'function' ? direct.onProgress(cb) : function () {}; }
-    };
-  }
+var desktop = window.superiuDesktop || null;
 
-  // postMessage transport: the host page / main process drives the view by
-  // posting { source:'superiu-host', ... } messages; we answer with
-  // { source:'superiu-remote', ... } so no preload change is required.
-  var pending = {};
-  var seq = 0;
-  var progressCb = null;
-
-  window.addEventListener('message', function (event) {
-    var msg = event.data;
-    if (!msg || msg.source !== 'superiu-host') return;
-    if (msg.type === 'remote:hosts' && Array.isArray(msg.hosts)) {
-      setHosts(msg.hosts);
-    } else if (msg.type === 'remote:progress' && msg.step && progressCb) {
-      progressCb(msg.step);
-    } else if (msg.type === 'remote:done' && pending.connect) {
-      pending.connect.resolve(msg.result || {});
-      pending.connect = null;
-    } else if (msg.type === 'remote:error' && pending.connect) {
-      var err = new Error(msg.message || '连接失败');
-      err.step = msg.step;
-      pending.connect.reject(err);
-      pending.connect = null;
-    }
-  });
-
-  function send(type, extra) {
-    var msg = { source: 'superiu-remote', type: type };
-    if (extra) for (var k in extra) msg[k] = extra[k];
-    (window.parent !== window ? window.parent : window).postMessage(msg, '*');
-  }
-
-  return {
-    kind: 'postmessage',
-    listHosts: function () { send('ready'); return new Promise(function (r) { setTimeout(function () { r(state.hosts); }, 400); }); },
-    connect: function (payload) {
-      return new Promise(function (resolve, reject) {
-        pending.connect = { resolve: resolve, reject: reject };
-        send('connect', { payload: payload });
-      });
-    },
-    cancel: function () { send('cancel'); return Promise.resolve(); },
-    dismiss: function () { send('dismiss'); return Promise.resolve(); },
-    onProgress: function (cb) { progressCb = cb; return function () { progressCb = null; }; }
-  };
-})();
+var bridge = {
+  kind: desktop ? 'desktop' : 'simulation',
+  getSshHosts: desktop && typeof desktop.getSshHosts === 'function'
+    ? function () { return desktop.getSshHosts(); }
+    : null,
+  connectRemote: desktop && typeof desktop.connectRemote === 'function'
+    ? function (payload) { return desktop.connectRemote(payload); }
+    : null,
+  onRemoteProgress: desktop && typeof desktop.onRemoteProgress === 'function'
+    ? function (cb) { return desktop.onRemoteProgress(cb); }
+    : null,
+  completeOnboarding: desktop && typeof desktop.completeOnboarding === 'function'
+    ? function (options) { return desktop.completeOnboarding(options); }
+    : null,
+  dismiss: desktop && typeof desktop.dismiss === 'function'
+    ? function () { return desktop.dismiss(); }
+    : null
+};
 
 /* ════════════════════════════════════════════════════════════════════════
    Host list — select populated from ~/.ssh/config, with custom fallback.
@@ -1040,7 +1194,7 @@ function validate() {
   }
   if (!ok) return null;
 
-  var payload = { alias: alias, workspace: workspace, remember: els.remember.checked };
+  var payload = { alias: alias, workspace: workspace, saveDefault: els.remember.checked };
   if (localPort !== undefined) payload.localPort = localPort;
   return payload;
 }
@@ -1126,18 +1280,94 @@ function updatePipelineHead() {
 }
 
 /* ════════════════════════════════════════════════════════════════════════
-   Panel switching
+   Panel switching — four panels share one grid cell and cross-fade.
    ════════════════════════════════════════════════════════════════════════ */
+var panelEls = { mode: null, local: null, form: null, progress: null };
+
 function showPanel(which) {
-  var toForm = which === 'form';
-  els.panelForm.classList.toggle('is-hidden', !toForm);
-  els.panelProgress.classList.toggle('is-hidden', toForm);
-  els.panelForm.setAttribute('aria-hidden', String(!toForm));
-  els.panelProgress.setAttribute('aria-hidden', String(toForm));
+  panelEls.mode = els.panelMode;
+  panelEls.local = els.panelLocal;
+  panelEls.form = els.panelForm;
+  panelEls.progress = els.panelProgress;
+  Object.keys(panelEls).forEach(function (k) {
+    var on = k === which;
+    panelEls[k].classList.toggle('is-hidden', !on);
+    panelEls[k].setAttribute('aria-hidden', String(!on));
+  });
 }
 
 /* ════════════════════════════════════════════════════════════════════════
-   Connect flow
+   Mode selection
+   ════════════════════════════════════════════════════════════════════════ */
+els.cardLocal.addEventListener('click', function () {
+  els.localError.hidden = true;
+  els.localNote.hidden = true;
+  showPanel('local');
+  els.btnStartLocal.focus();
+});
+
+els.cardRemote.addEventListener('click', function () {
+  showPanel('form');
+  var first = state.usingCustomHost ? els.hostCustom : els.hostSelect;
+  first.focus();
+});
+
+els.btnLocalBack.addEventListener('click', function () {
+  showPanel('mode');
+  els.cardLocal.focus();
+});
+
+els.btnFormBack.addEventListener('click', function () {
+  if (state.connecting) return;
+  showPanel('mode');
+  els.cardRemote.focus();
+});
+
+/* ════════════════════════════════════════════════════════════════════════
+   Local mode
+   ════════════════════════════════════════════════════════════════════════ */
+function setLocalBusy(busy) {
+  els.btnStartLocal.disabled = busy;
+  els.btnStartLocal.classList.toggle('is-busy', busy);
+  els.localSpinner.hidden = !busy;
+  els.localBtnLabel.textContent = busy ? '正在启动…' : '开始使用';
+}
+
+els.btnStartLocal.addEventListener('click', function () {
+  if (state.startingLocal) return;
+  state.startingLocal = true;
+  els.localError.hidden = true;
+  els.localNote.hidden = true;
+  setLocalBusy(true);
+
+  var call = bridge.completeOnboarding;
+  // Without a preload there is nothing to call: show the pending state briefly,
+  // then a note that the choice takes effect in the real app.
+  var pending = call
+    ? call({ mode: 'local' })
+    : new Promise(function (resolve) { setTimeout(resolve, 1100); });
+
+  Promise.resolve(pending)
+    .then(function () {
+      if (!call) {
+        els.localNote.textContent = '已在真实应用中生效；此处为预览，未连接桌面主进程。';
+        els.localNote.hidden = false;
+      }
+      // With a real bridge the main process closes this window on success.
+    })
+    .catch(function (err) {
+      els.localError.textContent = (err && err.message) || String(err || '启动本地 Agent 失败，请重试。');
+      els.localError.hidden = false;
+      els.sr.textContent = els.localError.textContent;
+    })
+    .finally(function () {
+      state.startingLocal = false;
+      setLocalBusy(false);
+    });
+});
+
+/* ════════════════════════════════════════════════════════════════════════
+   Remote connect flow
    ════════════════════════════════════════════════════════════════════════ */
 var unsubscribeProgress = null;
 
@@ -1155,17 +1385,20 @@ function beginConnect(payload) {
   els.btnConnect.disabled = true;
 
   if (unsubscribeProgress) unsubscribeProgress();
-  unsubscribeProgress = bridge.onProgress(function (step) {
-    if (step && step.id) setStep(step.id, step.status, step.detail);
-  });
+  unsubscribeProgress = bridge.onRemoteProgress
+    ? bridge.onRemoteProgress(function (step) {
+        if (step && step.id) setStep(step.id, step.status, step.detail);
+      })
+    : null;
 
   var settled = false;
   function finish(fn) { if (!settled) { settled = true; fn(); } }
 
+  var run = bridge.connectRemote || simulate;
   return Promise.resolve()
-    .then(function () { return bridge.connect(payload); })
+    .then(function () { return run(payload); })
     .then(function (result) {
-      finish(function () { onConnectSuccess(result || {}); });
+      finish(function () { onConnectSuccess(); });
     })
     .catch(function (err) {
       finish(function () { onConnectFailure(err); });
@@ -1177,7 +1410,7 @@ function beginConnect(payload) {
     });
 }
 
-function onConnectSuccess(result) {
+function onConnectSuccess() {
   // Ensure the visual pipeline reads as complete even if a host skipped
   // emitting a trailing 'done' for the final step.
   setStep('client', 'done');
@@ -1185,16 +1418,33 @@ function onConnectSuccess(result) {
   els.pipelineFoot.hidden = true;
   els.pipelineTitle.textContent = '部署完成';
 
+  // `connectRemote` is `Promise<void>` — `ipcRenderer.invoke` resolves to
+  // `undefined`, so there is no localUrl / tunnelPort to report. The host,
+  // workspace and port are echoed back from the payload the user submitted,
+  // which is the only success detail this surface can honestly show.
+  var sent = state.lastPayload || {};
   var bits = [];
-  if (result.localUrl) bits.push(result.localUrl);
-  if (result.tunnelPort) bits.push('本地端口 ' + result.tunnelPort);
+  if (sent.alias) bits.push(sent.alias);
+  if (sent.workspace) bits.push(sent.workspace);
+  if (sent.localPort) bits.push('本地端口 ' + sent.localPort);
   els.successDetail.textContent = bits.join(' · ') || '隧道已建立，桌面客户端已配对。';
+  // Terminal states are mutually exclusive. `beginConnect` already clears both
+  // banners on entry, but a second overlapping chain (retry fired twice) could
+  // otherwise leave the error banner from the first attempt painted under the
+  // success banner of the second, so each terminal handler also clears the other.
+  els.bannerError.hidden = true;
   els.bannerSuccess.hidden = false;
   els.sr.textContent = '连接成功，远程环境就绪。';
 }
 
 function onConnectFailure(err) {
-  var step = (err && err.step) || 'probe';
+  // `ipcRenderer.invoke` rejects with the error MESSAGE only — a custom `step`
+  // property does not survive the IPC boundary (the SPA's remote pane reads the
+  // failing step from the DOM for exactly this reason). So when `err.step` is
+  // absent, fall back to whichever step is currently `active`; otherwise a
+  // tunnel failure would be attributed to `probe`, which is already `done` and
+  // therefore not marked, leaving the real step stuck on `active` forever.
+  var step = (err && err.step) || activeStepId() || 'probe';
   var message = (err && err.message) || String(err || '未知错误');
 
   // Reflect the failing step even if the host only surfaced the error.
@@ -1208,9 +1458,19 @@ function onConnectFailure(err) {
 
   els.errorTitle.textContent = ERROR_TITLES[step] || '连接失败';
   els.errorDetail.textContent = message;
+  els.bannerSuccess.hidden = true;
   els.bannerError.hidden = false;
   els.sr.textContent = els.errorTitle.textContent + '：' + message;
   els.btnRetry.focus();
+}
+
+/** The id of the step currently shown as `active`, or null when none is. */
+function activeStepId() {
+  for (var i = 0; i < STEPS.length; i++) {
+    var e = state.stepEls[STEPS[i].id];
+    if (e && e.row.dataset.state === 'active') return STEPS[i].id;
+  }
+  return null;
 }
 
 /* ── Form submit / buttons ──────────────────────────────────────────────── */
@@ -1223,7 +1483,6 @@ els.panelForm.addEventListener('submit', function (event) {
 });
 
 els.btnCancel.addEventListener('click', function () {
-  bridge.cancel().catch(function () { /* best effort */ });
   state.connecting = false;
   els.btnConnect.disabled = false;
   showPanel('form');
@@ -1231,6 +1490,10 @@ els.btnCancel.addEventListener('click', function () {
 
 els.btnRetry.addEventListener('click', function () {
   if (!state.lastPayload) return;
+  // Same guard as the form submit: a second click while a chain is in flight
+  // would start an overlapping `beginConnect`, and the two chains' terminal
+  // handlers could then paint both banners at once.
+  if (state.connecting) return;
   els.bannerError.hidden = true;
   beginConnect(state.lastPayload);
 });
@@ -1242,10 +1505,16 @@ els.btnBack.addEventListener('click', function () {
 });
 
 els.btnFinish.addEventListener('click', function () {
-  bridge.dismiss().catch(function () { /* no host attached — nothing to do */ });
+  // In the real app the main process closes the window on success; `dismiss`
+  // is optional and simply a no-op when the host does not expose it.
+  if (!bridge.dismiss) return;
+  try {
+    var r = bridge.dismiss();
+    if (r && typeof r.catch === 'function') r.catch(function () { /* best effort */ });
+  } catch (_) { /* best effort */ }
 });
 
-/* ── Persistence (baseline; the host may additionally persist `remember`) ── */
+/* ── Persistence (baseline; the host may additionally persist `saveDefault`) ── */
 var STORE_KEY = 'superiu.remote.form.v1';
 function persistForm(payload) {
   try {
@@ -1254,7 +1523,7 @@ function persistForm(payload) {
       custom: state.usingCustomHost,
       workspace: payload.workspace,
       localPort: payload.localPort,
-      remember: payload.remember
+      remember: payload.saveDefault
     }));
   } catch (_) { /* storage may be unavailable under file:// — non-fatal */ }
 }
@@ -1266,7 +1535,11 @@ function restoreForm() {
   var alias = q.get('alias') || saved.alias || '';
   var workspace = q.get('workspace') || saved.workspace || '';
   var port = q.get('port') || saved.localPort || '';
-  var remember = saved.remember === true;
+  // Default ON: the wizard records `onboardingCompleted` only in this branch,
+  // so an unchecked default would leave the wizard reappearing on every launch
+  // — which reads as a bug, not as a session-only choice. An explicit `false`
+  // saved from a previous run is still honoured.
+  var remember = saved.remember !== false;
 
   if (workspace) els.workspace.value = workspace;
   if (port) els.port.value = port;
@@ -1291,7 +1564,7 @@ function restoreForm() {
 }
 
 /* ════════════════════════════════════════════════════════════════════════
-   Scripted simulation — active when no host bridge is attached, so every
+   Scripted simulation — active when no connect bridge is attached, so every
    state of the surface is reviewable (and ?demo= forces a scenario).
    ════════════════════════════════════════════════════════════════════════ */
 var DEMO_HOSTS = [
@@ -1315,7 +1588,7 @@ function simulate(payload) {
     var i = 0;
     function next() {
       if (i >= timings.length) {
-        resolve({ localUrl: 'ws://127.0.0.1:' + (payload.localPort || 51234) + '/ws', tunnelPort: payload.localPort || 51234 });
+        resolve();
         return;
       }
       var step = timings[i][0], ms = timings[i][1], detail = timings[i][2];
@@ -1348,36 +1621,23 @@ function simulate(payload) {
   updateHostHint();
 
   var hosts = [];
-  try { hosts = await bridge.listHosts() || []; } catch (_) { hosts = []; }
+  if (bridge.getSshHosts) {
+    try { hosts = await bridge.getSshHosts() || []; } catch (_) { hosts = []; }
+  }
   if (hosts.length) {
     setHosts(hosts);
-  } else if (bridge.kind !== 'ipc' || state.demo) {
-    // No hosts from the host process — in simulation contexts seed samples so
-    // the select affordance is visible; a real IPC host just shows the input.
-    if (bridge.kind !== 'ipc') setHosts(DEMO_HOSTS);
+  } else if (!desktop) {
+    // No preload at all — seed samples so the select affordance is visible.
+    setHosts(DEMO_HOSTS);
   }
   restoreForm();
-
-  // Wrap the pipeline with the simulator when nothing real is attached.
-  if (bridge.kind === 'postmessage' && !window.superiuDesktop) {
-    var real = bridge;
-    bridge = {
-      kind: 'simulation',
-      listHosts: function () { return Promise.resolve(state.hosts.length ? state.hosts : DEMO_HOSTS); },
-      connect: simulate,
-      cancel: function () { return Promise.resolve(); },
-      dismiss: function () { return Promise.resolve(); },
-      onProgress: function () { return function () {}; }
-    };
-    void real;
-  }
 
   if (state.demo) {
     // ?demo=ok|fail|auth — auto-run the scenario for design review.
     var payload = validate() || {
       alias: currentHostAlias() || 'prod-1',
       workspace: els.workspace.value.trim() || '/home/ubuntu/my-project',
-      remember: false
+      saveDefault: false
     };
     setTimeout(function () { beginConnect(payload); }, 650);
   }
