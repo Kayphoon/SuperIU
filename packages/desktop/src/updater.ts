@@ -645,6 +645,11 @@ async function prepareUpdate(updateInfo: UpdateCheckResult): Promise<void> {
       throw new Error(`解压后的压缩包中没有 ${APP_BUNDLE_NAME}`);
     }
 
+    // Clear quarantine flag on the extracted update so Gatekeeper won't block it
+    if (process.platform === 'darwin') {
+      await runCommand('/usr/bin/xattr', ['-cr', extractedApp]).catch(() => undefined);
+    }
+
     if (!app.isPackaged) {
       // Development runs from a source checkout, not an app bundle, so there is
       // nothing to swap and nothing to restart into. Keep the download and say

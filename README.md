@@ -44,7 +44,17 @@ pnpm typecheck  # type-check all @agent/* packages
 
 ### Installing SuperIU as a macOS app
 
-`pnpm desktop` is a development runner — it boots the Electron framework's own bundle, which is named "Electron", so Spotlight (聚焦搜索) cannot find it. To install SuperIU as a first-class application:
+#### Option 1: One-line Install & Update (Recommended)
+
+Run the following command in Terminal to install or update SuperIU automatically without macOS Gatekeeper warnings:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kayphoon/SuperIU/master/scripts/install-mac.sh | sh
+```
+
+#### Option 2: Build & install from source
+
+`pnpm desktop` is a development runner — it boots the Electron framework's own bundle, which is named "Electron", so Spotlight (聚焦搜索) cannot find it. To install SuperIU from source:
 
 ```bash
 pnpm app:install
