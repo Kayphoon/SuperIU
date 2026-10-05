@@ -607,7 +607,56 @@ function loadSettings(): UiSettings {
 }
 
 /**
+ * The keys this server owns in `ui-settings.json`.
+ *
+ * Every other key in the file belongs to a different shell — the desktop
+ * wrapper stores `connectionMode`, `gateway`, `remote`, `workspaceRoot` and
+ * `onboardingCompleted` there — and must survive a SPA settings save. The
+ * `satisfies` clause is load-bearing: it turns "added a field to `UiSettings`
+ * but forgot to own it" into a compile error instead of a silently dropped key.
+ */
+const SERVER_OWNED_KEY_FLAGS = {
+  apiKey: true,
+  baseURL: true,
+  modelName: true,
+  reviewModelName: true,
+  tinyModelName: true,
+  titleModelName: true,
+  memoryModelName: true,
+  autoReview: true,
+  reasoningEffort: true,
+  language: true,
+  theme: true,
+  activeProviderId: true,
+  providers: true,
+  modelConfigs: true
+} satisfies Record<keyof UiSettings, true>;
+
+/**
+ * Merge `next` over the keys this server does not own, preserving foreign keys.
+ *
+ * `raw` is whatever the file held: a missing file or corrupt JSON is passed in
+ * as `{}` by the caller, and anything that is not a plain object contributes
+ * nothing. A foreign key present in `raw` is carried forward verbatim; one
+ * absent from `raw` is never resurrected. `next` always wins for a key this
+ * server owns, even when `raw` happens to carry a same-named foreign key.
+ */
+export function mergePersistedSettings(raw: unknown, next: Record<string, unknown>): Record<string, unknown> {
+  const foreign: Record<string, unknown> = {};
+  if (isPlainObject(raw)) {
+    for (const [key, value] of Object.entries(raw)) {
+      if (!(key in SERVER_OWNED_KEY_FLAGS)) foreign[key] = value;
+    }
+  }
+  return { ...foreign, ...next };
+}
+
+/**
  * Write the settings file, reporting failure as a stable sentence.
+ *
+ * The write is a read-modify-write: keys the server does not own (the desktop
+ * wrapper's connection/onboarding state) are preserved verbatim, so a Settings
+ * save can never strip them.
  *
  * The raw `ENOTDIR`/`EACCES` message embeds the absolute path of the settings
  * file, and `applySettings` failures travel straight into the Settings dialog
@@ -620,7 +669,16 @@ function loadSettings(): UiSettings {
 function persistSettings(next: UiSettings): void {
   try {
     fs.mkdirSync(path.dirname(SETTINGS_FILE), { recursive: true });
-    fs.writeFileSync(SETTINGS_FILE, `${JSON.stringify(next, null, 2)}\n`, { encoding: 'utf-8', mode: 0o600 });
+    // Read-modify-write: a missing/corrupt/non-object file has nothing foreign
+    // to preserve, so it reads as `{}` and the merge yields `next`.
+    let raw: unknown = {};
+    try {
+      raw = JSON.parse(fs.readFileSync(SETTINGS_FILE, 'utf-8'));
+    } catch {
+      raw = {};
+    }
+    const merged = mergePersistedSettings(raw, next as unknown as Record<string, unknown>);
+    fs.writeFileSync(SETTINGS_FILE, `${JSON.stringify(merged, null, 2)}\n`, { encoding: 'utf-8', mode: 0o600 });
   } catch (err) {
     console.error(`[server] settings save failed: ${redactSecrets(errorMessage(err), 300)}`);
     throw new Error('Could not save settings. Check the server log for details.');

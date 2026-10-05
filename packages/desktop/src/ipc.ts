@@ -27,6 +27,7 @@ export const INVOKE = {
   setTheme: 'superiu:set-theme',
   getSshHosts: 'superiu:get-ssh-hosts',
   connectRemote: 'superiu:connect-remote',
+  completeOnboarding: 'superiu:complete-onboarding',
   checkForUpdate: 'superiu:check-for-update',
   installUpdate: 'superiu:install-update',
   getUpdateState: 'superiu:get-update-state'
@@ -96,8 +97,25 @@ export interface SuperiuDesktopBridge {
    */
   setTheme(theme: string): Promise<void>;
   getSshHosts?(): Promise<Array<{ alias: string; hostName: string; user?: string }>>;
-  connectRemote?(options: { alias: string; workspace: string; saveDefault?: boolean }): Promise<void>;
+  connectRemote?(options: {
+    alias: string;
+    workspace: string;
+    /**
+     * Fixed local forward port. Persisted to `remote.localPort` when
+     * `saveDefault` is set (`resolveGatewayConfig` reads it back on the next
+     * boot); omitted → an ephemeral port is allocated.
+     */
+    localPort?: number;
+    saveDefault?: boolean;
+  }): Promise<void>;
   onRemoteProgress?(callback: (step: { id: string; status: string; detail?: string }) => void): () => void;
+  /**
+   * Record the first-run choice of the local in-process engine and start it.
+   * Only `{ mode: 'local' }` is supported; the remote path goes through
+   * {@link connectRemote} (which the wizard also calls and which records
+   * `onboardingCompleted` on its own).
+   */
+  completeOnboarding(options: { mode: 'local' }): Promise<void>;
   checkForUpdate?(): Promise<void>;
   installUpdate?(): Promise<void>;
   getUpdateState?(): Promise<UpdatePayload>;
