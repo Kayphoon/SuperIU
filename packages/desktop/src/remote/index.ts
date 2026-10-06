@@ -62,3 +62,14 @@ export type {
   RemoteStepStatus,
   RemoteConnectionManagerOptions,
 } from './manager.js';
+
+export {
+  decideNavigationFailure,
+  decideRenderProcessGone,
+  normalizeNavUrl,
+  NAV_RETRY_BASE_DELAY_MS,
+  NAV_RETRY_MAX_DELAY_MS,
+  NAV_RETRY_DEADLINE_MS,
+  MAX_RENDERER_REVIVALS,
+} from './navigation.js';
+export type { NavigationDecision, NavigationFailure } from './navigation.js';

@@ -55,6 +55,10 @@ import {
   RemoteConnectionManager,
   RemoteConnectionError,
   readSshConfig,
+  decideNavigationFailure,
+  decideRenderProcessGone,
+  normalizeNavUrl,
+  MAX_RENDERER_REVIVALS,
   type RemoteStep
 } from './remote/index.js';
 
@@ -96,6 +100,16 @@ let serverHandle: ServerHandle | null = null;
 let gatewayClient: GatewayClient | null = null;
 let remoteManager: RemoteConnectionManager | null = null;
 let activeRemoteUrl: string | null = null;
+/** Retries spent on the current SPA navigation (reset when the SPA commits). */
+let remoteNavAttempts = 0;
+/** Pending SPA reload timer for a failed navigation. */
+let remoteNavTimer: NodeJS.Timeout | undefined;
+/** When the current SPA navigation first failed; anchors the retry deadline. */
+let spaNavStartedAt: number | null = null;
+/** Times the SPA renderer has been revived in the current session. */
+let remoteRendererRevivals = 0;
+/** Windows already carrying the SPA recovery listeners (mainWindow is reused). */
+const spaRecoveryAttached = new WeakSet<BrowserWindow>();
 let shuttingDown = false;
 
 // ---------------------------------------------------------------------------
@@ -396,8 +410,91 @@ function createWindow(url: string): BrowserWindow {
     if (mainWindow === win) mainWindow = null;
   });
 
+  attachSpaRecovery(win);
   void win.loadURL(url);
   return win;
+}
+
+/**
+ * Make the remote-mode SPA navigation self-healing on `win`.
+ *
+ * Idempotent per window: `mainWindow` is reused across reconnects and a second
+ * set of listeners would fire the retry twice. Every branch is gated on
+ * `activeRemoteUrl`, so local/gateway windows (where it is null) never retry.
+ *
+ * `spaNavStartedAt` anchors the retry deadline and `remoteNavTimer` the pending
+ * reload; both are module state because the window outlives any single connect.
+ */
+function attachSpaRecovery(win: BrowserWindow): void {
+  if (spaRecoveryAttached.has(win)) return;
+  spaRecoveryAttached.add(win);
+  const wc = win.webContents;
+
+  wc.on('did-navigate', (_event, url: string) => {
+    if (activeRemoteUrl && normalizeNavUrl(url) === normalizeNavUrl(activeRemoteUrl)) {
+      spaNavStartedAt = null;
+      remoteNavAttempts = 0;
+      remoteRendererRevivals = 0;
+    }
+  });
+
+  wc.on(
+    'did-fail-load',
+    (
+      _event,
+      errorCode: number,
+      errorDescription: string,
+      validatedURL: string,
+      isMainFrame: boolean
+    ) => {
+      if (spaNavStartedAt === null) spaNavStartedAt = Date.now();
+      const decision = decideNavigationFailure({
+        errorCode,
+        errorDescription,
+        isMainFrame,
+        url: validatedURL,
+        targetUrl: activeRemoteUrl,
+        attempts: remoteNavAttempts,
+        elapsedMs: Date.now() - spaNavStartedAt
+      });
+      if (decision.kind === 'ignore') return;
+      console.warn(
+        `[superiu] remote SPA navigation failed (${errorCode}: ${errorDescription}) on ${validatedURL}`
+      );
+      if (decision.kind === 'retry') {
+        remoteNavAttempts += 1;
+        clearTimeout(remoteNavTimer);
+        remoteNavTimer = setTimeout(() => {
+          remoteNavTimer = undefined;
+          if (activeRemoteUrl && !win.isDestroyed()) void win.loadURL(activeRemoteUrl);
+        }, decision.delayMs);
+        return;
+      }
+      if (mainWindow === win) {
+        showGatewayStatus(resolveGatewayConfig(process.cwd()), `failed (${errorCode})`, {
+          step: { id: 'client', status: 'failed' },
+          detail: `Navigation failed: ${decision.message}`
+        });
+      }
+    }
+  );
+
+  wc.on('render-process-gone', (_event, details: { reason: string }) => {
+    if (decideRenderProcessGone(details.reason, activeRemoteUrl) === 'ignore') return;
+    if (remoteRendererRevivals >= MAX_RENDERER_REVIVALS) {
+      console.error(
+        `[superiu] remote SPA renderer gone (${details.reason}); giving up after ${remoteRendererRevivals} revivals`
+      );
+      return;
+    }
+    remoteRendererRevivals += 1;
+    spaNavStartedAt = null;
+    remoteNavAttempts = 0;
+    console.warn(
+      `[superiu] remote SPA renderer gone (${details.reason}); reloading ${activeRemoteUrl}`
+    );
+    if (!win.isDestroyed() && activeRemoteUrl) void win.loadURL(activeRemoteUrl);
+  });
 }
 
 /** Focus the existing window (dock click, or a blocked second launch). */
@@ -714,12 +811,19 @@ async function startRemoteMode(config: GatewayConfig, opts: RemoteModeOptions = 
   const paint = opts.paint !== false;
   const progressTarget = opts.progressTarget ?? ((): BrowserWindow | null => mainWindow);
 
+  // Repaint the status page per step — the data: URL page carries no script, so
+  // the main process is the only writer that can show real progress. `spaShown`
+  // stops a late progress event from clobbering an already-loaded SPA.
+  let spaShown = false;
+  let lastStatusKey: string | null = null;
+
   // First paint before any ssh work begins, so the user sees the flow start
   // instead of a blank window during a slow probe/install.
   if (paint) {
     showGatewayStatus(config, 'connecting', {
       step: { id: 'probe', status: 'active' }
     });
+    lastStatusKey = 'probe:active';
   }
 
   const manager = new RemoteConnectionManager({
@@ -749,6 +853,13 @@ async function startRemoteMode(config: GatewayConfig, opts: RemoteModeOptions = 
         detail: step.detail
       });
     }
+    if (paint && !spaShown && step.status !== 'pending') {
+      const key = `${step.id}:${step.status}`;
+      if (key !== lastStatusKey) {
+        lastStatusKey = key;
+        showGatewayStatus(config, 'connecting', { step, detail: step.detail });
+      }
+    }
   };
 
   try {
@@ -774,8 +885,15 @@ async function startRemoteMode(config: GatewayConfig, opts: RemoteModeOptions = 
     );
     const remoteHttpUrl = `http://127.0.0.1:${result.tunnelPort}`;
     activeRemoteUrl = remoteHttpUrl;
+    // Fresh session: cancel any reload queued against the previous port and
+    // restart the retry budget from zero.
+    clearTimeout(remoteNavTimer);
+    remoteNavTimer = undefined;
+    remoteNavAttempts = 0;
+    spaNavStartedAt = null;
 
     if (paint) {
+      spaShown = true;
       if (!mainWindow || mainWindow.isDestroyed()) {
         mainWindow = createWindow(remoteHttpUrl);
       } else {
@@ -793,6 +911,7 @@ async function startRemoteMode(config: GatewayConfig, opts: RemoteModeOptions = 
     // With `paint:false` the caller's view (the wizard) renders the error banner
     // itself, so the status page is skipped.
     if (paint) {
+      spaShown = true;
       showGatewayStatus(config, `failed (${step ?? 'unknown'})`, {
         step: step ? { id: step, status: 'failed' } : undefined,
         detail: message
@@ -820,6 +939,11 @@ async function startRemoteMode(config: GatewayConfig, opts: RemoteModeOptions = 
  */
 async function closeRemote(): Promise<void> {
   activeRemoteUrl = null;
+  // The session is over: drop any pending SPA reload and its retry deadline so a
+  // straggling timer cannot navigate the window against the *next* session's URL.
+  clearTimeout(remoteNavTimer);
+  remoteNavTimer = undefined;
+  spaNavStartedAt = null;
   const manager = remoteManager;
   remoteManager = null;
   if (!manager) return;
