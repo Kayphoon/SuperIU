@@ -2,7 +2,10 @@
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <meta name="color-scheme" content="dark light" />
     <title data-i18n="app.title">SuperIU · 智能体控制台</title>
     <link rel="icon" type="image/png" href="/app-icon.png" />
@@ -228,10 +231,33 @@
         --siu-menu-w: 340px;
         --siu-content-w: 46rem;
 
+        /* ── Viewport & safe areas ───────────────────────────────────────── */
+        /* Notch/home-indicator insets. `env()` is `0px` off a notched device,
+           so every consumer below is a no-op on the desktop chrome. */
+        --siu-safe-top: env(safe-area-inset-top, 0px);
+        --siu-safe-right: env(safe-area-inset-right, 0px);
+        --siu-safe-bottom: env(safe-area-inset-bottom, 0px);
+        --siu-safe-left: env(safe-area-inset-left, 0px);
+
+        /* The height every full-height surface keys off. Starts at `100vh`,
+           upgrades to `100dvh` where supported, and is then overwritten with
+           the live `visualViewport.height` in px by `syncViewport()` so the
+           layout shrinks with the soft keyboard. */
+        --siu-vvh: 100vh;
+
         /* ── Elevation ───────────────────────────────────────────────────── */
         --siu-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.28), 0 0 0 0.5px rgba(255, 255, 255, 0.04);
         --siu-shadow-lg: 0 1px 2px rgba(0, 0, 0, 0.32), 0 8px 24px rgba(0, 0, 0, 0.42),
           0 0 0 0.5px rgba(255, 255, 255, 0.07);
+      }
+
+      /* Dynamic-viewport upgrade. Browsers without `dvh` keep the `100vh`
+         token declared above; `syncViewport()` refines it further either way
+         with the live visual-viewport height. */
+      @supports (height: 100dvh) {
+        :root {
+          --siu-vvh: 100dvh;
+        }
       }
 
       /* Only the Electron shell has a macOS material behind it; a translucent
@@ -493,7 +519,11 @@
       .siu-app {
         display: flex;
         flex-direction: column;
+        /* `100vh` stays as the fallback for browsers without `dvh`; the token
+           then carries the dynamic viewport height (and the live
+           visual-viewport height once `syncViewport()` has run). */
         height: 100vh;
+        height: var(--siu-vvh, 100vh);
         background: var(--siu-bg-app);
       }
       /* The whole chrome strip is a drag region; interactive children opt out. */
@@ -509,8 +539,15 @@
         display: flex;
         align-items: center;
         gap: var(--siu-space-3);
-        height: 44px;
-        padding: 0 var(--siu-space-4);
+        /* `auto` lets the notched-device safe-top padding grow the row instead
+           of squeezing the content box below 44px; `min-height` keeps the
+           desktop row at exactly 44px where the inset is `0px`. */
+        height: auto;
+        min-height: 44px;
+        /* Notched devices add the status-bar inset to the row height so the
+           controls are never drawn under the cutout; `0px` elsewhere. */
+        padding: var(--siu-safe-top) calc(var(--siu-space-4) + var(--siu-safe-right)) 0
+          calc(var(--siu-space-4) + var(--siu-safe-left));
       }
       /* Centred document title; never intercepts drags. */
       .siu-titlebar-center {
@@ -617,11 +654,11 @@
         width: 248px;
         box-sizing: border-box;
       }
-      @media (max-width: 640px) {
-        .siu-session-sidebar {
-          display: none;
-        }
-      }
+      /* Mobile: the sidebar is an off-canvas drawer rather than a layout
+         column, so it must NOT be hidden — the whole rule set lives in the
+         mobile block at the end of this style sheet, where source order also
+         lets it outrank `.siu-session-sidebar[data-collapsed='true']`. */
+
       .siu-session-sidebar-header {
         display: flex;
         align-items: center;
@@ -3243,10 +3280,270 @@
         word-break: break-word;
         color: var(--siu-text-secondary);
       }
+
+      /* Transparent cover that intercepts taps outside the open drawer. Hidden
+         everywhere except the narrow layout with the drawer open, so desktop
+         never sees an extra layer in the hit-test path. */
+      .siu-sidebar-scrim {
+        display: none;
+      }
+
+      /* =====================================================================
+         Mobile adaptation (≤640px) and coarse-pointer ergonomics
+
+         Deliberately the LAST block in this style sheet: every override here
+         is a single-class selector, so source order — not `!important` — is
+         what lets it beat the base rules above (including the attribute-
+         selector collapse rule). ≥641px rendering is untouched.
+         ===================================================================== */
+      @media (max-width: 640px) {
+        /* The sidebar becomes a left off-canvas drawer. It must never be
+           `display: none`: that would leave `#btn-toggle-sidebar` a dead
+           control. `transform` is re-declared explicitly in both states so the
+           drawer position is never inferred from the desktop collapse rule,
+           and `visibility` keeps the closed drawer out of the tab order. */
+        /* Contract stack at this width: menu scrim 35 < drawer 36 < secondary
+           menu 40 < modal overlays 50. */
+        .siu-session-sidebar {
+          position: fixed;
+          top: 0;
+          bottom: 0;
+          left: 0;
+          z-index: 36;
+          display: flex;
+          width: min(84vw, 300px);
+          height: auto;
+          opacity: 1;
+          pointer-events: auto;
+          border-right: 1px solid var(--siu-border);
+          box-shadow: var(--siu-shadow-lg);
+          transform: translateX(-100%);
+          visibility: hidden;
+          transition: transform var(--siu-dur-slow) var(--siu-ease-out),
+            width var(--siu-dur-slow) var(--siu-ease-out),
+            opacity var(--siu-dur-base) var(--siu-ease-out),
+            visibility var(--siu-dur-slow) var(--siu-ease-out);
+          padding-top: var(--siu-safe-top);
+          padding-bottom: var(--siu-safe-bottom);
+          padding-left: var(--siu-safe-left);
+        }
+        /* Undo the desktop collapse geometry at this width. The drawer's closed
+           state is purely `translateX(-100%)`, so it must keep its full width
+           to slide in, and `data-mobile-open` owns its visibility. The
+           `[data-collapsed]` presence selector (which also matches the `false`
+           the desktop code writes) outranks the base-class rule, and being
+           inside this media block it leaves the desktop collapse untouched. */
+        .siu-session-sidebar[data-collapsed] {
+          width: min(84vw, 300px);
+          border-right-width: 1px;
+          opacity: 1;
+          pointer-events: auto;
+        }
+        /* Open outranks the closed state: this attribute selector matches the
+           same specificity as `.siu-session-sidebar[data-collapsed]` above and
+           comes later, so a drawer opened while the stored preference is
+           "collapsed" still paints open. */
+        .siu-session-sidebar[data-mobile-open='true'] {
+          transform: translateX(0);
+          visibility: visible;
+        }
+        .siu-session-sidebar-header,
+        .siu-session-sidebar-body {
+          width: 100%;
+        }
+        /* Above every fixed shell layer the drawer covers, below the drawer
+           itself (36). */
+        .siu-sidebar-scrim {
+          position: fixed;
+          inset: 0;
+          z-index: 35;
+          background: var(--siu-bg-scrim);
+        }
+        body[data-mobile-sidebar='true'] .siu-sidebar-scrim {
+          display: block;
+        }
+        /* `overflow: hidden` on the ancestor would otherwise let a 480px aura
+           inside the empty state widen the scroll box; clip it to the column. */
+        .siu-workspace {
+          min-width: 0;
+          overflow-x: hidden;
+        }
+
+        /* Dynamic viewport + safe areas for the fixed / full-height layers. */
+        .siu-menu {
+          height: var(--siu-vvh, 100vh);
+          padding-top: var(--siu-safe-top);
+          padding-bottom: var(--siu-safe-bottom);
+        }
+        .siu-menu-body {
+          padding-bottom: calc(var(--siu-space-4) + var(--siu-safe-bottom));
+        }
+        .siu-overlay {
+          padding: calc(var(--siu-space-3) + var(--siu-safe-top))
+            calc(var(--siu-space-3) + var(--siu-safe-right))
+            calc(var(--siu-space-3) + var(--siu-safe-bottom))
+            calc(var(--siu-space-3) + var(--siu-safe-left));
+        }
+        .siu-modal {
+          max-height: min(80vh, 640px);
+          max-height: min(80dvh, 640px);
+        }
+        .siu-modal--prefs {
+          max-height: 100%;
+        }
+        .siu-toastbar-host {
+          bottom: calc(var(--siu-space-4) + var(--siu-safe-bottom));
+          width: max-content;
+          max-width: calc(100vw - 24px);
+        }
+
+        /* Tighter gutters: the 46rem measure and the 24px padding were sized
+           for a desktop column and would eat most of a 375px viewport. */
+        .siu-transcript {
+          padding: var(--siu-space-4) var(--siu-space-3);
+          scroll-padding-block: var(--siu-space-4);
+        }
+        .siu-composer {
+          /* `padding-bottom` must stay the inline shorthand: `.siu-composer`
+             is `position: sticky`, and switching the inline axis to `padding-
+             inline` here would be a silent no-op on a shorthand-relative rule. */
+          padding: 0 var(--siu-space-3) calc(var(--siu-space-3) + var(--siu-safe-bottom));
+        }
+        .siu-composer-inner {
+          max-width: 100%;
+        }
+        .siu-empty {
+          padding: var(--siu-space-6) var(--siu-space-3);
+        }
+        .siu-empty-aura {
+          width: 100%;
+          max-width: 480px;
+          height: 220px;
+        }
+
+        /* The two panels anchored above the composer must never grow taller
+           than what is actually on screen once the keyboard is up. */
+        .siu-popover {
+          max-height: min(320px, 50vh);
+          max-height: min(320px, 50dvh);
+        }
+        .siu-complete {
+          max-height: min(200px, 40dvh);
+        }
+
+        /* Settings: the 190px vertical nav and the 250px provider column do
+           not fit side by side, so the nav goes horizontal and the split
+           stacks (each column then gets the full width). The body itself must
+           stack too, or the horizontal nav would sit beside the active pane
+           and squeeze it to zero width. */
+        .siu-prefs-body {
+          flex-direction: column;
+        }
+        .siu-prefs-nav {
+          flex-direction: row;
+          width: auto;
+          border-right: none;
+          border-bottom: 1px solid var(--siu-border);
+          overflow-x: auto;
+          overflow-y: hidden;
+        }
+        .siu-nav-item {
+          width: auto;
+          flex: none;
+          white-space: nowrap;
+        }
+        .siu-prefs-split {
+          flex-direction: column;
+          overflow-y: auto;
+        }
+        .siu-provider-column {
+          width: auto;
+          max-height: 40vh;
+          border-right: none;
+          border-bottom: 1px solid var(--siu-border);
+        }
+        .siu-provider-list {
+          max-height: 180px;
+          flex: none;
+        }
+        .siu-provider-detail {
+          min-height: 0;
+        }
+      }
+
+      /* Coarse pointers (touch): comfortable hit areas and no iOS focus zoom. */
+      @media (pointer: coarse) {
+        /* iOS zooms the page when a focused field's text is under 16px, which
+           would scroll the whole shell sideways on every tap into the box. */
+        .siu-composer-input {
+          font-size: 16px;
+        }
+        .siu-btn-icon {
+          width: 44px;
+          height: 44px;
+        }
+        .siu-btn,
+        .siu-btn-send,
+        .siu-btn-stop {
+          min-height: 44px;
+          min-width: 44px;
+        }
+        .siu-modal-close {
+          width: 44px;
+          height: 44px;
+        }
+        .siu-session-item,
+        .siu-history-item,
+        .siu-provider-item,
+        .siu-nav-item,
+        .siu-popover-row,
+        .siu-complete-item {
+          min-height: 44px;
+        }
+        .siu-popover-star {
+          min-width: 44px;
+          min-height: 44px;
+        }
+        /* Kill the 300ms tap delay and the double-tap zoom on controls. */
+        button,
+        [role='button'],
+        [role='option'],
+        select,
+        summary {
+          touch-action: manipulation;
+        }
+        /* Contained overscroll so a fling inside a scroller never rubber-bands
+           the whole shell. */
+        .siu-transcript,
+        .siu-modal-body,
+        .siu-menu-body,
+        .siu-session-sidebar-body,
+        .siu-provider-list,
+        .siu-provider-detail,
+        .siu-prefs-pane,
+        .siu-prefs-pane-body,
+        .siu-complete,
+        .siu-popover-body {
+          overscroll-behavior: contain;
+        }
+        /* Touch has no hover state, so give the tap itself the feedback. */
+        .siu-session-item:active,
+        .siu-history-item:active,
+        .siu-provider-item:active,
+        .siu-complete-item:active,
+        .siu-popover-row:active {
+          background: var(--siu-bg-active);
+        }
+      }
     </style>
   </head>
   <body>
     <div class="siu-app">
+      <!-- Mobile-only: while the session drawer is open this transparent cover
+           intercepts every pointer event, so a tap outside the sidebar panel
+           always reaches this one inert node (and closes the drawer) instead of
+           a control underneath. Excluded above 640px by CSS. -->
+      <div id="sidebar-scrim" class="siu-sidebar-scrim" aria-hidden="true"></div>
       <!-- ===================== TITLEBAR ===================== -->
       <header class="siu-chrome">
         <div class="siu-titlebar">
@@ -3407,6 +3704,8 @@
                   placeholder="描述一个交给自主智能体的任务…"
                   data-i18n-placeholder="composer.placeholder"
                   class="siu-composer-input"
+                  enterkeyhint="send"
+                  autocapitalize="sentences"
                 ></textarea>
                 <div class="siu-composer-toolbar">
                   <!-- Left group: the three state controls. Built as static
@@ -4429,6 +4728,37 @@
       }
 
       // =======================================================================
+      // Viewport height (mobile browser chrome & soft keyboard)
+      // =======================================================================
+      /**
+       * Publish the live visual-viewport height as `--siu-vvh`.
+       *
+       * `100vh` and `100dvh` are the CSS-only fallbacks, but neither tracks the
+       * soft keyboard: `visualViewport.height` does, so the composer stays
+       * visible while a field is focused. The resizes are coalesced into one
+       * animation frame — a resize burst would otherwise write the custom
+       * property (and reflow the shell) many times per gesture.
+       */
+      let vvhFrame = 0;
+      function syncViewport() {
+        if (vvhFrame) return;
+        const flush = () => {
+          vvhFrame = 0;
+          const viewport = window.visualViewport;
+          const height = viewport ? viewport.height : window.innerHeight;
+          if (!height) return;
+          document.documentElement.style.setProperty('--siu-vvh', `${Math.round(height)}px`);
+        };
+        if (typeof requestAnimationFrame === 'function') vvhFrame = requestAnimationFrame(flush);
+        else flush();
+      }
+      window.visualViewport?.addEventListener('resize', syncViewport);
+      window.addEventListener('resize', syncViewport);
+      window.addEventListener('orientationchange', syncViewport);
+      // Before any boot UI work, so the first paint already has a height.
+      syncViewport();
+
+      // =======================================================================
       // Sidebar collapse (⌘B)
       // =======================================================================
       function isSidebarCollapsed() {
@@ -4455,6 +4785,102 @@
       function toggleSidebar() {
         setSidebarCollapsed(!isSidebarCollapsed());
       }
+
+      // =======================================================================
+      // Session drawer (≤640px)
+      //
+      // The narrow layout turns the sidebar into an off-canvas drawer. That open
+      // state is deliberately NOT `data-collapsed`: the desktop collapse
+      // preference stays untouched (and un-persisted) on mobile, and an open
+      // drawer really is displayed, so `aria-hidden` must read `false`.
+      // =======================================================================
+      const mobileSidebarQuery = window.matchMedia('(max-width: 640px)');
+
+      function mobileSidebarOpen() {
+        return $('session-sidebar')?.dataset.mobileOpen === 'true';
+      }
+
+      function setMobileSidebarOpen(open) {
+        const sidebar = $('session-sidebar');
+        const btnToggle = $('btn-toggle-sidebar');
+        if (!sidebar) return;
+        sidebar.dataset.mobileOpen = String(open);
+        sidebar.style.removeProperty('transform');
+        sidebar.style.removeProperty('visibility');
+        sidebar.setAttribute('aria-hidden', String(!open));
+        // The matching cover only exists in the narrow layout; the attribute is
+        // still kept exact on desktop so a stale `true` can never show it.
+        document.body.dataset.mobileSidebar = String(open);
+        if (btnToggle) {
+          btnToggle.setAttribute('aria-expanded', String(open));
+          btnToggle.dataset.active = String(open);
+        }
+      }
+
+      function closeMobileSidebar() {
+        if (mobileSidebarOpen()) setMobileSidebarOpen(false);
+      }
+
+      /**
+       * On the narrow layout the drawer is the surface, so the header's
+       * collapse button becomes its explicit close control — there is no dead
+       * button at that width. `menu.close` is reused rather than minting a new
+       * string, and desktop keeps the `sidebar.collapse` labels.
+       */
+      function syncMobileSidebarControls() {
+        const collapseBtn = $('btn-sidebar-collapse');
+        if (!collapseBtn) return;
+        const mobile = mobileSidebarQuery.matches;
+        collapseBtn.title = mobile ? tr('menu.close') : tr('sidebar.collapse.title');
+        collapseBtn.setAttribute('aria-label', mobile ? tr('menu.close') : tr('sidebar.collapse'));
+      }
+
+      function toggleSidebarForWidth() {
+        if (mobileSidebarQuery.matches) setMobileSidebarOpen(!mobileSidebarOpen());
+        else toggleSidebar();
+      }
+
+      // Crossing the breakpoint re-derives the state. Neither the drawer flag
+      // nor a leftover `aria-hidden="false"` may leak into the other layout.
+      mobileSidebarQuery.addEventListener('change', (event) => {
+        syncMobileSidebarControls();
+        const sidebar = $('session-sidebar');
+        if (!sidebar) return;
+        // Drop the drawer state on every crossing: it is meaningless in
+        // whichever layout we are leaving, and desktop would briefly paint an
+        // open sidebar on the next mobile entry.
+        sidebar.dataset.mobileOpen = 'false';
+        document.body.dataset.mobileSidebar = 'false';
+        sidebar.style.removeProperty('transform');
+        sidebar.style.removeProperty('visibility');
+        const collapsed = isSidebarCollapsed();
+        // On mobile the closed drawer is hidden, so `aria-hidden` follows the
+        // drawer state; on desktop it follows the collapse preference.
+        sidebar.setAttribute('aria-hidden', String(event.matches ? true : collapsed));
+        const btnToggle = $('btn-toggle-sidebar');
+        if (btnToggle) {
+          // On mobile the toggle button really opens the drawer, so it starts
+          // "not expanded" and is never driven by the desktop preference.
+          const expanded = event.matches ? false : !collapsed;
+          btnToggle.setAttribute('aria-expanded', String(expanded));
+          btnToggle.dataset.active = String(expanded);
+        }
+      });
+
+      // Outside pointer release closes the drawer — there is no hover on a
+      // touch screen, so this must work even when the tap lands on inert
+      // background (`pointerup`, not `mousedown`). The tap is swallowed first
+      // by `#sidebar-scrim`, so a control the drawer covers never fires.
+      document.addEventListener('pointerup', (event) => {
+        if (!mobileSidebarQuery.matches || !mobileSidebarOpen()) return;
+        if (event.target.closest('#session-sidebar') || event.target.closest('#btn-toggle-sidebar')) return;
+        closeMobileSidebar();
+      });
+
+      // Escape handling for the mobile drawer lives in the window-level
+      // capture keydown handler below, so it is ordered against every other
+      // Escape layer (completions, popovers, modals, turn abort) instead of
+      // racing a second listener that could abort a running turn first.
 
       // =======================================================================
       // Modal plumbing
@@ -4546,10 +4972,10 @@
             if (!anyModalOpen()) void createNewSession();
             return;
           }
-          // ⌘B — Toggle the session list sidebar
+          // ⌘B — Toggle the session list sidebar (desktop collapse / drawer)
           if (meta && (key === 'b' || key === 'B')) {
             event.preventDefault();
-            toggleSidebar();
+            toggleSidebarForWidth();
             return;
           }
 
@@ -4593,6 +5019,15 @@
           // The secondary menu is part of `anyModalOpen()` now, so this closes
           // it exactly like a modal instead of competing with a second listener.
           if (key === 'Escape') {
+            // The mobile drawer is handled here — in the capture handler that
+            // also owns the abort path — so it must claim Escape before any
+            // other layer. A separate capture listener raced this one and let
+            // Esc abort a running turn before the drawer could close.
+            if (mobileSidebarQuery.matches && mobileSidebarOpen()) {
+              event.preventDefault();
+              closeMobileSidebar();
+              return;
+            }
             // The completion menu is the topmost layer when it is open, so it
             // closes first — otherwise Esc would abort a running turn while the
             // user was only dismissing the list. This handler is on `capture`,
@@ -5316,7 +5751,10 @@
               item.appendChild(titleEl);
               item.appendChild(metaEl);
 
-              item.addEventListener('click', () => void switchSession(session.id));
+              item.addEventListener('click', () => {
+                closeMobileSidebar();
+                void switchSession(session.id);
+              });
               list.appendChild(item);
             }
           }
@@ -7419,8 +7857,11 @@
 
       $('btn-settings').addEventListener('click', () => void openSettings());
       $('btn-palette').addEventListener('click', () => openModal('palette'));
-      $('btn-toggle-sidebar')?.addEventListener('click', toggleSidebar);
-      $('btn-sidebar-collapse')?.addEventListener('click', () => setSidebarCollapsed(true));
+      $('btn-toggle-sidebar')?.addEventListener('click', toggleSidebarForWidth);
+      $('btn-sidebar-collapse')?.addEventListener('click', () => {
+        if (mobileSidebarQuery.matches) closeMobileSidebar();
+        else setSidebarCollapsed(true);
+      });
 
       // =======================================================================
       // Main model selector (secondary menu)
@@ -8135,6 +8576,10 @@
         if (!event.target.closest('.siu-composer-inner')) closeCompletions();
       });
       promptInput.addEventListener('keydown', (event) => {
+        // An IME that has not yet committed the composition delivers Enter with
+        // `isComposing` set (legacy browsers: keyCode 229). That Enter picks the
+        // candidate, it does not submit — so return before any handling.
+        if (event.isComposing || event.keyCode === 229) return;
         // The completion menu owns these three keys while it is open, so
         // ArrowUp/Down scroll the list instead of reaching into prompt history
         // and Enter commits the highlighted command rather than submitting a
@@ -8224,9 +8669,18 @@
         }
       }
 
-      $('btn-new')?.addEventListener('click', () => void createNewSession());
-      $('btn-sidebar-new')?.addEventListener('click', () => void createNewSession());
-      $('btn-clear')?.addEventListener('click', () => void runSlash('/clear'));
+      $('btn-new')?.addEventListener('click', () => {
+        closeMobileSidebar();
+        void createNewSession();
+      });
+      $('btn-sidebar-new')?.addEventListener('click', () => {
+        closeMobileSidebar();
+        void createNewSession();
+      });
+      $('btn-clear')?.addEventListener('click', () => {
+        closeMobileSidebar();
+        void runSlash('/clear');
+      });
       $('session-select')?.addEventListener('change', (event) => void switchSession(event.target.value));
 
       // =======================================================================
@@ -8344,6 +8798,10 @@
       /** Re-render every region that is built in JS rather than annotated. */
       function rerenderLocalizedRegions() {
         renderNotifyButton();
+        // The collapse button doubles as the mobile drawer's close control, so
+        // its label change is a dictionary lookup that has to follow a language
+        // switch like every other JS-owned label here.
+        syncMobileSidebarControls();
         // The appearance labels come from the dictionary, so the select has to
         // be re-labelled or it keeps the language it was built in.
         renderThemeSelect();
@@ -8432,6 +8890,10 @@
         if (localStorage.getItem('superiu.sidebar-collapsed') === 'true') {
           setSidebarCollapsed(true);
         }
+        // The narrow layout starts with the drawer closed and the toggle button
+        // "not expanded", independent of the stored desktop preference.
+        syncMobileSidebarControls();
+        if (mobileSidebarQuery.matches) setMobileSidebarOpen(false);
         try {
           renderStatus(await api('/api/status'));
           renderMessages(await api('/api/messages'));
