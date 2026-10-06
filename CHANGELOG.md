@@ -14,6 +14,20 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.12 (2026-10-07)
+
+### 中文
+
+- 修复远程模式连接过程中窗口长期定格在「Step: probe — active / Status: connecting」的问题：状态页此前是一张不含脚本的静态页面，7 步部署流程的进展只发往 IPC 而无人消费。现在状态页会随每一步实时刷新，用户能看到 probe → install → workspace → token → start → tunnel → client 的真实进度。
+- 为远程 Web 控制台增加导航自愈：连接建立后若页面导航失败（端口尚未就绪、隧道重启等），会在 60 秒内按指数退避（500ms → 5s）自动重试；渲染进程异常退出时自动重载（最多 3 次）。超过上限后显示明确的失败页面，不再静默停留在旧画面。
+- 新增 `packages/desktop/src/remote/navigation.ts` 纯函数策略模块与配套单元测试。
+
+### English
+
+- Fix the remote-mode window freezing on "Step: probe — active / Status: connecting". The status page was a scriptless static page, and the 7-step deployment progress was sent over IPC with no consumer. It now repaints on every step, so the real probe → install → workspace → token → start → tunnel → client progress is visible.
+- Add navigation self-healing for the remote web console: after connecting, a failed page navigation (port not yet ready, tunnel restart, …) retries with exponential backoff (500ms → 5s) for up to 60 seconds, and an abnormally exited renderer is reloaded (max 3 times). Past those limits an explicit failure page is shown instead of silently keeping a stale frame.
+- Add the pure-policy module `packages/desktop/src/remote/navigation.ts` with unit tests.
+
 ## v0.2.11 (2026-10-06)
 
 ### 中文
