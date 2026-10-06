@@ -52,6 +52,8 @@ Run the following command in Terminal to install or update SuperIU automatically
 curl -fsSL https://raw.githubusercontent.com/Kayphoon/SuperIU/master/scripts/install-mac.sh | sh
 ```
 
+This script automatically queries GitHub Releases for the latest version matching your Mac architecture (Apple Silicon `arm64` or Intel `x64`), downloads and unpacks `SuperIU.app` into `/Applications`, strips macOS Gatekeeper quarantine (`xattr -cr`), and registers it with LaunchServices/Spotlight. You can re-run the same command anytime to update to the latest release.
+
 #### Option 2: Build & install from source
 
 `pnpm desktop` is a development runner — it boots the Electron framework's own bundle, which is named "Electron", so Spotlight (聚焦搜索) cannot find it. To install SuperIU from source:
