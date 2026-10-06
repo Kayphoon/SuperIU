@@ -14,6 +14,16 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.10 (2026-10-06)
+
+### 中文
+
+- 远程 VPS 模式下，桌面窗口在连接成功后直接加载隧道端点处的完整智能体控制台界面，实现客户端对话交互与云端 Agent 运行。
+
+### English
+
+- In remote VPS mode, load the full agent console in the desktop window via the tunnel endpoint upon successful connection for direct desktop chatting with the remote agent.
+
 ## v0.2.9 (2026-10-06)
 
 ### 中文

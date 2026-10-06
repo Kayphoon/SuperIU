@@ -95,6 +95,7 @@ let onboardingWindow: BrowserWindow | null = null;
 let serverHandle: ServerHandle | null = null;
 let gatewayClient: GatewayClient | null = null;
 let remoteManager: RemoteConnectionManager | null = null;
+let activeRemoteUrl: string | null = null;
 let shuttingDown = false;
 
 // ---------------------------------------------------------------------------
@@ -413,6 +414,8 @@ function focusMainWindow(): void {
   if (!mainWindow || mainWindow.isDestroyed()) {
     if (serverHandle) {
       mainWindow = createWindow(serverHandle.url);
+    } else if (activeRemoteUrl) {
+      mainWindow = createWindow(activeRemoteUrl);
     } else if (remoteManager) {
       showGatewayStatus(
         resolveGatewayConfig(process.cwd()),
@@ -769,11 +772,15 @@ async function startRemoteMode(config: GatewayConfig, opts: RemoteModeOptions = 
     console.log(
       `[superiu] remote mode → ${result.localUrl} via ${remote.alias} (workspace ${remote.workspace})`
     );
+    const remoteHttpUrl = `http://127.0.0.1:${result.tunnelPort}`;
+    activeRemoteUrl = remoteHttpUrl;
+
     if (paint) {
-      showGatewayStatus(config, result.gatewayClient.connectionState, {
-        step: { id: 'client', status: 'done' },
-        detail: `tunnel port ${result.tunnelPort}`
-      });
+      if (!mainWindow || mainWindow.isDestroyed()) {
+        mainWindow = createWindow(remoteHttpUrl);
+      } else {
+        void mainWindow.loadURL(remoteHttpUrl);
+      }
     }
   } catch (err) {
     // Surface the failing step and STOP. Deliberately no silent fallback to
@@ -812,6 +819,7 @@ async function startRemoteMode(config: GatewayConfig, opts: RemoteModeOptions = 
  * away.
  */
 async function closeRemote(): Promise<void> {
+  activeRemoteUrl = null;
   const manager = remoteManager;
   remoteManager = null;
   if (!manager) return;
@@ -941,11 +949,17 @@ function installIpcHandlers(): void {
       );
 
       if (fromOnboarding) {
-        // The choice is on disk: close the wizard and give the user a live
-        // status screen instead of a vanished window. `startRemoteMode` already
-        // returned, so this reflects the manager's current client state.
+        // The choice is on disk: close the wizard and show the live web console.
         closeOnboarding();
-        showGatewayStatus(config, remoteManager?.gatewayClient?.connectionState ?? 'connecting');
+        if (activeRemoteUrl) {
+          if (!mainWindow || mainWindow.isDestroyed()) {
+            mainWindow = createWindow(activeRemoteUrl);
+          } else {
+            void mainWindow.loadURL(activeRemoteUrl);
+          }
+        } else {
+          showGatewayStatus(config, remoteManager?.gatewayClient?.connectionState ?? 'connecting');
+        }
       }
     }
   );
