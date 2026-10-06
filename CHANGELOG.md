@@ -14,6 +14,18 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.11 (2026-10-06)
+
+### 中文
+
+- 修复 SSH 隧道在用户 `~/.ssh/config` 存在其他冲突 LocalForward 配置时的异常退出问题（改为 ExitOnForwardFailure=no）。
+- 支持多行格式远程 daemon `server.json` 解析。
+
+### English
+
+- Fix SSH tunnel failure when user's `~/.ssh/config` contains other conflicting LocalForward ports (use ExitOnForwardFailure=no).
+- Support parsing multiline daemon `server.json` files from the remote host.
+
 ## v0.2.10 (2026-10-06)
 
 ### 中文

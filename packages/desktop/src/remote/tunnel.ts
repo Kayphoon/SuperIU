@@ -279,8 +279,12 @@ export class SshTunnelManager extends EventEmitter {
       '-N',
       '-L',
       `${localPort}:127.0.0.1:${options.remotePort}`,
+      // When a user has other unrelated LocalForward entries in ~/.ssh/config
+      // that fail to bind locally, ExitOnForwardFailure=yes would prematurely
+      // abort this dedicated tunnel. Since we probe readiness ourselves via
+      // TCP connection test, keep ExitOnForwardFailure=no so unrelated binds don't kill us.
       '-o',
-      'ExitOnForwardFailure=yes',
+      'ExitOnForwardFailure=no',
       '-o',
       'ServerAliveInterval=15',
       '-o',

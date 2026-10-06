@@ -119,8 +119,16 @@ export const defaultRemoteRunner: RemoteRunner = (alias, remoteCommand) =>
     });
   });
 
-/** Parse the first JSON object line found in `text`, or null. */
+/** Parse the JSON object from `text` (supporting multiline JSON or single-line JSON), or null. */
 function parseJsonLine<T>(text: string): T | null {
+  const trimmedFull = text.trim();
+  if (trimmedFull.startsWith('{') && trimmedFull.endsWith('}')) {
+    try {
+      return JSON.parse(trimmedFull) as T;
+    } catch {
+      /* fall back to line scanning */
+    }
+  }
   for (const line of text.split(/\r?\n/)) {
     const trimmed = line.trim();
     if (!trimmed.startsWith('{')) continue;
