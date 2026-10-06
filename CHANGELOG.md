@@ -14,6 +14,20 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.9 (2026-10-06)
+
+### 中文
+
+- 首次启动引导页面（Onboarding）顶部使用原生 SuperIU 应用图标（自包含 Base64 嵌入，适配明暗模式与 macOS 窗口拖拽区域）。
+- 适配 Web 控制台移动端屏幕与粗指针触控体验：支持会话抽屉折叠、动态视口高度（`--siu-vvh`）与全面屏安全区避让，优化软键盘呼起时的布局与 IME 输入法合成行为。
+- 完善首次启动向导中远程 VPS 工作区默认路径说明文档。
+
+### English
+
+- Use the native SuperIU application icon in the first-run onboarding wizard (self-contained Base64 embed, calibrated for light/dark themes and macOS window drag regions).
+- Adapt Web console for mobile viewports and touch interaction: off-canvas drawer sidebar, dynamic visual viewport height (`--siu-vvh`), notch/safe-area insets, and fix IME composition Enter key handling in composer input.
+- Document remote VPS workspace pre-fill behavior in first-run onboarding guidance.
+
 ## v0.2.8 (2026-10-05)
 
 ### 中文
