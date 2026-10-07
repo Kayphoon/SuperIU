@@ -33,6 +33,7 @@ import * as path from 'node:path';
 import {
   isBackoffBlocked,
   main,
+  normalizeTag,
   readUpdateState,
   resolveAutoUpdateSettings,
   restartDaemonDetached,
@@ -130,6 +131,43 @@ afterEach(() => {
   }
   workspaces = [];
   vi.restoreAllMocks();
+});
+
+// ---------------------------------------------------------------------------
+// Release tags: only a real version may reach the updater
+// ---------------------------------------------------------------------------
+//
+// The rolling channel's tag is the literal `latest`, which is not a version.
+// `normalizeTag` used to return it verbatim (nothing to strip, non-empty), so
+// the resolved "latest version" was the string `latest`. `semverGt` then
+// rejected it downstream, but `superiu-server update --check` printed
+// `latest: latest` and the value was structurally wrong. The tag is now gated
+// through the project's own semver parser.
+
+describe('normalizeTag: only a real version survives', () => {
+  it('rejects the rolling channel literal `latest`', () => {
+    expect(normalizeTag('latest')).toBeUndefined();
+  });
+
+  it('strips a leading `v` from a versioned tag', () => {
+    expect(normalizeTag('v0.2.18')).toBe('0.2.18');
+  });
+
+  it('accepts a bare version', () => {
+    expect(normalizeTag('0.2.18')).toBe('0.2.18');
+  });
+
+  it('rejects a lone `v`', () => {
+    expect(normalizeTag('v')).toBeUndefined();
+  });
+
+  it('rejects a missing tag', () => {
+    expect(normalizeTag(undefined)).toBeUndefined();
+  });
+
+  it('trims surrounding whitespace before parsing', () => {
+    expect(normalizeTag('  v0.2.18  ')).toBe('0.2.18');
+  });
 });
 
 // ---------------------------------------------------------------------------

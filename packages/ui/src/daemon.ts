@@ -1113,20 +1113,30 @@ async function fetchWithTimeout(url: string, accept?: string): Promise<Response>
   return await fetch(url, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
 }
 
-/** Strip a leading `v` from a release tag; `undefined` when there is no tag. */
-function normalizeTag(tag: string | undefined): string | undefined {
-  if (!tag) return undefined;
-  return tag.replace(/^v/i, '') || undefined;
+/**
+ * Strip a leading `v` from a release tag and return it only when the remainder
+ * is a real version; `undefined` otherwise. The rolling channel's tag is the
+ * literal `latest`, which is not a version and must not be treated as one.
+ */
+export function normalizeTag(tag: string | undefined): string | undefined {
+  if (typeof tag !== 'string') return undefined;
+  const stripped = tag.trim().replace(/^v/i, '');
+  return parseVersion(stripped) ? stripped : undefined;
 }
 
 /**
  * Resolve the latest released version from the GitHub Releases API.
  *
- * `/releases/latest` is tried first, but it never returns pre-releases — and the
- * rolling channel publishes every master build as a prerelease, leaving that
- * endpoint 404ing forever. When it does, fall back to the release list (ordered
- * newest-first by GitHub) and take the first release that actually ships the
- * asset for this architecture.
+ * `/releases/latest` answers with the newest NON-prerelease release, so it does
+ * not 404 forever once any stable tag exists. The rolling channel is published
+ * as a prerelease whose tag is the literal `latest`, which `/releases/latest`
+ * never returns and which is not a version at all. The daemon therefore resolves
+ * upgrades from STABLE releases only: a long-lived server must not chase a
+ * prerelease channel.
+ *
+ * `/releases/latest` is tried first; on a 404 fall back to the release list
+ * (ordered newest-first by GitHub) and take the first release that actually
+ * ships the asset for this architecture.
  */
 async function fetchLatestVersion(assetName: string): Promise<string | undefined> {
   const direct = await fetchWithTimeout(

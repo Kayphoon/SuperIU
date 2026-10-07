@@ -14,6 +14,24 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.18 (2026-10-08)
+
+### 中文
+
+- 统一所有 `package.json` 的版本号（根目录与 `packages/{ui,core,cli,protocol,desktop}`）为 `0.2.18`，修复此前只有 `packages/desktop` 在 bump、其余五个长期停留在 `0.1.0` 的版本漂移。
+  - **根目录 `package.json` 是滚动渠道服务端二进制的版本来源**：`release.yml` 在 tag 构建时把 tag 烘焙进二进制，但推送 `master` 的滚动构建传空 `SUPERIU_VERSION`，于是回落到根 `package.json`。根版本长期为 `0.1.0`，导致**每个滚动渠道的 `superiu-server` 二进制都自称 `0.1.0`**（实测：`releases/download/latest/superiu-server-linux-arm64` 内嵌 `0.1.0`，而 `v0.2.17` 的内嵌 `0.2.17`）。
+  - `packages/ui/package.json` 同样在运行时生效：`node dist/daemon.js` 的 `resolveVersion()` 向上查找 `package.json` 时先命中 `packages/ui/package.json`，因此它也必须与根版本一致。
+- `superiu-server` 的版本解析加固：`normalizeTag()` 现在要求剥离前导 `v` 后的结果必须能被 semver 解析，否则返回 `undefined`。滚动渠道的 tag 是字面量 `latest`（并非版本号），此前会被原样返回并打印成 `latest: latest`；现在被正确判定为「无版本」。同时修正了 `fetchLatestVersion()` 上方「该端点永远 404」的过时注释——存在稳定 tag 后它不再 404，守护进程的升级解析只认稳定发布，不追预发布渠道。
+- 新增 `scripts/check-version-parity.mjs` 版本一致性守卫并接入 `pnpm test`：断言六个 manifest 版本完全一致、且根与 desktop 一致（根即滚动服务端二进制的回落来源）。该守卫经过植入缺陷差分验证——把根版本改回 `0.1.0`（线上真实发生过的状态）会使其 FAIL 并点名 `package.json`。
+
+### English
+
+- Unify every `package.json` version (root plus `packages/{ui,core,cli,protocol,desktop}`) at `0.2.18`, fixing a version drift where only `packages/desktop` was ever bumped and the other five sat at `0.1.0`.
+  - **The root `package.json` is the version source for rolling-channel server binaries**: `release.yml` bakes the tag on tagged builds, but a `master` push passes an empty `SUPERIU_VERSION` and falls back to the root manifest. The root stayed at `0.1.0`, so **every rolling-channel `superiu-server` binary reported itself as `0.1.0`** (measured: `releases/download/latest/superiu-server-linux-arm64` embeds `0.1.0`, while `v0.2.17` embeds `0.2.17`).
+  - `packages/ui/package.json` is likewise load-bearing at runtime: the `resolveVersion()` walk from `node dist/daemon.js` hits `packages/ui/package.json` before the root, so it must agree too.
+- Harden the `superiu-server` version resolution: `normalizeTag()` now requires the value (after stripping a leading `v`) to parse as semver, returning `undefined` otherwise. The rolling channel's tag is the literal `latest` — not a version — which was previously returned verbatim and printed as `latest: latest`; it is now correctly treated as "no version". The stale "that endpoint 404s forever" comment above `fetchLatestVersion()` is corrected: it stops 404ing once a stable tag exists, and the daemon resolves upgrades from stable releases only rather than chasing a prerelease channel.
+- Add `scripts/check-version-parity.mjs`, wired into `pnpm test`: it asserts all six manifests agree and that root matches desktop (root being the rolling server-binary fallback). The guard was validated by injecting the defect — setting root back to `0.1.0` (the state that actually shipped) makes it FAIL and name `package.json`.
+
 ## v0.2.17 (2026-10-08)
 
 ### 中文

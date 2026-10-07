@@ -1,6 +1,6 @@
 {
   "name": "@agent/protocol",
-  "version": "0.1.0",
+  "version": "0.2.18",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
