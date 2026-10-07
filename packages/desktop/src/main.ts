@@ -701,15 +701,164 @@ async function approveDangerousCommand(command: string): Promise<boolean> {
   return response === 1;
 }
 
+/** Human labels for the SSH connection steps (see {@link RemoteStep}). */
+const REMOTE_STEP_ORDER: RemoteStep['id'][] = [
+  'probe',
+  'install',
+  'workspace',
+  'token',
+  'start',
+  'tunnel',
+  'client'
+];
+
 /**
- * Minimal status surface for gateway / remote modes.
+ * Bilingual copy for the gateway/remote status surface (see
+ * {@link gatewayStatusHtml}). One typed dictionary per language so a missing or
+ * extra key is a compile error rather than an English string leaking into the
+ * Chinese UI; the shell selects with the module-scope {@link uiLanguage}, the
+ * same way {@link ABOUT_LABELS} drives the native About panel.
+ */
+interface StatusCopy {
+  /** `lang` attribute for the status document. */
+  htmlLang: string;
+  documentTitle: (app: string) => string;
+  tagline: { remote: string; gateway: string };
+  toneTitle: {
+    connectingRemote: string;
+    connectingGateway: string;
+    connected: string;
+    failed: string;
+    inactive: string;
+  };
+  toneBody: {
+    connectingRemote: (app: string) => string;
+    connectingGateway: (app: string) => string;
+    connectedRemote: (app: string) => string;
+    connectedGateway: (app: string) => string;
+    failedRemote: string;
+    failedGateway: string;
+    inactive: (app: string) => string;
+  };
+  sections: { progress: string; connection: string; localWorkspace: string };
+  labels: {
+    currentStep: string;
+    progress: string;
+    details: string;
+    sshHost: string;
+    remoteWorkspace: string;
+    gateway: string;
+  };
+  steps: Record<RemoteStep['id'], string>;
+  stepStatus: Record<RemoteStep['status'], string>;
+  progressOf: (index: number, total: number) => string;
+  technical: string;
+  unknown: string;
+}
+
+const STATUS_COPY: Record<'zh' | 'en', StatusCopy> = {
+  zh: {
+    htmlLang: 'zh',
+    documentTitle: (app) => `${app} — 状态`,
+    tagline: { remote: '通过 SSH 连接的远程工作区', gateway: '网关工作区' },
+    toneTitle: {
+      connectingRemote: '正在通过 SSH 连接…',
+      connectingGateway: '正在连接网关…',
+      connected: '已连接',
+      failed: '连接失败',
+      inactive: '已断开连接'
+    },
+    toneBody: {
+      connectingRemote: (app) => `${app} 正在通过 SSH 连接到远程 VPS。`,
+      connectingGateway: (app) => `${app} 正在连接网关。`,
+      connectedRemote: (app) => `${app} 已作为远程工作区连接。`,
+      connectedGateway: (app) => `${app} 已连接到网关。`,
+      failedRemote: 'SuperIU 无法通过 SSH 连接到远程 VPS。请查看下方详情。',
+      failedGateway: 'SuperIU 无法连接到网关。请查看下方详情。',
+      inactive: (app) => `连接已关闭。重新打开 ${app} 以重新连接。`
+    },
+    sections: { progress: '进度', connection: '连接', localWorkspace: '本地工作区' },
+    labels: {
+      currentStep: '当前步骤',
+      progress: '进度',
+      details: '详情',
+      sshHost: 'SSH 主机',
+      remoteWorkspace: '远程工作区',
+      gateway: '网关'
+    },
+    steps: {
+      probe: '检查远程主机',
+      install: '安装 SuperIU 守护进程',
+      workspace: '准备远程工作区',
+      token: '与网关配对',
+      start: '启动守护进程',
+      tunnel: '建立 SSH 隧道',
+      client: '连接网关客户端'
+    },
+    stepStatus: { pending: '等待中', active: '进行中', done: '已完成', failed: '失败' },
+    progressOf: (index, total) => `第 ${index} 步，共 ${total} 步`,
+    technical: '技术状态：',
+    unknown: '未知'
+  },
+  en: {
+    htmlLang: 'en',
+    documentTitle: (app) => `${app} — Status`,
+    tagline: { remote: 'Remote workspace over SSH', gateway: 'Gateway workspace' },
+    toneTitle: {
+      connectingRemote: 'Connecting over SSH…',
+      connectingGateway: 'Connecting to the gateway…',
+      connected: 'Connected',
+      failed: 'Connection failed',
+      inactive: 'Disconnected'
+    },
+    toneBody: {
+      connectingRemote: (app) => `${app} is connecting to a remote VPS over SSH.`,
+      connectingGateway: (app) => `${app} is connecting to the gateway.`,
+      connectedRemote: (app) => `${app} is connected as a remote workspace.`,
+      connectedGateway: (app) => `${app} is connected to the gateway.`,
+      failedRemote: 'SuperIU could not reach the remote VPS over SSH. See the details below.',
+      failedGateway: 'SuperIU could not reach the gateway. See the details below.',
+      inactive: (app) => `The connection is closed. Reopen ${app} to reconnect.`
+    },
+    sections: { progress: 'Progress', connection: 'Connection', localWorkspace: 'Local workspace' },
+    labels: {
+      currentStep: 'Current step',
+      progress: 'Progress',
+      details: 'Details',
+      sshHost: 'SSH host',
+      remoteWorkspace: 'Remote workspace',
+      gateway: 'Gateway'
+    },
+    steps: {
+      probe: 'Checking the remote host',
+      install: 'Installing the SuperIU daemon',
+      workspace: 'Preparing the remote workspace',
+      token: 'Pairing with the gateway',
+      start: 'Starting the daemon',
+      tunnel: 'Opening the SSH tunnel',
+      client: 'Connecting the gateway client'
+    },
+    stepStatus: { pending: 'Waiting', active: 'In progress', done: 'Done', failed: 'Failed' },
+    progressOf: (index, total) => `Step ${index} of ${total}`,
+    technical: 'Technical status:',
+    unknown: 'unknown'
+  }
+};
+
+/**
+ * Status surface for gateway / remote modes.
  *
  * Gateway and remote modes intentionally do NOT boot the local `@agent/ui`
  * server — the gateway owns the console, and this process is only its remote
  * workspace. A window still has to exist or the app reads as a headless zombie
- * (and macOS would refuse to focus it), so this renders a few plain-text lines of
- * connection status. It is deliberately un-styled: it exists to be legible, not
- * to be a designed surface.
+ * (and macOS would refuse to focus it), so this renders the connection status as
+ * a self-contained, dark/light-aware card: a tone-coded headline (connecting /
+ * connected / failed / inactive), explanatory copy, the current SSH step, the
+ * connection details, and the local workspace. The raw internal state is kept
+ * only in a secondary technical footer.
+ *
+ * Everything is inline (no external assets or network requests) and every
+ * dynamic value is escaped before it reaches the markup.
  */
 function gatewayStatusHtml(
   config: GatewayConfig,
@@ -717,33 +866,277 @@ function gatewayStatusHtml(
   remote?: { step?: RemoteStep; detail?: string }
 ): string {
   const safe = (value: string): string =>
-    value.replace(/[&<>"]/g, (ch) =>
-      ch === '&' ? '&amp;' : ch === '<' ? '&lt;' : ch === '>' ? '&gt;' : '&quot;'
+    value.replace(/[&<>"']/g, (ch) =>
+      ch === '&'
+        ? '&amp;'
+        : ch === '<'
+          ? '&lt;'
+          : ch === '>'
+            ? '&gt;'
+            : ch === '"'
+              ? '&quot;'
+              : '&#39;'
     );
 
   const isRemote = config.mode === 'remote' && Boolean(config.remote);
-  const headline = isRemote
-    ? `${safe(APP_NAME)} is connecting to a remote VPS over SSH.`
-    : `${safe(APP_NAME)} is connected as a remote workspace.`;
+  const step = remote?.step;
+  const stepStatus = step?.status;
+  const rawState = state;
 
-  // Remote mode shows the ssh alias/workspace and whichever step is current,
-  // instead of the (nonexistent) local gateway URL.
-  const remoteLines = isRemote && config.remote
+  // Collapse the overlapping vocabularies (GatewayClientState, RemoteStepStatus,
+  // and the synthetic `failed (step)` string) into the four tones a user needs.
+  const tone: 'connecting' | 'connected' | 'failed' | 'inactive' =
+    rawState.startsWith('failed') || stepStatus === 'failed'
+      ? 'failed'
+      : rawState === 'connected'
+        ? 'connected'
+        : rawState === 'idle' || rawState === 'closed'
+          ? 'inactive'
+          : 'connecting';
+
+  const copy = STATUS_COPY[uiLanguage] ?? STATUS_COPY.zh;
+
+  // Remote and gateway modes share the four tones but not their copy, so the
+  // tone resolves to a finished title/body pair exactly once, here.
+  const toneText: Record<typeof tone, { title: string; body: string }> = {
+    connecting: isRemote
+      ? { title: copy.toneTitle.connectingRemote, body: copy.toneBody.connectingRemote(APP_NAME) }
+      : {
+          title: copy.toneTitle.connectingGateway,
+          body: copy.toneBody.connectingGateway(APP_NAME)
+        },
+    connected: isRemote
+      ? { title: copy.toneTitle.connected, body: copy.toneBody.connectedRemote(APP_NAME) }
+      : { title: copy.toneTitle.connected, body: copy.toneBody.connectedGateway(APP_NAME) },
+    failed: isRemote
+      ? { title: copy.toneTitle.failed, body: copy.toneBody.failedRemote }
+      : { title: copy.toneTitle.failed, body: copy.toneBody.failedGateway },
+    inactive: { title: copy.toneTitle.inactive, body: copy.toneBody.inactive(APP_NAME) }
+  };
+
+  const stepIndex = step ? REMOTE_STEP_ORDER.indexOf(step.id) : -1;
+  const stepFields = step
     ? `
-  <p>Host: <code>${safe(config.remote.alias)}</code></p>
-  <p>Remote workspace: <code>${safe(config.remote.workspace)}</code></p>
-  <p>Step: <code>${safe(remote?.step ? `${remote.step.id} — ${remote.step.status}` : '—')}</code></p>
-  ${remote?.detail ? `<p>Detail: <code>${safe(remote.detail)}</code></p>` : ''}`
-    : `
-  <p>Gateway: <code>${safe(config.url ?? '—')}</code></p>`;
+      <div class="field">
+        <span class="label">${safe(copy.labels.currentStep)}</span>
+        <span class="value">${safe(copy.steps[step.id] ?? step.id)}</span>
+        <span class="chip chip--${safe(step.status)}">${safe(copy.stepStatus[step.status] ?? step.status)}</span>
+      </div>${
+        stepIndex >= 0
+          ? `
+      <div class="field">
+        <span class="label">${safe(copy.labels.progress)}</span>
+        <span class="value">${safe(copy.progressOf(stepIndex + 1, REMOTE_STEP_ORDER.length))}</span>
+      </div>`
+          : ''
+      }`
+    : '';
+
+  const detailField = remote?.detail
+    ? `
+      <div class="field">
+        <span class="label">${safe(copy.labels.details)}</span>
+        <span class="value detail">${safe(remote.detail)}</span>
+      </div>`
+    : '';
+
+  // Remote mode shows the ssh alias/workspace; gateway mode shows the endpoint
+  // (there is no remote host). Local workspace is always relevant.
+  const connectionFields =
+    isRemote && config.remote
+      ? `
+        <div class="field">
+          <span class="label">${safe(copy.labels.sshHost)}</span>
+          <span class="value"><code>${safe(config.remote.alias)}</code></span>
+        </div>
+        <div class="field">
+          <span class="label">${safe(copy.labels.remoteWorkspace)}</span>
+          <span class="value"><code>${safe(config.remote.workspace)}</code></span>
+        </div>`
+      : `
+        <div class="field">
+          <span class="label">${safe(copy.labels.gateway)}</span>
+          <span class="value"><code>${safe(config.url ?? '—')}</code></span>
+        </div>`;
+
+  const stepCard =
+    step || remote?.detail
+      ? `
+  <section class="card">
+    <h3>${safe(copy.sections.progress)}</h3>${stepFields}${detailField}
+  </section>`
+      : '';
 
   return `<!doctype html>
-<html><head><meta charset="utf-8"><title>${safe(APP_NAME)}</title></head>
-<body style="font-family: -apple-system, system-ui, sans-serif; padding: 2rem; color: #888;">
-  <p>${headline}</p>${remoteLines}
-  <p>Workspace: <code>${safe(config.workspaceRoot)}</code></p>
-  <p>Status: <strong>${safe(state)}</strong></p>
-</body></html>`;
+<html lang="${safe(copy.htmlLang)}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<title>${safe(copy.documentTitle(APP_NAME))}</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f5f7; --panel: #ffffff; --text: #1d1d1f; --muted: #6e6e73;
+    --border: rgba(0, 0, 0, 0.10); --code-bg: rgba(0, 0, 0, 0.05);
+    --accent: #0a84ff; --ok: #1a9e57; --err: #c9342a; --idle: #8e8e93;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1c1e; --panel: #2c2c2e; --text: #f5f5f7; --muted: #98989d;
+      --border: rgba(255, 255, 255, 0.12); --code-bg: rgba(255, 255, 255, 0.08);
+      --accent: #0a84ff; --ok: #30d158; --err: #ff453a; --idle: #8e8e93;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  /* hiddenInset chrome: leave the traffic lights clear and keep the window draggable. */
+  .titlebar { position: fixed; inset: 0 0 auto 0; height: 38px; -webkit-app-region: drag; }
+  .wrap {
+    max-width: 620px; margin: 0 auto; padding: 54px 28px 40px;
+    display: flex; flex-direction: column; gap: 18px;
+  }
+  .head { display: flex; align-items: center; gap: 12px; }
+  .logo {
+    width: 40px; height: 40px; flex: none; border-radius: 11px;
+    display: grid; place-items: center; font-size: 20px; font-weight: 600; color: #fff;
+    background: linear-gradient(160deg, #0a84ff, #6a5cff);
+  }
+  .head h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+  .tagline { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
+  .status {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    padding: 18px; display: grid; grid-template-columns: auto minmax(0, 1fr);
+    gap: 12px; color: var(--idle);
+  }
+  .status .dot { width: 11px; height: 11px; border-radius: 50%; margin-top: 5px; background: currentColor; }
+  .status h2 { margin: 0; font-size: 16px; font-weight: 600; }
+  .status p { margin: 4px 0 0; color: var(--muted); overflow-wrap: anywhere; }
+  .status--connecting { color: var(--accent); }
+  .status--connected { color: var(--ok); }
+  .status--failed { color: var(--err); }
+  .status--inactive { color: var(--idle); }
+  .status--connecting .dot { animation: pulse 1.4s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .track {
+    grid-column: 1 / -1; height: 4px; margin-top: 6px; border-radius: 999px;
+    background: var(--code-bg); overflow: hidden;
+  }
+  .track > i {
+    display: block; height: 100%; width: 38%; border-radius: 999px;
+    background: currentColor; animation: slide 1.4s ease-in-out infinite;
+  }
+  @keyframes slide { 0% { transform: translateX(-110%); } 100% { transform: translateX(300%); } }
+  .status--connected .track > i,
+  .status--failed .track > i,
+  .status--inactive .track > i { width: 100%; animation: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .status--connecting .dot { animation: none; }
+    .track > i { animation: none; width: 100%; opacity: 0.5; }
+  }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; }
+  .card h3 {
+    margin: 0 0 10px; font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--muted);
+  }
+  .field { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 5px 0; }
+  .field + .field { border-top: 1px solid var(--border); }
+  .label { flex: none; min-width: 96px; font-size: 12.5px; color: var(--muted); }
+  .value { flex: 1 1 180px; min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
+  .chip {
+    flex: none; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
+    background: var(--code-bg); color: var(--muted);
+  }
+  .chip--active { color: var(--accent); }
+  .chip--done { color: var(--ok); }
+  .chip--failed { color: var(--err); }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
+    background: var(--code-bg); padding: 2px 6px; border-radius: 6px;
+    overflow-wrap: anywhere; word-break: break-word;
+  }
+  .tech { font-size: 11.5px; color: var(--muted); text-align: center; overflow-wrap: anywhere; }
+  /*
+   * A failed step's detail is raw upstream output — an ssh error, or the whole
+   * multi-line probe script echoed back by a non-zero exit. Cap it so a long
+   * message cannot push the status cards off-screen; the full text stays
+   * reachable by scrolling the block (and by selecting it).
+   */
+  .value.detail {
+    max-height: 7.5em; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 12px; font-weight: 400; line-height: 1.45;
+    background: var(--code-bg); border-radius: 8px; padding: 6px 8px;
+    -webkit-user-select: text; user-select: text;
+  }
+  .value.detail::-webkit-scrollbar { width: 8px; }
+  .value.detail::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
+  /*
+   * Compact mode for short viewports (remote mode's status window is 540x600).
+   * Only the vertical rhythm and type scale shrink: the full-size layout above
+   * is untouched at >=760px height, long paths still wrap (see .value and code),
+   * and the palette / motion rules above keep applying.
+   */
+  @media (max-height: 760px) {
+    .wrap { max-width: 560px; padding: 40px 18px 14px; gap: 8px; }
+    .head { gap: 10px; }
+    .logo { width: 28px; height: 28px; border-radius: 8px; font-size: 14px; }
+    .head h1 { font-size: 15px; }
+    .tagline { margin-top: 1px; font-size: 11px; }
+    .status { padding: 11px 13px; gap: 10px; border-radius: 12px; }
+    .status h2 { font-size: 14.5px; }
+    .status p { margin-top: 3px; font-size: 12px; }
+    .track { margin-top: 4px; }
+    .card { padding: 9px 13px; border-radius: 12px; }
+    .card h3 { margin-bottom: 5px; font-size: 10.5px; }
+    .field { padding: 2px 0; gap: 2px 8px; }
+    .label { min-width: 84px; font-size: 11.5px; }
+    .value { flex-basis: 140px; font-size: 12.5px; }
+    .chip { font-size: 10.5px; padding: 1px 7px; }
+    code { font-size: 11.5px; padding: 1px 5px; }
+    .tech { font-size: 10.5px; }
+  }
+</style>
+</head>
+<body>
+<div class="titlebar" aria-hidden="true"></div>
+<main class="wrap">
+  <header class="head">
+    <span class="logo" aria-hidden="true">${safe(APP_NAME.slice(0, 1))}</span>
+    <div>
+      <h1>${safe(APP_NAME)}</h1>
+      <p class="tagline">${safe(isRemote ? copy.tagline.remote : copy.tagline.gateway)}</p>
+    </div>
+  </header>
+
+  <section class="status status--${tone}" role="status">
+    <span class="dot" aria-hidden="true"></span>
+    <div class="status-text">
+      <h2>${safe(toneText[tone].title)}</h2>
+      <p>${safe(toneText[tone].body)}</p>
+    </div>
+    <div class="track" aria-hidden="true"><i></i></div>
+  </section>
+${stepCard}
+  <section class="card">
+    <h3>${safe(copy.sections.connection)}</h3>${connectionFields}
+  </section>
+
+  <section class="card">
+    <h3>${safe(copy.sections.localWorkspace)}</h3>
+    <div class="field">
+      <span class="value"><code>${safe(config.workspaceRoot)}</code></span>
+    </div>
+  </section>
+
+  <footer class="tech">${safe(copy.technical)} <code>${safe(rawState || copy.unknown)}</code></footer>
+</main>
+</body>
+</html>`;
 }
 
 /** Create the gateway-mode window (or reuse the existing one) showing `state`. */
