@@ -8,6 +8,16 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 ### 中文
 
+- 暂无新变更；滚动 `latest` 渠道当前分发最近一个标签版本的内容。
+
+### English
+
+- No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
+
+## v0.2.15 (2026-10-08)
+
+### 中文
+
 - 重做远程/网关连接状态窗口（`gatewayStatusHtml`）：从几行灰色调试文本（`Step: workspace — active`、`Status: connecting`）改为状态卡片式界面——语义化主状态（连接中 / 已连接 / 失败 / 已断开，含配色圆点与进度条）、7 步部署进度的中文步骤名与「第 N 步，共 7 步」、连接信息（SSH 主机 / 远程工作区 / 网关地址）与本地工作区分区呈现，原始内部状态降为页脚「技术状态」。
 - 状态窗口文案跟随界面语言（`uiLanguage`）中英双语，`<html lang>` 同步切换；失败详情改为限高可滚动块（原始 ssh / probe 输出不再整段撑开页面），并保持深色/浅色与「减少动态效果」适配。
 - 修复状态窗口在 540×600 窗口与默认窗口下的溢出：新增短视口紧凑布局，内容不再被推出屏幕。
