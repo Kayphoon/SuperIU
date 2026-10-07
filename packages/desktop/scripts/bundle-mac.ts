@@ -56,18 +56,23 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PKG_DIR = path.resolve(HERE, '..'); // packages/desktop
 const REPO_ROOT = path.resolve(PKG_DIR, '..', '..');
 
+const IS_DEV_INSTALL =
+  !process.argv.includes('--no-install') &&
+  !process.argv.includes('--zip') &&
+  !process.argv.includes('--dmg');
+
+const APP_NAME = IS_DEV_INSTALL ? 'SuperIU (Dev)' : 'SuperIU';
+const BUNDLE_ID = IS_DEV_INSTALL ? 'com.superiu.desktop.dev' : 'com.superiu.desktop';
+const ICON_FILE = 'app.icns';
+
 const ASSETS_DIR = path.join(PKG_DIR, 'assets');
 const ICON_ICNS = path.join(ASSETS_DIR, 'icon.icns');
 const DIST_DIR = path.join(PKG_DIR, 'dist');
-const APP_PATH = path.join(DIST_DIR, 'SuperIU.app');
+const APP_PATH = path.join(DIST_DIR, `${APP_NAME}.app`);
 const CONTENTS = path.join(APP_PATH, 'Contents');
 const RESOURCES = path.join(CONTENTS, 'Resources');
 const APP_RESOURCES = path.join(RESOURCES, 'app');
 const APP_NODE_MODULES = path.join(APP_RESOURCES, 'node_modules');
-
-const APP_NAME = 'SuperIU';
-const BUNDLE_ID = 'com.superiu.desktop';
-const ICON_FILE = 'app.icns';
 
 /** Where LaunchServices + Spotlight actually look for user-installed apps. */
 const INSTALL_DIR = path.join(os.homedir(), 'Applications');

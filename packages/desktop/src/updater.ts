@@ -372,6 +372,15 @@ export async function checkForUpdates(
   const repo = options.repo ?? DEFAULT_REPO;
   const currentVersion = resolveCurrentVersion(options.currentVersion);
 
+  // Development app bundle (`SuperIU (Dev).app`): do not auto-update over
+  // the local development build. Developers rebuild from source.
+  if (path.basename(runningBundlePath()) === 'SuperIU (Dev).app') {
+    return {
+      hasUpdate: false,
+      currentVersion,
+      latestVersion: currentVersion
+    };
+  }
   const headers = {
     // GitHub rejects requests without a User-Agent.
     'User-Agent': 'SuperIU-Desktop',

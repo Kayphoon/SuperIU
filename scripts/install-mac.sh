@@ -53,6 +53,29 @@ echo "==> 正在查询 ${APP_NAME} 最新发布版本..."
 
 RELEASE_JSON="$(curl -fsSL "https://api.github.com/repos/${REPO_SLUG}/releases/latest" 2>/dev/null || true)"
 
+REMOTE_VERSION=""
+if [ -n "$RELEASE_JSON" ]; then
+  REMOTE_VERSION="$(printf '%s' "$RELEASE_JSON" | grep -o '"tag_name": *"[^"]*"' | head -n 1 | sed 's/.*"v*\([^"]*\)".*/\1/' || true)"
+fi
+
+CURRENT_VERSION=""
+if [ -d "$TARGET_APP" ]; then
+  CURRENT_VERSION="$(defaults read "$TARGET_APP/Contents/Info.plist" CFBundleShortVersionString 2>/dev/null || true)"
+fi
+
+FORCE_INSTALL="${FORCE:-0}"
+if [ "$FORCE_INSTALL" != "1" ] && [ -n "$CURRENT_VERSION" ] && [ -n "$REMOTE_VERSION" ] && [ "$CURRENT_VERSION" = "$REMOTE_VERSION" ]; then
+  echo "✅ ${APP_NAME} 当前已是最新版本 (v${CURRENT_VERSION})，无需重复下载。"
+  echo "提示: 如需强制重新安装，可指定 FORCE=1，例如: curl -fsSL ... | FORCE=1 sh"
+  exit 0
+fi
+
+if [ -n "$CURRENT_VERSION" ] && [ -n "$REMOTE_VERSION" ]; then
+  echo "==> 检测到新版本: v${CURRENT_VERSION} -> v${REMOTE_VERSION}"
+elif [ -n "$REMOTE_VERSION" ]; then
+  echo "==> 准备安装版本: v${REMOTE_VERSION}"
+fi
+
 DOWNLOAD_URL=""
 if [ -n "$RELEASE_JSON" ]; then
   # Prefer zip matching mac and the target arch
@@ -106,6 +129,11 @@ fi
 
 echo "==> 正在安装到 ${TARGET_APP} ..."
 mkdir -p "$INSTALL_DIR"
+# Clean conflicting legacy dev bundle in ~/Applications if installing to /Applications
+if [ "$INSTALL_DIR" = "/Applications" ] && [ -d "$HOME/Applications/${APP_NAME}.app" ]; then
+  echo "==> 清理旧的本地开发版冲突 (~/Applications/${APP_NAME}.app) ..."
+  rm -rf "$HOME/Applications/${APP_NAME}.app"
+fi
 rm -rf "$TARGET_APP"
 /usr/bin/ditto "$EXTRACTED_APP" "$TARGET_APP"
 
