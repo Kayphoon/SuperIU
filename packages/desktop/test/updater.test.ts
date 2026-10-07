@@ -21,16 +21,18 @@ import * as path from 'node:path';
 import type * as Fsp from 'node:fs/promises';
 import {
   checkForUpdate,
+  checkForUpdates,
   getUpdateState,
   installPreparedUpdate,
   onUpdateState,
   parseVersion,
   replaceBundle,
   semverGt,
+  selectBestRelease,
   selectMacAsset,
   versionFromAssetName
 } from '../src/updater.js';
-import type { UpdateState } from '../src/updater.js';
+import type { GithubLatestRelease, UpdateState } from '../src/updater.js';
 
 // ---------------------------------------------------------------------------
 // Module mocks
@@ -282,6 +284,246 @@ describe('selectMacAsset', () => {
 });
 
 // ---------------------------------------------------------------------------
+// selectBestRelease
+// ---------------------------------------------------------------------------
+
+describe('selectBestRelease', () => {
+  /** A release carrying a single macOS arm64 zip for `version`. */
+  function release(
+    version: string,
+    extra: Partial<GithubLatestRelease> = {}
+  ): GithubLatestRelease {
+    return {
+      tag_name: `v${version}`,
+      assets: [
+        {
+          name: `SuperIU-${version}-mac-arm64.zip`,
+          browser_download_url: `https://x/${version}.zip`
+        }
+      ],
+      ...extra
+    };
+  }
+
+  it('returns null for an empty list', () => {
+    expect(selectBestRelease([])).toBeNull();
+  });
+
+  it('picks the highest version regardless of order', () => {
+    const ascending = [release('0.2.10'), release('0.2.9'), release('0.3.0'), release('0.2.11')];
+    const descending = [...ascending].reverse();
+
+    expect(selectBestRelease(ascending)?.tag_name).toBe('v0.3.0');
+    expect(selectBestRelease(descending)?.tag_name).toBe('v0.3.0');
+  });
+
+  it('prefers a newer rolling prerelease over an older stable tag', () => {
+    const stable = { ...release('0.2.14'), prerelease: false };
+    const rolling = { ...release('0.2.15'), tag_name: 'latest', prerelease: true };
+
+    expect(selectBestRelease([stable, rolling])).toBe(rolling);
+    expect(selectBestRelease([rolling, stable])).toBe(rolling);
+  });
+
+  it('ignores drafts even when they carry the newest version', () => {
+    const best = selectBestRelease([release('0.2.15'), release('0.9.9', { draft: true })]);
+
+    expect(best?.tag_name).toBe('v0.2.15');
+  });
+
+  it('ignores releases with no macOS asset', () => {
+    const best = selectBestRelease([
+      release('0.2.15'),
+      {
+        tag_name: 'v0.9.9',
+        assets: [{ name: 'SuperIU-0.9.9-linux-x64.tar.gz', browser_download_url: 'https://x/l.tgz' }]
+      },
+      { tag_name: 'v0.9.8', assets: [] }
+    ]);
+
+    expect(best?.tag_name).toBe('v0.2.15');
+  });
+
+  it('ignores a release whose version cannot be parsed', () => {
+    // The rolling channel tags every master build `latest`; a release whose
+    // assets do not embed a version carries no comparable version at all.
+    const best = selectBestRelease([
+      release('0.2.15'),
+      {
+        tag_name: 'latest',
+        assets: [
+          { name: 'SuperIU-rolling-mac-arm64.zip', browser_download_url: 'https://x/r.zip' }
+        ]
+      }
+    ]);
+
+    expect(best?.tag_name).toBe('v0.2.15');
+  });
+
+  it('returns null when nothing qualifies', () => {
+    expect(
+      selectBestRelease([
+        { tag_name: 'v0.9.9', draft: true, assets: release('0.9.9').assets },
+        { tag_name: 'v0.9.8', assets: [] }
+      ])
+    ).toBeNull();
+  });
+
+  it('falls back to the tag when the asset name has no version', () => {
+    const best = selectBestRelease([
+      {
+        tag_name: 'v0.2.20',
+        assets: [
+          { name: 'SuperIU-latest-mac-arm64.zip', browser_download_url: 'https://x/l.zip' }
+        ]
+      }
+    ]);
+
+    expect(best?.tag_name).toBe('v0.2.20');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// release channel resolution (checkForUpdates)
+// ---------------------------------------------------------------------------
+
+describe('release channel resolution', () => {
+  /** The minimal `Response` surface the updater touches. */
+  function jsonResponse(payload: unknown, status = 200): Response {
+    return {
+      ok: status >= 200 && status < 300,
+      status,
+      json: async () => payload
+    } as unknown as Response;
+  }
+
+  /** A stable, non-prerelease release for `version`. */
+  function stable(version: string): GithubLatestRelease {
+    return {
+      tag_name: `v${version}`,
+      prerelease: false,
+      assets: [
+        {
+          name: `SuperIU-${version}-mac-arm64.zip`,
+          browser_download_url: `https://x/${version}.zip`
+        }
+      ]
+    };
+  }
+
+  /** The rolling channel: tag `latest`, prerelease, version in the asset name. */
+  function rolling(version: string): GithubLatestRelease {
+    return {
+      tag_name: 'latest',
+      name: 'SuperIU rolling build',
+      prerelease: true,
+      body: `rolling ${version}`,
+      assets: [
+        {
+          name: `SuperIU-${version}-mac-arm64.zip`,
+          browser_download_url: `https://x/${version}.zip`
+        }
+      ]
+    };
+  }
+
+  const urls: string[] = [];
+
+  function stubReleases(routes: { latest?: Response; list?: Response }): void {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        urls.push(String(url));
+        if (String(url).includes('/releases/latest')) {
+          if (!routes.latest) throw new Error('offline');
+          return routes.latest;
+        }
+        if (!routes.list) throw new Error('offline');
+        return routes.list;
+      })
+    );
+  }
+
+  beforeEach(() => {
+    urls.length = 0;
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // Regression: `/releases/latest` answers with the newest NON-prerelease
+  // release, so a stable tag that lags master shadows the newer rolling build
+  // published as a prerelease. The old implementation early-returned that
+  // payload; these assertions fail against it.
+  it('does not let a stable tag shadow a newer rolling prerelease', async () => {
+    stubReleases({
+      latest: jsonResponse(stable('0.2.14')),
+      list: jsonResponse([rolling('0.2.15'), stable('0.2.14')])
+    });
+
+    const result = await checkForUpdates({ currentVersion: '0.2.14' });
+
+    expect(result.latestVersion).toBe('0.2.15');
+    expect(result.hasUpdate).toBe(true);
+    expect(result.assetName).toBe('SuperIU-0.2.15-mac-arm64.zip');
+    expect(result.downloadUrl).toBe('https://x/0.2.15.zip');
+
+    // Both channels must actually be consulted, not just the canonical one.
+    expect(urls.some((url) => url.includes('/releases/latest'))).toBe(true);
+    expect(urls.some((url) => url.includes('/releases?'))).toBe(true);
+  });
+
+  it('still falls back to the list when /releases/latest 404s', async () => {
+    stubReleases({
+      latest: jsonResponse({ message: 'Not Found' }, 404),
+      list: jsonResponse([rolling('0.2.15')])
+    });
+
+    const result = await checkForUpdates({ currentVersion: '0.2.14' });
+
+    expect(result.latestVersion).toBe('0.2.15');
+    expect(result.hasUpdate).toBe(true);
+  });
+
+  it('keeps the stable channel working when the list call fails', async () => {
+    // `/releases/latest` succeeds, so a broken list endpoint must not turn a
+    // usable answer into "no update".
+    stubReleases({ latest: jsonResponse(stable('0.2.15')) });
+
+    const result = await checkForUpdates({ currentVersion: '0.2.14' });
+
+    expect(result.latestVersion).toBe('0.2.15');
+    expect(result.hasUpdate).toBe(true);
+  });
+
+  it('reports no update when every release is older or unusable', async () => {
+    stubReleases({
+      latest: jsonResponse(stable('0.2.14')),
+      list: jsonResponse([stable('0.2.14'), { tag_name: 'v0.3.0', draft: true }])
+    });
+
+    const result = await checkForUpdates({ currentVersion: '0.2.14' });
+
+    expect(result.hasUpdate).toBe(false);
+  });
+
+  it('resolves to hasUpdate false when the API is unreachable', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        throw new Error('offline');
+      })
+    );
+
+    const result = await checkForUpdates({ currentVersion: '0.2.14' });
+
+    expect(result.hasUpdate).toBe(false);
+    expect(result.latestVersion).toBe('0.2.14');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // replaceBundle
 // ---------------------------------------------------------------------------
 
@@ -385,6 +627,88 @@ describe('update state', () => {
     await expect(installPreparedUpdate()).rejects.toThrow();
     // Rejection must not leave the machine looking mid-install.
     expect(getUpdateState().phase).toBe('idle');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// release channel resolution through the state machine
+// ---------------------------------------------------------------------------
+
+// Kept last on purpose: the updater keeps its phase in module state with no
+// reset hook, so the download this test starts would otherwise be visible to
+// the `update state` block above.
+describe('release channel resolution (state machine)', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // Regression, same shadowing as above but driven through the exported
+  // `checkForUpdate` so the state machine's own resolution is what is proven.
+  it('downloads the rolling build rather than the older stable tag', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        if (String(url).includes('/releases/latest')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              tag_name: 'v0.2.14',
+              prerelease: false,
+              assets: [
+                {
+                  name: 'SuperIU-0.2.14-mac-arm64.zip',
+                  browser_download_url: 'https://x/0.2.14.zip'
+                }
+              ]
+            })
+          } as unknown as Response;
+        }
+        if (String(url).includes('/releases?')) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => [
+              {
+                tag_name: 'latest',
+                prerelease: true,
+                assets: [
+                  {
+                    name: 'SuperIU-0.2.15-mac-arm64.zip',
+                    browser_download_url: 'https://x/0.2.15.zip'
+                  }
+                ]
+              },
+              {
+                tag_name: 'v0.2.14',
+                prerelease: false,
+                assets: [
+                  {
+                    name: 'SuperIU-0.2.14-mac-arm64.zip',
+                    browser_download_url: 'https://x/0.2.14.zip'
+                  }
+                ]
+              }
+            ]
+          } as unknown as Response;
+        }
+        // The download itself is out of scope here and must not touch the
+        // network; failing it still leaves the resolved version observable.
+        throw new Error('download disabled in test');
+      })
+    );
+
+    const phases: UpdateState[] = [];
+    onUpdateState((state) => phases.push(state));
+
+    await checkForUpdate(false);
+
+    // Pre-fix the early return resolved 0.2.14, `hasUpdate` was false, and the
+    // machine went straight back to `idle` — never reaching `downloading`.
+    expect(phases.some((state) => state.phase === 'downloading')).toBe(true);
+    expect(
+      phases.some((state) => state.phase === 'downloading' && state.latestVersion === '0.2.15')
+    ).toBe(true);
   });
 });
 

@@ -51,11 +51,64 @@ fi
 
 echo "==> 正在查询 ${APP_NAME} 最新发布版本..."
 
-RELEASE_JSON="$(curl -fsSL "https://api.github.com/repos/${REPO_SLUG}/releases/latest" 2>/dev/null || true)"
+API_BASE="https://api.github.com/repos/${REPO_SLUG}"
+RELEASE_BASE="${SUPERIU_RELEASE_BASE:-https://github.com/${REPO_SLUG}/releases/latest/download}"
+
+# The highest version across ALL channels must win. GitHub's /releases/latest
+# only returns the newest STABLE (non-prerelease) tag, which silently hides
+# newer rolling builds published on the `latest` prerelease channel; the list
+# endpoint returns every release, newest-first, including prereleases.
+RELEASES_JSON="$(curl -fsSL "${API_BASE}/releases?per_page=30" 2>/dev/null || true)"
+RELEASE_JSON=""
+if [ -z "$RELEASES_JSON" ]; then
+  # Fallback to the single-release endpoint (previous behavior).
+  RELEASE_JSON="$(curl -fsSL "${API_BASE}/releases/latest" 2>/dev/null || true)"
+fi
+
+# pick_best_zip <json> -> highest-versioned mac zip URL for the target arch.
+# Preference: arch-specific match first, then any mac zip. The version is read
+# from the asset filename (SuperIU-N.N.N-mac-<arch>.zip) and compared with
+# `sort -V`; assets without an embedded version sort last.
+pick_best_zip() {
+  _json="$1"
+  _urls="$(printf '%s' "$_json" | grep -o 'https://[^" ]*\.zip' | grep 'mac' || true)"
+  if [ -z "$_urls" ]; then
+    return 0
+  fi
+  _arch_urls="$(printf '%s\n' "$_urls" | grep "mac-${ARCH_KEY}\.zip" || true)"
+  if [ -z "$_arch_urls" ]; then
+    _arch_urls="$_urls"
+  fi
+  printf '%s\n' "$_arch_urls" |
+    awk -F/ '{ v = "0.0.0"; if (match($NF, /[0-9]+\.[0-9]+\.[0-9]+/)) v = substr($NF, RSTART, RLENGTH); print v "\t" $0 }' |
+    sort -k1,1 -V |
+    tail -n 1 |
+    cut -f 2
+}
+
+DOWNLOAD_URL=""
+if [ -n "$RELEASES_JSON" ]; then
+  DOWNLOAD_URL="$(pick_best_zip "$RELEASES_JSON")"
+fi
+if [ -z "$DOWNLOAD_URL" ] && [ -n "$RELEASE_JSON" ]; then
+  DOWNLOAD_URL="$(pick_best_zip "$RELEASE_JSON")"
+fi
 
 REMOTE_VERSION=""
-if [ -n "$RELEASE_JSON" ]; then
-  REMOTE_VERSION="$(printf '%s' "$RELEASE_JSON" | grep -o '"tag_name": *"[^"]*"' | head -n 1 | sed 's/.*"v*\([^"]*\)".*/\1/' || true)"
+if [ -n "$DOWNLOAD_URL" ]; then
+  REMOTE_VERSION="$(printf '%s' "${DOWNLOAD_URL##*/}" | sed -n 's/.*\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' || true)"
+fi
+if [ -z "$REMOTE_VERSION" ]; then
+  # No version in the filename: fall back to a release tag. The rolling
+  # channel's tag is literally "latest" (not a version), so pick the newest
+  # tag that actually looks like a version.
+  _TAG_JSON="$RELEASES_JSON"
+  if [ -z "$_TAG_JSON" ]; then
+    _TAG_JSON="$RELEASE_JSON"
+  fi
+  if [ -n "$_TAG_JSON" ]; then
+    REMOTE_VERSION="$(printf '%s' "$_TAG_JSON" | grep -o '"tag_name": *"v\?[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*"' | head -n 1 | sed 's/.*"v*\([^"]*\)".*/\1/' || true)"
+  fi
 fi
 
 CURRENT_VERSION=""
@@ -76,22 +129,15 @@ elif [ -n "$REMOTE_VERSION" ]; then
   echo "==> 准备安装版本: v${REMOTE_VERSION}"
 fi
 
-DOWNLOAD_URL=""
-if [ -n "$RELEASE_JSON" ]; then
-  # Prefer zip matching mac and the target arch
-  DOWNLOAD_URL="$(printf '%s' "$RELEASE_JSON" | grep -o 'https://[^" ]*mac[^" ]*'"$ARCH_KEY"'[^" ]*\.zip' | head -n 1 || true)"
-  if [ -z "$DOWNLOAD_URL" ]; then
-    DOWNLOAD_URL="$(printf '%s' "$RELEASE_JSON" | grep -o 'https://[^" ]*mac[^" ]*\.zip' | head -n 1 || true)"
-  fi
-  if [ -z "$DOWNLOAD_URL" ]; then
-    DOWNLOAD_URL="$(printf '%s' "$RELEASE_JSON" | grep -o 'https://[^" ]*\.zip' | head -n 1 || true)"
-  fi
-fi
-
-# Fallback if GitHub API is rate-limited or fails
 if [ -z "$DOWNLOAD_URL" ]; then
-  RELEASE_BASE="${SUPERIU_RELEASE_BASE:-https://github.com/${REPO_SLUG}/releases/latest/download}"
-  DOWNLOAD_URL="${RELEASE_BASE}/${APP_NAME}-mac-${ARCH_KEY}.zip"
+  if [ -n "${SUPERIU_RELEASE_BASE:-}" ]; then
+    # Explicit custom base: it may serve unversioned asset names.
+    DOWNLOAD_URL="${RELEASE_BASE}/${APP_NAME}-mac-${ARCH_KEY}.zip"
+  else
+    echo "错误: 无法从 GitHub API 获取 ${APP_NAME} 的下载地址（可能被限流或网络不可达）。" >&2
+    echo "请稍后重试；若使用自定义镜像，可设置 SUPERIU_RELEASE_BASE 指向可用的 Release 下载地址。" >&2
+    exit 1
+  fi
 fi
 
 # --- 3. Download & Unpack ---------------------------------------------------

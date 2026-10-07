@@ -329,14 +329,55 @@ export function versionFromAssetName(name: string | undefined | null): string | 
   return match ? (match[1] as string) : null;
 }
 
-/** Shape of the GitHub `/releases/latest` payload fields we consume. */
-interface GithubLatestRelease {
+/** Shape of the GitHub release payload fields we consume. */
+export interface GithubLatestRelease {
   tag_name?: string;
   name?: string;
   body?: string;
   assets?: ReleaseAsset[];
   draft?: boolean;
   prerelease?: boolean;
+}
+
+/** The version a release advertises: asset name first, tag fallback. */
+function releaseVersion(release: GithubLatestRelease, asset: ReleaseAsset): string | null {
+  const candidate =
+    versionFromAssetName(asset.name) ??
+    (release.tag_name ?? release.name ?? '').replace(/^v/i, '').trim();
+  // A version that does not parse can never be compared, so it disqualifies the
+  // release: the rolling channel's `latest` tag is the case this guards.
+  return candidate && parseVersion(candidate) ? candidate : null;
+}
+
+/**
+ * Pick the release with the highest version from a candidate list.
+ *
+ * The repository publishes two channels: tagged stable releases (returned by
+ * `/releases/latest`) and a rolling `latest` prerelease rebuilt on every master
+ * push (omitted by that endpoint). Neither channel is authoritative on its own,
+ * so the caller feeds both in and the newest version across them wins.
+ *
+ * Drafts, releases with no macOS asset, and releases whose version cannot be
+ * parsed are ignored. Returns `null` when nothing qualifies; ties keep the
+ * earlier candidate.
+ */
+export function selectBestRelease(releases: GithubLatestRelease[]): GithubLatestRelease | null {
+  let best: GithubLatestRelease | null = null;
+  let bestVersion = '';
+
+  for (const release of releases) {
+    if (!release || release.draft === true) continue;
+    // Only a release that actually ships a macOS build is installable here.
+    const asset = selectMacAsset(release.assets);
+    if (!asset) continue;
+    const version = releaseVersion(release, asset);
+    if (!version) continue;
+    if (best && !semverGt(version, bestVersion)) continue;
+    best = release;
+    bestVersion = version;
+  }
+
+  return best;
 }
 
 /** Resolve the version the app is currently running at. */
@@ -392,23 +433,40 @@ export async function checkForUpdates(
   }
 
   /**
-   * Resolve the release to compare against.
+   * Resolve the release to compare against, across both release channels.
    *
-   * `/releases/latest` is tried first (the cheap, canonical path), but it never
-   * returns pre-releases — and the rolling `latest` channel publishes every
-   * master build as a prerelease, leaving that endpoint 404ing forever. When it
-   * does, fall back to the release list (ordered newest-first by GitHub) and
-   * take the first entry that carries a mac asset.
+   * `/releases/latest` answers with the newest NON-prerelease release, so it
+   * does not 404 forever: as soon as one stable tag exists it starts returning
+   * that tag. It never returns pre-releases, and the rolling `latest` channel
+   * publishes every master build as a prerelease — so whenever a stable tag
+   * lags behind master, this endpoint alone shadows the newer rolling build.
+   *
+   * The list endpoint is therefore always consulted as well, and the highest
+   * version across both answers wins ({@link selectBestRelease}). A missing
+   * `/releases/latest` (404, e.g. a repo with no stable release) is not an
+   * error; the list is the only signal that matters then.
    */
   async function fetchLatestRelease(): Promise<GithubLatestRelease | null> {
-    const direct = await fetchJson(`https://api.github.com/repos/${repo}/releases/latest`);
-    if (direct.ok) return (await direct.json()) as GithubLatestRelease;
-    if (direct.status !== 404) throw new Error(`GitHub API responded ${direct.status}`);
+    const candidates: GithubLatestRelease[] = [];
 
-    const list = await fetchJson(`https://api.github.com/repos/${repo}/releases?per_page=20`);
-    if (!list.ok) throw new Error(`GitHub API responded ${list.status}`);
-    const releases = (await list.json()) as GithubLatestRelease[];
-    return releases.find((release) => selectMacAsset(release.assets) !== null) ?? null;
+    const direct = await fetchJson(`https://api.github.com/repos/${repo}/releases/latest`);
+    if (direct.ok) {
+      candidates.push((await direct.json()) as GithubLatestRelease);
+    } else if (direct.status !== 404) {
+      throw new Error(`GitHub API responded ${direct.status}`);
+    }
+
+    try {
+      const list = await fetchJson(`https://api.github.com/repos/${repo}/releases?per_page=30`);
+      if (!list.ok) throw new Error(`GitHub API responded ${list.status}`);
+      const releases = (await list.json()) as GithubLatestRelease[];
+      if (Array.isArray(releases)) candidates.push(...releases);
+    } catch (err) {
+      // The list is the richer source, but a direct hit alone is still usable.
+      if (candidates.length === 0) throw err;
+    }
+
+    return selectBestRelease(candidates);
   }
 
   try {
