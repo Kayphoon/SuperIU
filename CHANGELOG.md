@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.16 (2026-10-08)
+
+### 中文
+
+- 修复更新渠道遮蔽：应用内自动更新器与 `install-mac.sh` 此前只查询 `/releases/latest`，而该端点按 GitHub 规范永不返回预发布版本。本仓库同时存在「稳定 tag（vX.Y.Z）」与「每次推送 master 重建的滚动 `latest` 预发布」两条渠道，因此只要稳定 tag 落后于 master，新构建就会被旧 tag 遮蔽——用户会看到「已是最新」却拿不到新版本。
+  - 更新器现在同时查询 `/releases/latest` 与 `/releases?per_page=30`，取两者中版本最高者（忽略 draft、无 macOS 资产、版本号无法解析的条目）；接口整体失败时仍安全返回「无更新」。
+  - `install-mac.sh` 改为查询发布列表并按 `sort -V` 取最高版本的 mac zip，列表为空时才回退到 `/releases/latest`。
+- 修复 `install-mac.sh` 的死回退路径：此前 API 限流时回退构造的 `.../releases/latest/download/SuperIU-mac-arm64.zip` 因资产名内嵌版本号而**必然 404**。现在该构造仅在你显式设置 `SUPERIU_RELEASE_BASE` 时使用，否则脚本会给出明确错误并退出，而不是下载一个 404。
+
+### English
+
+- Fix release-channel shadowing: the in-app updater and `install-mac.sh` queried only `/releases/latest`, which by GitHub's specification never returns pre-releases. This repo publishes both tagged stable releases (vX.Y.Z) and a rolling `latest` prerelease rebuilt on every master push, so whenever a stable tag lags behind master the newer build is shadowed by the older tag — users saw "already newest" while a new version was published.
+  - The updater now queries both `/releases/latest` and `/releases?per_page=30` and takes the highest version across them (ignoring drafts, asset-less releases, and unparseable versions); a total API failure still safely reports "no update".
+  - `install-mac.sh` now queries the release list and picks the highest-versioned mac zip via `sort -V`, falling back to `/releases/latest` only when the list is empty.
+- Fix the dead fallback in `install-mac.sh`: the URL it constructed under API rate-limiting (`.../releases/latest/download/SuperIU-mac-arm64.zip`) provably 404s because real asset names embed the version. That construction is now used only when you explicitly set `SUPERIU_RELEASE_BASE`; otherwise the script fails with a clear error instead of downloading a 404.
+
 ## v0.2.15 (2026-10-08)
 
 ### 中文
