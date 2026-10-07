@@ -178,7 +178,6 @@ let shuttingDown = false;
 // The settings/connection-mode resolution itself lives in `./settings.js`, a
 // pure (Electron-free) module so it can be unit-tested without an Electron
 // runtime and imported before `app.whenReady()`.
-
 // The native menu is installed at module scope, before `ready` — too early to
 // read the persisted settings file. It is therefore seeded again in `bootstrap`
 // from the resolved handle, which is the first point the file is authoritative.
@@ -1300,6 +1299,8 @@ async function startRemoteMode(config: GatewayConfig, opts: RemoteModeOptions = 
       releaseBase: remote.releaseBase,
       version: remote.version,
       localPort: remote.localPort,
+      autoUpdateIdle: remote.autoUpdateIdle,
+      autoUpdateIntervalHours: remote.autoUpdateIntervalHours,
       onProgress,
       onApprovalRequired: approveDangerousCommand,
       onEvent: (event) => {
@@ -1462,12 +1463,18 @@ function installIpcHandlers(): void {
     showGatewayStatus(config, 'idle');
   });
 
-
   ipcMain.handle(
     INVOKE.connectRemote,
     async (
       event,
-      options: { alias: string; workspace: string; localPort?: number; saveDefault?: boolean }
+      options: {
+        alias: string;
+        workspace: string;
+        localPort?: number;
+        saveDefault?: boolean;
+        autoUpdateIdle?: boolean;
+        autoUpdateIntervalHours?: number;
+      }
     ) => {
       // A connect request that originated in the first-run wizard: skip the
       // status paint (the wizard owns its window) and route progress to it.
@@ -1483,6 +1490,18 @@ function installIpcHandlers(): void {
           ? options.localPort
           : undefined;
 
+      // `undefined` means "no preference": neither the persisted settings nor the
+      // live connection may invent a value the caller never sent (the SPA omits
+      // the field entirely), or a restart would silently disable the feature.
+      const autoUpdateIdle =
+        typeof options.autoUpdateIdle === 'boolean' ? options.autoUpdateIdle : undefined;
+      const autoUpdateIntervalHours =
+        typeof options.autoUpdateIntervalHours === 'number' &&
+        Number.isFinite(options.autoUpdateIntervalHours) &&
+        options.autoUpdateIntervalHours > 0
+          ? options.autoUpdateIntervalHours
+          : undefined;
+
       if (options.saveDefault) {
         try {
           // Read-modify-write through the settings module so the SPA's own keys
@@ -1490,7 +1509,13 @@ function installIpcHandlers(): void {
           // first run complete so the wizard is never shown again.
           writeDesktopSettings(resolveWorkspace(), {
             connectionMode: 'remote',
-            remote: { alias: options.alias, workspace: options.workspace, localPort },
+            remote: {
+              alias: options.alias,
+              workspace: options.workspace,
+              localPort,
+              ...(autoUpdateIdle !== undefined ? { autoUpdateIdle } : {}),
+              ...(autoUpdateIntervalHours !== undefined ? { autoUpdateIntervalHours } : {})
+            },
             onboardingCompleted: true
           });
         } catch (e) {
@@ -1504,7 +1529,9 @@ function installIpcHandlers(): void {
         remote: {
           alias: options.alias,
           workspace: options.workspace,
-          localPort
+          localPort,
+          autoUpdateIdle,
+          autoUpdateIntervalHours
         }
       };
 

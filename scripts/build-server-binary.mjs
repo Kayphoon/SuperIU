@@ -23,6 +23,13 @@
  *   node scripts/build-server-binary.mjs                 # x64 only (default)
  *   node scripts/build-server-binary.mjs --all           # both linux targets
  *   node scripts/build-server-binary.mjs --target=bun-linux-arm64
+ *
+ * Version source (`SUPERIU_VERSION`):
+ *   Tagged releases pass the git tag (e.g. `v0.2.9`) and it is baked in with
+ *   the single leading `v` stripped (`0.2.9`). A value that is not valid
+ *   semver (e.g. the literal `master` the rolling channel would pass) is
+ *   ignored, and the version falls back to the root `package.json` — which is
+ *   also the behaviour when the variable is unset or empty.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -88,7 +95,19 @@ function assertBunAvailable() {
   return Bun.version;
 }
 
+/** Release tags are `v1.2.3`, optionally with a prerelease suffix. */
+const SEMVER_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
 function readPackageVersion() {
+  const envVersion = process.env.SUPERIU_VERSION;
+  if (typeof envVersion === 'string' && envVersion) {
+    const candidate = envVersion.replace(/^[vV]/, '');
+    if (SEMVER_PATTERN.test(candidate)) {
+      return candidate;
+    }
+    // e.g. the rolling `master` channel passes a non-semver marker: fall back
+    // to the root package.json rather than baking an unusable version.
+  }
   const raw = fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf-8');
   const version = JSON.parse(raw).version;
   if (typeof version !== 'string' || !version) {

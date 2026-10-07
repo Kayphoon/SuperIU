@@ -70,6 +70,32 @@ open -a SuperIU                # or: open -b com.superiu.desktop
 
 …and ⌘+Space → `SuperIU` → Enter works too. Re-run `pnpm app:install` after changing source. Full details, including how the bundle is assembled, are in the [shells guide](docs/shells-guide.md#installing-as-a-real-macos-app).
 
+### Updating a headless (VPS) server
+
+The headless server is the standalone `superiu-server` binary (the same HTTP + WebSocket daemon as `pnpm ui`, with no window). `scripts/install.sh` installs it into `~/.superiu/bin` on Linux x86_64 / arm64 and is idempotent, so re-running it upgrades in place:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kayphoon/SuperIU/master/scripts/install.sh | sh
+```
+
+The daemon can also upgrade itself in place — it downloads the latest released Linux binary for the host architecture, swaps it atomically, and restarts:
+
+```bash
+superiu-server update --check        # report current vs. latest, change nothing
+superiu-server update                # upgrade only when a newer version exists
+superiu-server update --version 0.3.0  # pin an exact release
+```
+
+By default headless updates are operator-triggered: re-run `scripts/install.sh`, or call `superiu-server update`. There is **no background updater running out of the box**. The macOS desktop app remains the only component with an in-app auto-updater.
+
+#### Opt-in idle auto-update
+
+Set `--auto-update-idle` (or `SUPERIU_AUTO_UPDATE_IDLE=1`; `1`, `true`, and `yes` are truthy) to let the daemon upgrade itself in the background. Turn it back off with `--no-auto-update-idle` (or `SUPERIU_AUTO_UPDATE_IDLE=0|false|no`), which also forgets the persisted setting — without an explicit off, a daemon that was once enabled keeps the feature on across restarts. This is **off by default** — nothing happens until you enable it. The interval is `--auto-update-interval-hours <n>` (or `SUPERIU_AUTO_UPDATE_INTERVAL_HOURS`), default `6`, and must be greater than `0`; the first check runs one full interval after boot, never at startup.
+
+A tick upgrades only when GitHub Releases reports a newer semver **and** the daemon is genuinely idle: no turn running, no turn waiting on a human approval, and no gateway turn in flight. Otherwise it logs a deferral and retries on the next tick. On an idle tick the server first downloads the release and verifies the downloaded binary's own `version` output (the same anti-loop gate as `superiu-server update`) **while it keeps serving normally**; only the final step — the atomic swap and restart — needs exclusivity, so the server enters **draining** for that millisecond-scale window, and `POST /api/chat` returns HTTP 503 (the WebSocket gateway refuses new prompt turns) only then, after any in-flight turn is allowed to finish. It then swaps the binary atomically and restarts with the original port, host, token, and workspace. When a systemd user unit exists, the restart goes through systemd first — but a unit restart cannot carry CLI flags, so enable the feature in the unit's `~/.superiu/env` instead (`SUPERIU_AUTO_UPDATE_IDLE=1`, plus `SUPERIU_AUTO_UPDATE_INTERVAL_HOURS` and `SUPERIU_RELEASE_BASE` if used); the daemon logs this hint at runtime when it restarts through systemd. The release base is `--release-base <url>` (or `SUPERIU_RELEASE_BASE`), honoured by idle auto-update and persisted in the daemon state file so it is replayed across the self-restart — a private mirror never silently falls back to the default GitHub channel.
+
+A candidate version that fails is recorded in `<workspace>/.superiu/update-state.json` and not retried for 24 hours, so a broken release cannot crash-loop the daemon. Auto-update refuses to run unless the executable is named `superiu-server`, so `node dist/daemon.js` can never overwrite `node`.
+
 ## Configuration
 
 All configuration is environment-driven. Copy `.env.example` to `.env` and set:

@@ -21,7 +21,7 @@
 
   ── Renderer bridge contract (flat, on window.superiuDesktop) ────────────────
     getSshHosts(): Promise<Array<{ alias; hostName; user? }>>
-    connectRemote({ alias, workspace, localPort?, saveDefault? }): Promise<void>
+    connectRemote({ alias, workspace, localPort?, saveDefault?, autoUpdateIdle?, autoUpdateIntervalHours? }): Promise<void>
     onRemoteProgress(cb: (step: { id; status; detail? }) => void): () => void
     completeOnboarding({ mode: 'local' }): Promise<void>   // 本 slice 新增
     onTheme?, isDesktop?
@@ -886,6 +886,25 @@ input[type="number"] { -moz-appearance: textfield; }
 
           <div class="field">
             <div class="switch-row">
+              <input type="checkbox" id="auto-update-idle">
+              <label for="auto-update-idle">
+                空闲时自动更新
+                <span class="sub">服务器空闲时自动升级到最新版本并重启（默认关闭）。</span>
+              </label>
+            </div>
+          </div>
+
+          <div class="field" id="field-auto-update-interval">
+            <div class="field-head">
+              <label for="auto-update-interval">检查间隔（小时）</label>
+              <span class="tag-optional">可选</span>
+            </div>
+            <input type="number" id="auto-update-interval" placeholder="6" min="1" max="168">
+            <p class="hint">启用后每隔多少小时检查一次更新，默认 6 小时。</p>
+          </div>
+
+          <div class="field">
+            <div class="switch-row">
               <input type="checkbox" id="remember" checked>
               <label for="remember">
                 设为启动时默认连接
@@ -1020,6 +1039,9 @@ var els = {
   fieldWorkspace: $('field-workspace'),
   port: $('port'),
   fieldPort: $('field-port'),
+  autoUpdateIdle: $('auto-update-idle'),
+  autoUpdateInterval: $('auto-update-interval'),
+  fieldAutoUpdateInterval: $('field-auto-update-interval'),
   remember: $('remember'),
   btnConnect: $('btn-connect'),
   pipelineTitle: $('pipeline-title'),
@@ -1253,8 +1275,31 @@ function validate() {
   }
   if (!ok) return null;
 
-  var payload = { alias: alias, workspace: workspace, saveDefault: els.remember.checked };
+  // Idle auto-update is tri-state: always send an explicit boolean so the host
+  // can distinguish "user turned it off" from "no opinion".
+  var autoUpdateIdle = els.autoUpdateIdle.checked;
+  var intervalRaw = els.autoUpdateInterval.value.trim();
+  var autoUpdateIntervalHours;
+  if (autoUpdateIdle && intervalRaw) {
+    var hours = Number(intervalRaw);
+    if (!Number.isFinite(hours) || hours <= 0) {
+      setFieldError(els.fieldAutoUpdateInterval, els.autoUpdateInterval); ok = false;
+    } else {
+      autoUpdateIntervalHours = hours;
+    }
+  }
+  if (!ok) return null;
+
+  var payload = {
+    alias: alias,
+    workspace: workspace,
+    saveDefault: els.remember.checked,
+    autoUpdateIdle: autoUpdateIdle
+  };
   if (localPort !== undefined) payload.localPort = localPort;
+  if (autoUpdateIdle && autoUpdateIntervalHours !== undefined) {
+    payload.autoUpdateIntervalHours = autoUpdateIntervalHours;
+  }
   return payload;
 }
 
@@ -1586,6 +1631,8 @@ function persistForm(payload) {
       custom: state.usingCustomHost,
       workspace: payload.workspace,
       localPort: payload.localPort,
+      autoUpdateIdle: payload.autoUpdateIdle,
+      autoUpdateIntervalHours: payload.autoUpdateIntervalHours,
       remember: payload.saveDefault
     }));
   } catch (_) { /* storage may be unavailable under file:// — non-fatal */ }
@@ -1603,10 +1650,17 @@ function restoreForm() {
   // — which reads as a bug, not as a session-only choice. An explicit `false`
   // saved from a previous run is still honoured.
   var remember = saved.remember !== false;
+  // Idle auto-update defaults OFF: an unconfigured wizard must not enable a
+  // background updater on the user's server.
+  var autoUpdateIdle = saved.autoUpdateIdle === true;
+  var autoUpdateInterval = saved.autoUpdateIntervalHours || '';
 
   if (workspace) els.workspace.value = workspace;
   if (port) els.port.value = port;
   els.remember.checked = remember;
+  els.autoUpdateIdle.checked = autoUpdateIdle;
+  if (autoUpdateInterval) els.autoUpdateInterval.value = autoUpdateInterval;
+  syncAutoUpdateInterval();
 
   if (alias) {
     var inList = state.hosts.some(function (h) { return h.alias === alias; });
@@ -1684,6 +1738,14 @@ function simulate(payload) {
 /* ════════════════════════════════════════════════════════════════════════
    Boot
    ════════════════════════════════════════════════════════════════════════ */
+/** The interval input is only meaningful while idle auto-update is on. */
+function syncAutoUpdateInterval() {
+  var on = els.autoUpdateIdle.checked;
+  els.autoUpdateInterval.disabled = !on;
+  els.fieldAutoUpdateInterval.hidden = !on;
+}
+els.autoUpdateIdle.addEventListener('change', syncAutoUpdateInterval);
+
 (async function boot() {
   buildSteps();
   updateHostHint();

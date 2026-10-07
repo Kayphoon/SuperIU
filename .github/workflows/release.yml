@@ -45,7 +45,12 @@ jobs:
       - name: Build
         run: pnpm -r build
 
+      # Tagged builds bake the tag (minus its leading `v`) into the binary via
+      # SUPERIU_VERSION; the rolling master channel leaves it empty, so the
+      # build falls back to the root package.json version.
       - name: Compile server binary
+        env:
+          SUPERIU_VERSION: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || '' }}
         run: node scripts/build-server-binary.mjs --target=${{ matrix.target }}
 
       - name: Rename and checksum

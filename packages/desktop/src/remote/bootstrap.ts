@@ -52,6 +52,8 @@ export interface RemoteInstallOptions {
   releaseBase?: string;
   /** Pins a specific released version (switches to `/download/v<version>/`). */
   version?: string;
+  /** Workspace whose running daemon must be stopped before the swap, so the new binary is the one that starts. */
+  workspace?: string;
 }
 
 /** Result of {@link RemoteBootstrapper.install}. */
@@ -68,6 +70,14 @@ export interface RemoteStartOptions {
   token: string;
   /** Remote workspace directory. */
   workspace: string;
+  /**
+   * Idle auto-update, tri-state: `true` emits `--auto-update-idle`, `false`
+   * emits `--no-auto-update-idle`, and `undefined` emits neither so the
+   * daemon's persisted value stands.
+   */
+  autoUpdateIdle?: boolean;
+  /** Hours between idle auto-update checks; only emitted when the feature is on and the value is `> 0`. */
+  autoUpdateIntervalHours?: number;
 }
 
 /** Parsed daemon state returned by {@link RemoteBootstrapper.start}. */
@@ -81,6 +91,8 @@ export interface RemoteDaemonState {
   gatewayUrl?: string;
   token?: string;
   version?: string;
+  /** Whether the running daemon was started with idle auto-update enabled. */
+  autoUpdateIdle?: boolean;
 }
 
 /** Default install location for the daemon binary. */
@@ -254,7 +266,17 @@ export class RemoteBootstrapper {
     const url = this.buildDownloadUrl(arch, options);
     const tmp = `${REMOTE_BIN_PATH}.tmp.$$`;
 
+    // Best-effort stop of the currently installed daemon before the swap, so
+    // the subsequent start executes the freshly installed binary instead of
+    // adopting the old process (which would keep running from a deleted inode).
+    const stopLine = options.workspace
+      ? [
+          `if [ -x ${REMOTE_BIN_PATH} ]; then ${REMOTE_BIN_PATH} stop --workspace ${shellQuotePath(options.workspace)} >/dev/null 2>&1 || true; fi`,
+        ]
+      : [];
+
     const downloadScript = [
+      ...stopLine,
       `mkdir -p ${REMOTE_BIN_DIR}`,
       'if command -v curl >/dev/null 2>&1; then',
       `  curl -fsSL ${shellQuote(url)} -o ${tmp}`,
@@ -294,7 +316,10 @@ export class RemoteBootstrapper {
     const result = await this.runRemote(alias, `cat ${shellQuotePath(path)} 2>/dev/null || true`);
     if (result.exitCode !== 0) return null;
     const parsed = parseJsonLine<RemoteDaemonState>(result.stdout);
-    return parsed ?? null;
+    if (!parsed) return null;
+    // Normalise the tri-state on disk (`true` | `false` | absent) to a boolean,
+    // so "the daemon was started without the flag" is unambiguously `false`.
+    return { ...parsed, autoUpdateIdle: parsed.autoUpdateIdle === true };
   }
 
   /**
@@ -331,12 +356,35 @@ export class RemoteBootstrapper {
       shellQuote(token),
       '--workspace',
       shellQuotePath(workspace),
-    ].join(' ');
+    ];
+
+    // Idle auto-update is tri-state: an explicit `true`/`false` turns the
+    // feature on/off (the daemon resolves CLI > env > persisted), while
+    // `undefined` expresses no preference and emits neither flag so the
+    // daemon's persisted value is left untouched. The interval is only
+    // emitted for a positive finite number and only when the feature is
+    // explicitly on — it is meaningless with the feature off, and the daemon
+    // rejects anything but a positive number, so an invalid value must never
+    // reach argv.
+    if (options.autoUpdateIdle === true) {
+      args.push('--auto-update-idle');
+      if (
+        typeof options.autoUpdateIntervalHours === 'number' &&
+        Number.isFinite(options.autoUpdateIntervalHours) &&
+        options.autoUpdateIntervalHours > 0
+      ) {
+        args.push('--auto-update-interval-hours', String(options.autoUpdateIntervalHours));
+      }
+    } else if (options.autoUpdateIdle === false) {
+      args.push('--no-auto-update-idle');
+    }
+
+    const argsLine = args.join(' ');
 
     const unitCheck = 'systemctl --user cat superiu-server >/dev/null 2>&1';
     const systemctlStart = `systemctl --user restart superiu-server`;
     const nohupStart =
-      `setsid nohup ${REMOTE_BIN_PATH} ${args} ` +
+      `setsid nohup ${REMOTE_BIN_PATH} ${argsLine} ` +
       `</dev/null >"$HOME/.superiu/server.log" 2>&1 &`;
 
     const launchScript = [
@@ -361,6 +409,9 @@ export class RemoteBootstrapper {
       ...state,
       port: remotePort,
       host: state.host ?? '127.0.0.1',
+      // The daemon persists the flag, but `status` may not echo it back; the
+      // requested value is authoritative for the process this call launched.
+      autoUpdateIdle: state.autoUpdateIdle ?? options.autoUpdateIdle === true,
       gatewayUrl: `ws://127.0.0.1:${remotePort}/ws`,
     };
   }

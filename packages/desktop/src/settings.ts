@@ -52,13 +52,25 @@ export interface RemoteConfig {
   version?: string;
   /** Fixed local tunnel port; an ephemeral port is chosen when omitted. */
   localPort?: number;
+  /** Enable the daemon's idle auto-update (off when omitted). */
+  autoUpdateIdle?: boolean;
+  /** Hours between idle auto-update checks; only forwarded when `> 0`. */
+  autoUpdateIntervalHours?: number;
 }
 
 /** Parsed subset of `ui-settings.json` relevant to the desktop connection. */
 export interface DesktopSettings {
   connectionMode?: string;
   gateway?: { url?: string; token?: string; deviceId?: string; deviceName?: string };
-  remote?: { alias?: string; workspace?: string; releaseBase?: string; version?: string; localPort?: number };
+  remote?: {
+    alias?: string;
+    workspace?: string;
+    releaseBase?: string;
+    version?: string;
+    localPort?: number;
+    autoUpdateIdle?: boolean;
+    autoUpdateIntervalHours?: number;
+  };
   workspaceRoot?: string;
   /** Set by the desktop shell once the user has chosen a mode. */
   onboardingCompleted?: boolean;
@@ -171,6 +183,16 @@ export function resolveGatewayConfig(workspaceRoot: string): GatewayConfig {
         localPort:
           typeof settings.remote?.localPort === 'number' && Number.isFinite(settings.remote.localPort)
             ? settings.remote.localPort
+            : undefined,
+        autoUpdateIdle:
+          typeof settings.remote?.autoUpdateIdle === 'boolean'
+            ? settings.remote.autoUpdateIdle
+            : undefined,
+        autoUpdateIntervalHours:
+          typeof settings.remote?.autoUpdateIntervalHours === 'number' &&
+          Number.isFinite(settings.remote.autoUpdateIntervalHours) &&
+          settings.remote.autoUpdateIntervalHours > 0
+            ? settings.remote.autoUpdateIntervalHours
             : undefined
       }
     : undefined;

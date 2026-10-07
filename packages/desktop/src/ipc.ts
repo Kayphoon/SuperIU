@@ -119,6 +119,8 @@ export interface SuperiuDesktopBridge {
      */
     localPort?: number;
     saveDefault?: boolean;
+    autoUpdateIdle?: boolean;
+    autoUpdateIntervalHours?: number;
   }): Promise<void>;
   onRemoteProgress?(callback: (step: { id: string; status: string; detail?: string }) => void): () => void;
   /**

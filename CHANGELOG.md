@@ -8,11 +8,23 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 ### 中文
 
-- 暂无新变更；滚动 `latest` 渠道当前分发最近一个标签版本的内容。
+- VPS 守护进程新增 `superiu-server update` 命令：`--check` 仅报告当前版本与最新版本，`--force` 强制升级，`--version <v>` 可指定版本；执行时会下载适配当前主机架构的最新 Linux 二进制，原子替换后重启守护进程。
+- `superiu-server status` 现在会输出 `workspace` 字段，安装脚本可在任意工作目录下定位守护进程（此前升级后始终无法重启）。
+- `/api/status` 与 WebSocket 注册应答现在携带真实的服务器构建版本。
+- VPS 守护进程新增**可选**的空闲自动更新：`--auto-update-idle`（或 `SUPERIU_AUTO_UPDATE_IDLE=1`，`1`/`true`/`yes` 为真值）默认关闭，间隔由 `--auto-update-interval-hours <n>`（或 `SUPERIU_AUTO_UPDATE_INTERVAL_HOURS`）控制，默认 `6` 小时且必须大于 `0`；首次检查在启动满一个间隔后才执行。仅在存在更新版本且守护进程真正空闲（无进行中的回合、无等待人工审批的回合、无网关在途回合）时升级，否则记录推迟并在下一轮重试；失败的版本写入 `<workspace>/.superiu/update-state.json` 并在 24 小时内不再重试，以避免崩溃循环。
+- 空闲自动更新触发时先下载并校验新二进制（此期间服务器正常提供服务），仅在最后原子替换与重启的毫秒级窗口内进入 draining 状态：`POST /api/chat` 返回 HTTP 503，WebSocket 网关拒绝新的提示回合，进行中的回合可正常结束。
+- 空闲自动更新遵循 `--release-base <url>` / `SUPERIU_RELEASE_BASE`：该基址会写入守护进程状态文件，并在自重启时通过 `--release-base` 原样重放，避免私有镜像被静默回退到默认 GitHub 发布渠道。
+- 新增显式关闭空闲自动更新：`--no-auto-update-idle`（或 `SUPERIU_AUTO_UPDATE_IDLE=0|false|no`）。三态优先级为「命令行 > 环境变量 > 持久化」，显式关闭会同时清除状态文件中已持久化的 `autoUpdateIdle`/`autoUpdateIntervalHours`，因此之后不带旗标重启也不会重新开启（注意：`SUPERIU_AUTO_UPDATE_IDLE=0` 同样会抹掉持久化值，之后移除该变量将保持关闭，直到重新开启）；同时给出 `--auto-update-idle` 与 `--no-auto-update-idle` 视为用法错误。桌面端远程连接向导新增「空闲时自动更新」开关（默认关闭），关闭时会显式下发否定旗标。
 
 ### English
 
-- No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
+- The VPS daemon gains a `superiu-server update` command: `--check` only reports current vs. latest, `--force` upgrades regardless, and `--version <v>` pins a version; it downloads the latest released Linux binary for the host architecture, swaps it atomically, and restarts the daemon.
+- `superiu-server status` now reports `workspace`, and the installer can find a daemon regardless of the working directory (previously it always failed to restart the upgraded daemon).
+- `/api/status` and the WebSocket registration ack now carry the real server build version.
+- The VPS daemon gains an **opt-in** idle auto-update: `--auto-update-idle` (or `SUPERIU_AUTO_UPDATE_IDLE=1`; `1`/`true`/`yes` are truthy) is off by default, and the interval is `--auto-update-interval-hours <n>` (or `SUPERIU_AUTO_UPDATE_INTERVAL_HOURS`), default `6`, must be `> 0`, with the first check one full interval after boot. It upgrades only when a newer version exists and the daemon is genuinely idle (no turn running, none waiting on a human approval, no gateway turn in flight), otherwise it logs a deferral and retries next tick; a failed version is recorded in `<workspace>/.superiu/update-state.json` and not retried for 24 hours to guard against crash loops.
+- An idle auto-update tick downloads and verifies the new binary first (the server keeps serving normally throughout); only the final atomic swap and restart — a millisecond-scale window — drains the server, where `POST /api/chat` returns HTTP 503 and the WebSocket gateway refuses new prompt turns while an in-flight turn is allowed to finish.
+- Idle auto-update honours `--release-base <url>` / `SUPERIU_RELEASE_BASE`: the base is written into the daemon state file and replayed verbatim as `--release-base` on the self-restart, so a private mirror never silently falls back to the default GitHub release channel.
+- Idle auto-update can now be turned off explicitly with `--no-auto-update-idle` (or `SUPERIU_AUTO_UPDATE_IDLE=0|false|no`). The tri-state precedence is CLI > environment > persisted, and an explicit off also clears the persisted `autoUpdateIdle`/`autoUpdateIntervalHours` from the state file, so a later flagless restart cannot resurrect the feature (note that `SUPERIU_AUTO_UPDATE_IDLE=0` erases the persisted value too, so removing the variable afterwards leaves it off until enabled again); passing `--auto-update-idle` together with `--no-auto-update-idle` is a usage error. The desktop remote-connection wizard gains an "Update automatically when idle" switch (off by default) that sends the negative flag when switched off.
 
 ## v0.2.16 (2026-10-08)
 

@@ -13,13 +13,16 @@
  * `import.meta.url === fileURLToPath(process.argv[1])` guard at the bottom, which
  * is also what makes it safe to `bun build --compile` into a standalone binary.
  */
+import { execFileSync, spawn } from 'node:child_process';
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { startServer } from './server.js';
+import { startServer, type ServerHandle } from './server.js';
 
 /**
  * Module id bun resolves to the build-time asset bundle (see
@@ -34,6 +37,7 @@ Commands:
   start    Boot the SuperIU web shell + WebSocket gateway
   status   Report whether a daemon is running in the workspace
   stop     Ask a running daemon to shut down
+  update   Upgrade the installed binary from GitHub Releases
   token    Print a fresh 64-hex-character gateway token
   version  Print the package version
 
@@ -42,7 +46,23 @@ Options:
   --host <h>        Interface to bind (start). Default: $HOST or 127.0.0.1
   --token <t>       Gateway token (start). Default: $SUPERIU_GATEWAY_TOKEN or random
   --workspace <dir> Workspace root owning .superiu/. Default: current directory
-  -h, --help        Show this help`;
+  -h, --help        Show this help
+
+Auto-update options:
+  --auto-update-idle            Periodically update from GitHub Releases when idle
+                                ($SUPERIU_AUTO_UPDATE_IDLE=1)
+  --no-auto-update-idle         Explicitly disable idle auto-update and forget any
+                                persisted setting ($SUPERIU_AUTO_UPDATE_IDLE=0)
+  --auto-update-interval-hours <n>
+                                Check interval in hours. Default: $SUPERIU_AUTO_UPDATE_INTERVAL_HOURS or 6
+
+Update options:
+  --check               Report whether an update is available, then exit
+  --force               Upgrade even when the latest version is not newer
+  --version <v>         Upgrade to this exact version instead of the latest release
+  --release-base <url>  Release download base. Default: $SUPERIU_RELEASE_BASE or
+                        https://github.com/Kayphoon/SuperIU/releases/latest/download
+  --target <path>       Binary to replace. Default: the running superiu-server binary`;
 
 /** Name of the JSON state file written under `<workspace>/.superiu/`. */
 const STATE_FILE_NAME = 'server.json';
@@ -55,6 +75,9 @@ const STATE_DIR_MODE = 0o700;
  */
 const STATE_FILE_MODE = 0o600;
 
+/** Hours between idle update checks when neither the flag nor the state names one. */
+const DEFAULT_AUTO_UPDATE_INTERVAL_HOURS = 6;
+
 /** How long `stop` waits for a SIGTERM'd daemon to actually exit. */
 const STOP_TIMEOUT_MS = 10_000;
 const STOP_POLL_MS = 100;
@@ -65,6 +88,26 @@ interface ParsedArgs {
   host?: string;
   token?: string;
   workspace?: string;
+  /** Periodically update from GitHub Releases when idle. */
+  autoUpdateIdle: boolean;
+  /**
+   * `--no-auto-update-idle`: an explicit OFF. Distinguished from the default
+   * "no opinion" so an operator can switch the feature off without the
+   * persisted `true` resurrecting it on the next flagless start.
+   */
+  noAutoUpdateIdle?: boolean;
+  /** Hours between idle update checks. Default 6. */
+  autoUpdateIntervalHours: number;
+  /** `update --check`: report availability only, never download. */
+  check: boolean;
+  /** `update --force`: upgrade even when the latest version is not newer. */
+  force: boolean;
+  /** `update --version <v>`: pin the release tag instead of tracking latest. */
+  version?: string;
+  /** `update --release-base <url>`: override the release download base. */
+  releaseBase?: string;
+  /** `update --target <path>`: binary to replace instead of `process.execPath`. */
+  target?: string;
   help: boolean;
 }
 
@@ -75,7 +118,24 @@ interface ParsedArgs {
  * installer and systemd unit use.
  */
 function parseArgs(argv: string[]): ParsedArgs {
-  const parsed: ParsedArgs = { command: undefined, help: false };
+  const envAutoUpdate = parseTriStateEnv(process.env.SUPERIU_AUTO_UPDATE_IDLE) === true;
+  let autoUpdateIntervalHours = DEFAULT_AUTO_UPDATE_INTERVAL_HOURS;
+  const envInterval = process.env.SUPERIU_AUTO_UPDATE_INTERVAL_HOURS;
+  if (envInterval !== undefined && envInterval.trim() !== '') {
+    const parsedInterval = Number(envInterval);
+    if (!Number.isFinite(parsedInterval) || parsedInterval <= 0) {
+      throw new UsageError(`Invalid SUPERIU_AUTO_UPDATE_INTERVAL_HOURS: ${envInterval}`);
+    }
+    autoUpdateIntervalHours = parsedInterval;
+  }
+  const parsed: ParsedArgs = {
+    command: undefined,
+    autoUpdateIdle: envAutoUpdate,
+    autoUpdateIntervalHours,
+    check: false,
+    force: false,
+    help: false
+  };
   let index = 0;
 
   if (argv[0] !== undefined && !argv[0].startsWith('-')) {
@@ -132,12 +192,160 @@ function parseArgs(argv: string[]): ParsedArgs {
         parsed.workspace = value;
         break;
       }
+      case '--check': {
+        parsed.check = true;
+        break;
+      }
+      case '--force': {
+        parsed.force = true;
+        break;
+      }
+      case '--version': {
+        const value = takeValue();
+        if (!value) throw new UsageError('Missing value for --version');
+        parsed.version = value;
+        break;
+      }
+      case '--release-base': {
+        const value = takeValue();
+        if (!value) throw new UsageError('Missing value for --release-base');
+        parsed.releaseBase = value;
+        break;
+      }
+      case '--target': {
+        const value = takeValue();
+        if (!value) throw new UsageError('Missing value for --target');
+        parsed.target = value;
+        break;
+      }
+      case '--auto-update-idle': {
+        if (inlineValue !== undefined) {
+          parsed.autoUpdateIdle = /^(1|true|yes)$/i.test(inlineValue);
+        } else {
+          parsed.autoUpdateIdle = true;
+        }
+        break;
+      }
+      case '--no-auto-update-idle': {
+        parsed.noAutoUpdateIdle = true;
+        break;
+      }
+      case '--auto-update-interval-hours': {
+        const value = takeValue();
+        const parsedInterval = Number(value ?? '');
+        if (value === undefined || !Number.isFinite(parsedInterval) || parsedInterval <= 0) {
+          throw new UsageError(`Invalid --auto-update-interval-hours value: ${value ?? '(missing)'}`);
+        }
+        parsed.autoUpdateIntervalHours = parsedInterval;
+        break;
+      }
       default:
         throw new UsageError(`Unknown option: ${arg}`);
     }
   }
 
+  // A command line that contradicts itself is a usage bug, not a last-one-wins
+  // decision: reject it instead of silently honouring whichever flag came last.
+  if (parsed.autoUpdateIdle && parsed.noAutoUpdateIdle) {
+    throw new UsageError('--auto-update-idle and --no-auto-update-idle are mutually exclusive');
+  }
+
   return parsed;
+}
+
+/**
+ * Parse a tri-state boolean spelling from the environment.
+ *
+ * `1|true|yes` -> explicit ON, `0|false|no` -> explicit OFF, anything else
+ * (including unset or empty) -> `undefined`, meaning "no opinion". The OFF
+ * spellings matter: without them an operator could turn the feature on through
+ * the environment but never off, since an unset variable is indistinguishable
+ * from an explicit `false`.
+ */
+function parseTriStateEnv(raw: string | undefined): boolean | undefined {
+  if (raw === undefined) return undefined;
+  const value = raw.trim().toLowerCase();
+  if (/^(1|true|yes)$/.test(value)) return true;
+  if (/^(0|false|no)$/.test(value)) return false;
+  return undefined;
+}
+
+/** The inputs the idle auto-update settings are resolved from. */
+export interface AutoUpdateResolutionInputs {
+  /** `--auto-update-idle` (or a truthy `SUPERIU_AUTO_UPDATE_IDLE`). */
+  autoUpdateIdle: boolean;
+  /** `--no-auto-update-idle`: an explicit OFF. */
+  noAutoUpdateIdle?: boolean;
+  /** `--auto-update-interval-hours <n>`, if given. */
+  autoUpdateIntervalHours?: number;
+  /** `--release-base <url>`, if given. */
+  releaseBase?: string;
+}
+
+/** The idle auto-update settings a `start` boots with, and what to persist. */
+export interface AutoUpdateSettings {
+  /** Whether the idle self-update loop runs for this boot. */
+  enabled: boolean;
+  /** Hours between checks; the flag, else the persisted value, else 6. */
+  intervalHours: number;
+  /** Release download base; the flag, else the persisted value, else `undefined`. */
+  releaseBase: string | undefined;
+  /**
+   * The caller must delete `autoUpdateIdle` and `autoUpdateIntervalHours` from
+   * the state file it writes: an explicit OFF is authoritative, and a leftover
+   * `true` would resurrect the feature on the next flagless start.
+   */
+  clearPersisted: boolean;
+}
+
+/**
+ * Resolve the idle auto-update settings with the precedence CLI > env >
+ * persisted, as a pure function so every combination is unit-testable without
+ * booting a daemon.
+ *
+ * The environment sits ABOVE the persisted value on purpose: a systemd unit
+ * cannot pass CLI flags, so `EnvironmentFile` is the operator's configuration
+ * channel and must be able to override what a previous desktop session wrote.
+ *
+ * `autoUpdateIdle` and `noAutoUpdateIdle` are mutually exclusive; `parseArgs`
+ * rejects the combination before it reaches here.
+ */
+export function resolveAutoUpdateSettings(
+  parsed: AutoUpdateResolutionInputs,
+  existingState: Pick<DaemonState, 'autoUpdateIdle' | 'autoUpdateIntervalHours' | 'releaseBase'> | null | undefined,
+  env: string | undefined
+): AutoUpdateSettings {
+  const envTri = parseTriStateEnv(env);
+  // CLI > env > persisted. An explicit OFF wins outright; an explicit ON (flag
+  // or truthy env) beats the persisted value; only when neither is expressed
+  // does the persisted setting become the default. `clearPersisted` follows the
+  // signal that actually won: a flag saying ON is not overridden by a falsy env.
+  let enabled: boolean;
+  let clearPersisted = false;
+  if (parsed.noAutoUpdateIdle) {
+    enabled = false;
+    clearPersisted = true;
+  } else if (parsed.autoUpdateIdle || envTri === true) {
+    enabled = true;
+  } else if (envTri === false) {
+    enabled = false;
+    clearPersisted = true;
+  } else {
+    enabled = existingState?.autoUpdateIdle === true;
+  }
+
+  const intervalHours = parsed.autoUpdateIdle
+    ? parsed.autoUpdateIntervalHours ?? DEFAULT_AUTO_UPDATE_INTERVAL_HOURS
+    : existingState?.autoUpdateIntervalHours ?? DEFAULT_AUTO_UPDATE_INTERVAL_HOURS;
+
+  return {
+    enabled,
+    intervalHours,
+    // Same precedence as the tick and `update`: the flag wins, else the
+    // persisted base, else the tick falls back to the env / public default.
+    releaseBase: parsed.releaseBase ?? existingState?.releaseBase,
+    clearPersisted
+  };
 }
 
 /** A malformed command line: reported on stderr with usage, exit code 2. */
@@ -148,6 +356,47 @@ function resolveWorkspace(workspace: string | undefined): string {
   return path.resolve(workspace ?? process.cwd());
 }
 
+/**
+ * Resolve the workspace of the daemon that is *actually running*, for a command
+ * that was not told where it lives.
+ *
+ * The desktop app provisions its remote daemon with a fixed workspace —
+ * `packages/desktop/src/remote/bootstrap.ts` starts it with
+ * `--workspace "$HOME/.superiu/workspace"` — so a daemon started by the desktop
+ * is invisible to an updater run from any other directory. Candidates are
+ * therefore probed in this order and the first one holding a LIVE daemon wins:
+ *
+ *   1. an explicit `--workspace`,
+ *   2. `$HOME/.superiu/workspace` (the desktop layout above),
+ *   3. the current directory (the pre-existing behaviour),
+ *   4. `$HOME` (a systemd unit starts the daemon with `WorkingDirectory=%h`).
+ *
+ * Only `update` resolves this way. `status` / `stop` keep resolving strictly
+ * from `--workspace`: their callers (the installer, the desktop) always pass
+ * one and must never be answered about a different daemon. When no candidate is
+ * live, the workspace `update` would have used before probing (the explicit
+ * value, else cwd) is returned, so single-shot behaviour is unchanged.
+ */
+function resolveLiveWorkspace(explicit: string | undefined): string {
+  if (explicit !== undefined) return path.resolve(explicit);
+
+  const home = process.env.HOME ?? '';
+  const candidates = [home ? path.join(home, '.superiu', 'workspace') : '', process.cwd(), home];
+
+  const probed = new Set<string>();
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const resolved = path.resolve(candidate);
+    if (probed.has(resolved)) continue;
+    probed.add(resolved);
+
+    const state = readState(resolved);
+    if (state && isAlive(state.pid)) return resolved;
+  }
+
+  return resolveWorkspace(explicit);
+}
+
 function stateDir(workspace: string): string {
   return path.join(workspace, '.superiu');
 }
@@ -156,15 +405,107 @@ function statePath(workspace: string): string {
   return path.join(stateDir(workspace), STATE_FILE_NAME);
 }
 
+/** Name of the JSON update state file written under `<workspace>/.superiu/`. */
+const UPDATE_STATE_FILE_NAME = 'update-state.json';
+
+function updateStatePath(workspace: string): string {
+  return path.join(stateDir(workspace), UPDATE_STATE_FILE_NAME);
+}
+
+export interface UpdateBackoffState {
+  lastCheckAt?: string;
+  lastFailedAt?: string;
+  lastFailedVersion?: string;
+}
+
+/** Read and validate the update state file; `{}` when missing, corrupt, or unknown shape. */
+export function readUpdateState(workspace: string): UpdateBackoffState {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(updateStatePath(workspace), 'utf-8');
+  } catch {
+    return {};
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return {};
+  }
+
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+  const record = parsed as Record<string, unknown>;
+  const result: UpdateBackoffState = {};
+  if (typeof record.lastCheckAt === 'string') result.lastCheckAt = record.lastCheckAt;
+  if (typeof record.lastFailedAt === 'string') result.lastFailedAt = record.lastFailedAt;
+  if (typeof record.lastFailedVersion === 'string') result.lastFailedVersion = record.lastFailedVersion;
+  return result;
+}
+
+/** Write the update state file with 0600 mode; never throws. */
+export function writeUpdateState(workspace: string, state: UpdateBackoffState): string {
+  const dir = stateDir(workspace);
+  fs.mkdirSync(dir, { recursive: true, mode: STATE_DIR_MODE });
+  try {
+    fs.chmodSync(dir, STATE_DIR_MODE);
+  } catch {
+    // A filesystem that refuses chmod still gets the 0600 file below
+  }
+  const file = updateStatePath(workspace);
+  fs.writeFileSync(file, `${JSON.stringify(state, null, 2)}\n`, { encoding: 'utf-8', mode: STATE_FILE_MODE });
+  try {
+    fs.chmodSync(file, STATE_FILE_MODE);
+  } catch {
+    // Same rationale as the directory chmod above
+  }
+  return file;
+}
+
+const BACKOFF_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** True when candidate matches last failed version within the 24h backoff window. */
+export function isBackoffBlocked(
+  state: UpdateBackoffState,
+  candidate: string,
+  now: number = Date.now()
+): boolean {
+  if (state.lastFailedVersion !== candidate) return false;
+  if (!state.lastFailedAt) return false;
+  const failedAt = Date.parse(state.lastFailedAt);
+  if (Number.isNaN(failedAt)) return false;
+  return now - failedAt < BACKOFF_WINDOW_MS;
+}
+
 interface DaemonState {
   pid: number;
   port: number;
   host: string;
   url: string;
   gatewayUrl?: string;
+  /** Absolute workspace root owning the `.superiu/` state directory. */
+  workspace: string;
   token: string;
   version: string;
   startedAt: string;
+  /**
+   * The idle self-update settings this daemon was started with. Persisted so a
+   * self-update respawn — a fresh process that cannot inherit the parent's CLI
+   * flags — can replay them; env-var driven runs need no replay, but recording
+   * them keeps the file an accurate description of the running daemon.
+   * Absent in a state file written by a build that predates the fields.
+   */
+  autoUpdateIdle?: boolean;
+  autoUpdateIntervalHours?: number;
+  /**
+   * The release download base the daemon was started with (`--release-base`),
+   * persisted so a self-update respawn — a fresh process that cannot inherit the
+   * parent's CLI flags — can replay it. Without this, an idle tick started from a
+   * private mirror would silently upgrade from the default GitHub base, which is
+   * the wrong release channel. Absent in a state file written by a build that
+   * predates the field.
+   */
+  releaseBase?: string;
 }
 
 /**
@@ -218,6 +559,98 @@ function resolveVersion(): string {
     dir = parent;
   }
   return '0.0.0';
+}
+
+// ---------------------------------------------------------------------------
+// Semver
+// ---------------------------------------------------------------------------
+//
+// A deliberately tiny reimplementation of the precedence rules in
+// `packages/desktop/src/updater.ts`. It cannot be imported: that module pulls in
+// `electron` at module scope, which would both break the daemon under plain node
+// and drag Electron into the standalone binary.
+
+/** A parsed `major.minor.patch` (with optional pre-release) tuple. */
+interface ParsedVersion {
+  major: number;
+  minor: number;
+  patch: number;
+  /** Dot-separated pre-release identifiers, e.g. `['rc', '1']`; empty for a stable release. */
+  prerelease: string[];
+}
+
+/**
+ * Parse a semver-ish string, tolerating a leading `v` and a missing
+ * minor/patch (e.g. `1` -> `1.0.0`). Returns `null` for anything without a
+ * leading numeric component — which is what keeps the rolling `latest` tag from
+ * ever being mistaken for a version.
+ */
+function parseVersion(raw: string | undefined | null): ParsedVersion | null {
+  if (typeof raw !== 'string') return null;
+  const trimmed = raw.trim().replace(/^v/i, '');
+  if (!trimmed) return null;
+
+  // Split off build metadata (`+...`), which does not participate in precedence.
+  const withoutBuild = trimmed.split('+', 1)[0] ?? '';
+  const [core = '', ...preParts] = withoutBuild.split('-');
+  const segments = core.split('.');
+
+  if (!/^\d+$/.test(segments[0] ?? '')) return null;
+
+  const major = Number.parseInt(segments[0] ?? '0', 10);
+  const minor = /^\d+$/.test(segments[1] ?? '') ? Number.parseInt(segments[1] as string, 10) : 0;
+  const patch = /^\d+$/.test(segments[2] ?? '') ? Number.parseInt(segments[2] as string, 10) : 0;
+
+  const prerelease = preParts.length > 0 && preParts[0] ? preParts[0].split('.') : [];
+
+  return { major, minor, patch, prerelease };
+}
+
+/** Compare two dot-separated pre-release identifier lists per semver §11. */
+function comparePrerelease(a: string[], b: string[]): number {
+  // A version WITHOUT a pre-release is HIGHER than one with (1.0.0 > 1.0.0-rc.1).
+  if (a.length === 0 && b.length === 0) return 0;
+  if (a.length === 0) return 1;
+  if (b.length === 0) return -1;
+
+  const len = Math.max(a.length, b.length);
+  for (let i = 0; i < len; i += 1) {
+    const left = a[i];
+    const right = b[i];
+    if (left === undefined) return -1; // shorter list is lower (1.0.0-alpha < 1.0.0-alpha.1)
+    if (right === undefined) return 1;
+
+    const leftNumeric = /^\d+$/.test(left);
+    const rightNumeric = /^\d+$/.test(right);
+
+    if (leftNumeric && rightNumeric) {
+      const diff = Number.parseInt(left, 10) - Number.parseInt(right, 10);
+      if (diff !== 0) return diff > 0 ? 1 : -1;
+    } else if (leftNumeric) {
+      return -1; // numeric identifiers are lower than alphanumeric
+    } else if (rightNumeric) {
+      return 1;
+    } else if (left !== right) {
+      return left > right ? 1 : -1;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Standard semver precedence: `true` when `remote` is strictly newer than
+ * `current`. Unparseable inputs compare as not-newer, so a malformed tag can
+ * never trigger an update.
+ */
+function semverGt(remote: string | undefined | null, current: string | undefined | null): boolean {
+  const a = parseVersion(remote);
+  const b = parseVersion(current);
+  if (!a || !b) return false;
+
+  if (a.major !== b.major) return a.major > b.major;
+  if (a.minor !== b.minor) return a.minor > b.minor;
+  if (a.patch !== b.patch) return a.patch > b.patch;
+  return comparePrerelease(a.prerelease, b.prerelease) > 0;
 }
 
 /** A fresh 256-bit token. `crypto` is available in both Node and the bun binary. */
@@ -281,9 +714,22 @@ function readState(workspace: string): DaemonState | null {
     host: typeof record.host === 'string' ? record.host : '127.0.0.1',
     url: typeof record.url === 'string' ? record.url : '',
     gatewayUrl: typeof record.gatewayUrl === 'string' ? record.gatewayUrl : undefined,
+    // Absent in a state file written by a pre-`workspace` build: default to the
+    // directory the file was read from so the field is never empty.
+    workspace: typeof record.workspace === 'string' && record.workspace ? record.workspace : path.resolve(workspace),
     token: typeof record.token === 'string' ? record.token : '',
     version: typeof record.version === 'string' ? record.version : '0.0.0',
-    startedAt: typeof record.startedAt === 'string' ? record.startedAt : ''
+    startedAt: typeof record.startedAt === 'string' ? record.startedAt : '',
+    // Tolerated as absent: state files written before the fields existed (and
+    // by builds without auto-update) simply carry no auto-update settings.
+    autoUpdateIdle: record.autoUpdateIdle === true ? true : undefined,
+    autoUpdateIntervalHours:
+      typeof record.autoUpdateIntervalHours === 'number' && record.autoUpdateIntervalHours > 0
+        ? record.autoUpdateIntervalHours
+        : undefined,
+    // Absent in a state file written before the field existed; `undefined` makes
+    // the tick fall back to `SUPERIU_RELEASE_BASE` / the default base.
+    releaseBase: typeof record.releaseBase === 'string' && record.releaseBase ? record.releaseBase : undefined
   };
 }
 
@@ -304,6 +750,31 @@ function printJson(payload: unknown): void {
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** One-line rendering of a thrown value for the user-facing stderr messages. */
+function describeError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/**
+ * SIGTERM a live daemon and wait, bounded, for it to actually exit. Shared by
+ * `start`'s stale-binary takeover and the `update` restart path.
+ */
+async function terminateAndWait(pid: number, timeoutMs: number = STOP_TIMEOUT_MS): Promise<boolean> {
+  if (!isAlive(pid)) return true;
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch {
+    // Raced with the process exiting on its own; the wait loop below settles it.
+  }
+
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!isAlive(pid)) return true;
+    await sleep(STOP_POLL_MS);
+  }
+  return !isAlive(pid);
 }
 
 // ---------------------------------------------------------------------------
@@ -389,6 +860,30 @@ async function commandStart(parsed: ParsedArgs): Promise<number> {
   const token = parsed.token ?? process.env.SUPERIU_GATEWAY_TOKEN ?? generateToken();
   const version = resolveVersion();
 
+  // Read BEFORE the takeover block below, which may `removeState(workspace)`:
+  // the auto-update settings of the daemon this process replaces are the
+  // defaults for this boot (see the persistence block further down).
+  const existingState = readState(workspace);
+
+  // A freshly-upgraded binary takes over from the daemon it replaced: an old
+  // process still holding the port would keep serving the old build, so stop it
+  // before binding. No-op when nothing is running or the version already matches.
+  if (
+    existingState &&
+    existingState.pid !== process.pid &&
+    existingState.version !== version &&
+    isAlive(existingState.pid)
+  ) {
+    process.stderr.write(
+      `superiu-server: replacing running daemon pid ${existingState.pid} (version ${existingState.version} -> ${version})\n`
+    );
+    const exited = await terminateAndWait(existingState.pid);
+    if (!exited) {
+      process.stderr.write(`superiu-server: daemon pid ${existingState.pid} did not exit; continuing anyway\n`);
+    }
+    removeState(workspace);
+  }
+
   const publicDir = await materializeEmbeddedAssets();
 
   const handle = await startServer({
@@ -398,7 +893,9 @@ async function commandStart(parsed: ParsedArgs): Promise<number> {
     gatewayToken: token,
     quiet: true,
     // Undefined lets server.ts use its own `public/` default (tsc build).
-    ...(publicDir ? { publicDir } : {})
+    ...(publicDir ? { publicDir } : {}),
+    // Reported by `/api/status` and the gateway handshake.
+    version
   });
 
   const state: DaemonState = {
@@ -407,10 +904,41 @@ async function commandStart(parsed: ParsedArgs): Promise<number> {
     host: handle.host,
     url: handle.url,
     gatewayUrl: handle.gatewayUrl,
+    workspace,
     token,
     version,
     startedAt: new Date().toISOString()
   };
+
+  // The persisted settings of the daemon being replaced are the DEFAULT: a
+  // restart that does not repeat the flag must not silently turn auto-update
+  // off. An explicit ON (`--auto-update-idle` / `SUPERIU_AUTO_UPDATE_IDLE=1`)
+  // turns it on; an explicit OFF (`--no-auto-update-idle` /
+  // `SUPERIU_AUTO_UPDATE_IDLE=0`) turns it off AND forgets the persisted
+  // settings, so the next flagless start cannot resurrect them.
+  const autoUpdate = resolveAutoUpdateSettings(parsed, existingState, process.env.SUPERIU_AUTO_UPDATE_IDLE);
+  const autoUpdateEnabled = autoUpdate.enabled;
+  const autoUpdateIntervalHours = autoUpdate.intervalHours;
+  const releaseBase = autoUpdate.releaseBase;
+
+  // An explicit OFF must DELETE the keys, not write `false`: `readState` treats
+  // a non-`true` value as absent, but a `false` on disk would be a shape change
+  // and a leftover `true` would re-enable the feature on the next boot.
+  if (autoUpdate.clearPersisted) {
+    delete state.autoUpdateIdle;
+    delete state.autoUpdateIntervalHours;
+  } else if (autoUpdateEnabled) {
+    // Recorded so the self-update respawn — a fresh process that cannot inherit
+    // these flags — can replay them. Written only when the feature is on, so a
+    // default boot still produces a state file identical to the old shape.
+    state.autoUpdateIdle = true;
+    state.autoUpdateIntervalHours = autoUpdateIntervalHours;
+  }
+  // Same rationale as the auto-update settings above: only written when there
+  // is a base to remember, so a default boot keeps the old state file shape.
+  if (releaseBase) {
+    state.releaseBase = releaseBase;
+  }
 
   let stateFile: string | null = null;
   try {
@@ -421,12 +949,29 @@ async function commandStart(parsed: ParsedArgs): Promise<number> {
     process.stderr.write(`superiu-server: could not write state file: ${(err as Error).message}\n`);
   }
 
+  let updateTimer: NodeJS.Timeout | undefined;
+  if (autoUpdateEnabled) {
+    const execName = path.basename(process.execPath);
+    if (execName !== 'superiu-server') {
+      process.stderr.write(
+        `superiu-server: auto-update disabled: running binary is '${execName}', not 'superiu-server'\n`
+      );
+    } else {
+      const intervalMs = autoUpdateIntervalHours * 60 * 60 * 1000;
+      updateTimer = startIdleUpdateLoop(handle, state, workspace, intervalMs);
+    }
+  }
+
   // Idempotent shutdown: a second signal during teardown is ignored rather than
   // racing a second `close()` or a second exit.
   let stopping = false;
   const shutdown = (): void => {
     if (stopping) return;
     stopping = true;
+    if (updateTimer) {
+      clearInterval(updateTimer);
+      updateTimer = undefined;
+    }
     void handle
       .close()
       .catch(() => undefined)
@@ -487,6 +1032,7 @@ function commandStatus(parsed: ParsedArgs): number {
     host: state.host,
     url: state.url,
     gatewayUrl: state.gatewayUrl,
+    workspace: state.workspace,
     version: state.version,
     startedAt: state.startedAt
   });
@@ -533,6 +1079,560 @@ function commandVersion(): number {
 }
 
 // ---------------------------------------------------------------------------
+// update
+// ---------------------------------------------------------------------------
+
+/** GitHub repository owning the released server binaries. Mirrors REPO_SLUG. */
+const REPO_SLUG = 'Kayphoon/SuperIU';
+
+/** Default release download base; mirrors `scripts/install.sh`. */
+const DEFAULT_RELEASE_BASE = `https://github.com/${REPO_SLUG}/releases/latest/download`;
+
+/** Asset name suffix per `process.arch`; mirrors `scripts/install.sh`. */
+const ARCH_ASSETS: Record<string, string> = {
+  x64: 'superiu-server-linux-x64',
+  arm64: 'superiu-server-linux-arm64'
+};
+
+/** How long a single GitHub API request may take before it is aborted. */
+const FETCH_TIMEOUT_MS = 30_000;
+
+/** How long a release asset download may take before it is aborted. */
+const DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
+
+/** Shape of the GitHub release fields this file consumes. */
+interface GithubRelease {
+  tag_name?: string;
+  assets?: { name?: string }[];
+}
+
+/** A `fetch` that always carries a User-Agent and never hangs forever. */
+async function fetchWithTimeout(url: string, accept?: string): Promise<Response> {
+  const headers: Record<string, string> = { 'User-Agent': 'superiu-server-updater' };
+  if (accept) headers.Accept = accept;
+  return await fetch(url, { headers, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
+}
+
+/** Strip a leading `v` from a release tag; `undefined` when there is no tag. */
+function normalizeTag(tag: string | undefined): string | undefined {
+  if (!tag) return undefined;
+  return tag.replace(/^v/i, '') || undefined;
+}
+
+/**
+ * Resolve the latest released version from the GitHub Releases API.
+ *
+ * `/releases/latest` is tried first, but it never returns pre-releases — and the
+ * rolling channel publishes every master build as a prerelease, leaving that
+ * endpoint 404ing forever. When it does, fall back to the release list (ordered
+ * newest-first by GitHub) and take the first release that actually ships the
+ * asset for this architecture.
+ */
+async function fetchLatestVersion(assetName: string): Promise<string | undefined> {
+  const direct = await fetchWithTimeout(
+    `https://api.github.com/repos/${REPO_SLUG}/releases/latest`,
+    'application/vnd.github+json'
+  );
+  if (direct.ok) {
+    const release = (await direct.json()) as GithubRelease;
+    return normalizeTag(release.tag_name);
+  }
+  if (direct.status !== 404) throw new Error(`GitHub API responded ${direct.status}`);
+
+  const list = await fetchWithTimeout(
+    `https://api.github.com/repos/${REPO_SLUG}/releases?per_page=20`,
+    'application/vnd.github+json'
+  );
+  if (!list.ok) throw new Error(`GitHub API responded ${list.status}`);
+  const releases = (await list.json()) as GithubRelease[];
+  const match = releases.find((release) => release.assets?.some((asset) => asset.name === assetName));
+  return normalizeTag(match?.tag_name);
+}
+
+/** Download `url` to `destination`, refusing to leave a partial file behind. */
+async function downloadTo(url: string, destination: string): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: { 'User-Agent': 'superiu-server-updater' },
+      signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)
+    });
+  } catch (err) {
+    throw new Error(`download failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (!response.ok) throw new Error(`download failed: HTTP ${response.status} from ${url}`);
+  if (!response.body) throw new Error(`download failed: empty response body from ${url}`);
+
+  try {
+    await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(destination));
+  } catch (err) {
+    try {
+      fs.rmSync(destination, { force: true });
+    } catch {
+      // Best effort: the caller reports the download failure either way.
+    }
+    throw err;
+  }
+}
+
+/**
+ * Bring a replaced daemon back up, restoring the identity it had before the
+ * swap.
+ *
+ * A detached `spawn` with only `--workspace` would mint a fresh gateway token —
+ * invalidating every already-paired client and any `~/.superiu/env` value — and
+ * fall back to the default port, which may be taken. The port, host, and token
+ * are therefore replayed from the state file.
+ *
+ * When a user systemd unit owns the daemon the unit is restarted instead:
+ * respawning detached would leave the unit's own main process dead, so the
+ * service manager would consider the unit broken. Only the unit's *existence*
+ * selects that path — `is-active` would be wrong, since it is false for a
+ * daemon started by hand that a unit merely describes.
+ */
+function restartDaemon(target: string, state: DaemonState): void {
+  let unitOwnsDaemon = false;
+  try {
+    execFileSync('systemctl', ['--user', 'cat', 'superiu-server'], { stdio: 'ignore' });
+    unitOwnsDaemon = true;
+  } catch {
+    // No unit: fall through to the detached respawn below.
+  }
+
+  if (unitOwnsDaemon) {
+    execFileSync('systemctl', ['--user', 'restart', 'superiu-server'], {
+      stdio: 'ignore',
+      timeout: STOP_TIMEOUT_MS
+    });
+    return;
+  }
+
+  // `readState` defaults a missing port to 0 and a missing token to '', so a
+  // state file written by an older build may lack them. An empty `--token` is
+  // rejected by `parseArgs` and `--port 0` means "ephemeral": replaying either
+  // would fail the restart after the binary was already swapped. Only the flags
+  // that actually carry a value are passed; the daemon then falls back to its
+  // own defaults for the rest.
+  const args = ['start'];
+  if (state.port > 0) args.push('--port', String(state.port));
+  if (state.host) args.push('--host', state.host);
+  if (state.token) args.push('--token', state.token);
+  args.push('--workspace', state.workspace);
+  // Same replay rule as the detached respawn: losing the base here would make
+  // the restarted daemon fall back to the default GitHub channel on its next
+  // idle tick, defeating the mirror the operator configured.
+  if (state.releaseBase) {
+    args.push('--release-base', state.releaseBase);
+  }
+
+  spawn(target, args, { detached: true, stdio: 'ignore' }).unref();
+}
+
+export interface RestartSeams {
+  /**
+   * Whether a user systemd unit owns the daemon. Defaults to asking
+   * `systemctl --user cat superiu-server`; overridable so a test can pin either
+   * branch without depending on the host's unit directory.
+   */
+  hasUnit?: () => boolean;
+  /** Spawns the replacement. Defaults to `node:child_process.spawn`. */
+  spawn?: typeof spawn;
+}
+
+/**
+ * The in-process half of a self-update: bring the daemon back up without ever
+ * blocking on its own exit.
+ *
+ * {@link restartDaemon} cannot be used here. It calls `systemctl --user restart`
+ * through `execFileSync`, and the tick runs INSIDE the unit's main process:
+ * systemd must SIGTERM that very process before the replacement can bind, so the
+ * synchronous call waits on systemd while systemd waits on us. The 10s
+ * `timeout` then fires and the tick reports a misleading failure after a
+ * perfectly good binary swap. The standalone `update` command keeps the sync
+ * version — it is a separate process, so nothing deadlocks, and it wants the
+ * restart to be observable.
+ *
+ * Both branches therefore spawn DETACHED and return immediately; the caller
+ * exits right after, which is what lets systemd (or the respawned binary)
+ * proceed.
+ */
+export function restartDaemonDetached(target: string, state: DaemonState, seams: RestartSeams = {}): void {
+  const doSpawn = seams.spawn ?? spawn;
+  const unitOwnsDaemon = seams.hasUnit
+    ? seams.hasUnit()
+    : ((): boolean => {
+        try {
+          execFileSync('systemctl', ['--user', 'cat', 'superiu-server'], { stdio: 'ignore' });
+          return true;
+        } catch {
+          // No unit: fall through to the detached respawn below.
+          return false;
+        }
+      })();
+
+  if (unitOwnsDaemon) {
+    if (state.autoUpdateIdle) {
+      process.stderr.write(
+        'superiu-server: auto-update: restarting via the systemd unit, which cannot receive CLI flags; ' +
+          'put SUPERIU_AUTO_UPDATE_IDLE=1 in the unit EnvironmentFile for auto-update to survive restarts\n'
+      );
+    }
+    // Detached and unreferenced: the restart completes after this process exits,
+    // which is exactly when systemd can stop us and start the new instance.
+    doSpawn('systemctl', ['--user', 'restart', 'superiu-server'], { detached: true, stdio: 'ignore' }).unref();
+    return;
+  }
+
+  // Same replay rules as `restartDaemon`: only flags that actually carry a value
+  // are passed, so a state file from an older build cannot fail the restart.
+  const args = ['start'];
+  if (state.port > 0) args.push('--port', String(state.port));
+  if (state.host) args.push('--host', state.host);
+  if (state.token) args.push('--token', state.token);
+  args.push('--workspace', state.workspace);
+  // The respawned process starts with a clean argv, so the auto-update settings
+  // are replayed explicitly — otherwise enabling the feature once via the CLI
+  // would silently make it one-shot.
+  if (state.autoUpdateIdle) {
+    args.push('--auto-update-idle');
+    if (state.autoUpdateIntervalHours) {
+      args.push('--auto-update-interval-hours', String(state.autoUpdateIntervalHours));
+    }
+  }
+  // Replayed for the same reason, and more urgently: a respawn that lost the
+  // base would silently upgrade from the default GitHub channel instead of the
+  // private mirror the operator configured.
+  if (state.releaseBase) {
+    args.push('--release-base', state.releaseBase);
+  }
+
+  doSpawn(target, args, { detached: true, stdio: 'ignore' }).unref();
+}
+
+/**
+ * Ask a freshly downloaded binary what version it reports.
+ *
+ * The released asset's name and its `tag_name` are both claims made by the
+ * release pipeline; the binary's own `version` output is the only value that
+ * survives to the next upgrade's comparison. A release whose baked version is
+ * stale (a root `package.json` that was never bumped) would otherwise install a
+ * binary that keeps reporting the old version — an upgrade loop. Returns
+ * `undefined` when the probe cannot be parsed.
+ */
+function probeBinaryVersion(binary: string): string | undefined {
+  let stdout: string;
+  try {
+    stdout = execFileSync(binary, ['version'], { encoding: 'utf-8', timeout: STOP_TIMEOUT_MS });
+  } catch (err) {
+    process.stderr.write(`superiu-server: could not run the downloaded binary: ${describeError(err)}\n`);
+    return undefined;
+  }
+
+  const line = stdout.trim().split('\n').filter((part) => part.trim() !== '').pop();
+  if (!line) return undefined;
+  try {
+    const parsed = JSON.parse(line) as { version?: unknown };
+    return typeof parsed.version === 'string' && parsed.version ? parsed.version : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export interface UpdateTickSeams {
+  fetchLatest?: (assetName: string) => Promise<string | undefined>;
+  download?: (url: string, destination: string) => Promise<void>;
+  probeVersion?: (binary: string) => string | undefined;
+  /**
+   * Unused by the tick since the drain window was cut down to the swap itself —
+   * there is no settling delay left to make configurable. Retained because it is
+   * part of this exported interface's shape.
+   */
+  sleep?: (ms: number) => Promise<void>;
+  /**
+   * Non-fatal persistence of the update state file. Overridable so a caller (or
+   * a test) can observe — or make fail — a write without touching the real
+   * filesystem; a failure must never abort the tick.
+   */
+  writeState?: (workspace: string, state: UpdateBackoffState) => string;
+  /** How the daemon is brought back up after a swap. Defaults to the detached respawn. */
+  restart?: (target: string, state: DaemonState) => void;
+  /** Process exit after a successful swap. Overridable so tests do not kill the runner. */
+  exit?: (code: number) => void;
+}
+
+export async function runUpdateTick(
+  handle: Pick<ServerHandle, 'isIdle' | 'setDraining' | 'close'>,
+  state: DaemonState,
+  workspace: string,
+  target: string = process.execPath,
+  seams: UpdateTickSeams = {}
+): Promise<void> {
+  const doFetchLatest = seams.fetchLatest ?? fetchLatestVersion;
+  const doDownload = seams.download ?? downloadTo;
+  const doProbeVersion = seams.probeVersion ?? probeBinaryVersion;
+  const doWriteState = seams.writeState ?? writeUpdateState;
+  const doRestart = seams.restart ?? restartDaemonDetached;
+  const doExit = seams.exit ?? ((code: number) => process.exit(code));
+
+  /**
+   * Persist the update state without letting the filesystem decide whether the
+   * daemon keeps serving. A failed write (ENOSPC, EACCES) must never abort the
+   * tick, and — because `draining` is only ever reset in the `finally` below —
+   * must never leave the gateway refusing every new prompt.
+   */
+  const persist = (next: UpdateBackoffState): void => {
+    try {
+      doWriteState(workspace, next);
+    } catch (err) {
+      process.stderr.write(`superiu-server: auto-update: could not write update state: ${describeError(err)}\n`);
+    }
+  };
+
+  /** Record the check for the bookkeeping-only exits, still non-fatally. */
+  const markChecked = (base: UpdateBackoffState): void => {
+    persist({ ...base, lastCheckAt: new Date().toISOString() });
+  };
+
+  try {
+    const assetName = ARCH_ASSETS[process.arch];
+    if (!assetName) {
+      process.stderr.write(`superiu-server: auto-update: unsupported architecture '${process.arch}'\n`);
+      return;
+    }
+
+    let candidate: string | undefined;
+    try {
+      candidate = await doFetchLatest(assetName);
+    } catch (err) {
+      process.stderr.write(`superiu-server: auto-update: check failed: ${describeError(err)}\n`);
+      return;
+    }
+    if (!candidate) return;
+
+    const current = resolveVersion();
+    const backoffState = readUpdateState(workspace);
+
+    if (!semverGt(candidate, current)) {
+      markChecked(backoffState);
+      return;
+    }
+
+    if (isBackoffBlocked(backoffState, candidate)) {
+      markChecked(backoffState);
+      return;
+    }
+
+    if (!handle.isIdle()) {
+      process.stderr.write('superiu-server: deferring update: daemon busy\n');
+      markChecked(backoffState);
+      return;
+    }
+
+    // The download (~80MB) and the probe run while the daemon is still fully
+    // SERVING. Draining here would 503 every `/api/chat` for the whole transfer,
+    // which on a slow VPS is tens of seconds to minutes.
+    //
+    // Same precedence as `commandUpdate`: the base persisted by `start` wins, so
+    // a daemon launched against a private mirror never silently upgrades from
+    // the default GitHub channel.
+    const base = (state.releaseBase ?? process.env.SUPERIU_RELEASE_BASE ?? DEFAULT_RELEASE_BASE).replace(
+      /\/+$/,
+      ''
+    );
+    const url = `${base}/${assetName}`;
+    const tmp = path.join(path.dirname(target), `.${path.basename(target)}.update.${process.pid}`);
+
+    let binaryVersion: string | undefined;
+    try {
+      await doDownload(url, tmp);
+      fs.chmodSync(tmp, 0o755);
+      binaryVersion = doProbeVersion(tmp);
+    } catch (err) {
+      try {
+        fs.rmSync(tmp, { force: true });
+      } catch {}
+      process.stderr.write(`superiu-server: auto-update: download failed: ${describeError(err)}\n`);
+      return;
+    }
+
+    if (!binaryVersion || !semverGt(binaryVersion, current)) {
+      const now = new Date().toISOString();
+      persist({
+        ...backoffState,
+        lastCheckAt: now,
+        lastFailedAt: now,
+        lastFailedVersion: candidate
+      });
+      try {
+        fs.rmSync(tmp, { force: true });
+      } catch {}
+      process.stderr.write(
+        `superiu-server: auto-update: downloaded binary invalid or not newer (${binaryVersion ?? 'unparseable'}); backing off\n`
+      );
+      return;
+    }
+
+    // Only the swap needs exclusivity: rename + close + restart is milliseconds,
+    // and the re-check below narrows even that to the moment the turn count was
+    // read. Draining is reset strictly in the `finally`, so every early return —
+    // and any throw — restores the gateway.
+    let swapped = false;
+    handle.setDraining(true);
+    try {
+      if (!handle.isIdle()) {
+        process.stderr.write('superiu-server: deferring update: daemon busy\n');
+        try {
+          fs.rmSync(tmp, { force: true });
+        } catch {}
+        return;
+      }
+      fs.renameSync(tmp, target);
+      swapped = true;
+    } finally {
+      if (!swapped) handle.setDraining(false);
+    }
+
+    markChecked(backoffState);
+    await handle.close();
+    doRestart(target, state);
+    doExit(0);
+  } catch (err) {
+    process.stderr.write(`superiu-server: auto-update error: ${describeError(err)}\n`);
+  }
+}
+
+export function startIdleUpdateLoop(
+  handle: ServerHandle,
+  state: DaemonState,
+  workspace: string,
+  intervalMs: number
+): NodeJS.Timeout {
+  const target = process.execPath;
+  return setInterval(() => {
+    void runUpdateTick(handle, state, workspace, target).catch((err) => {
+      process.stderr.write(`superiu-server: auto-update: unhandled tick error: ${describeError(err)}\n`);
+    });
+  }, intervalMs);
+}
+
+async function commandUpdate(parsed: ParsedArgs): Promise<number> {
+  const assetName = ARCH_ASSETS[process.arch];
+  if (!assetName) {
+    process.stderr.write(`superiu-server: unsupported architecture '${process.arch}' (supported: x64, arm64)\n`);
+    return 1;
+  }
+
+  const current = resolveVersion();
+  const base = (parsed.releaseBase ?? process.env.SUPERIU_RELEASE_BASE ?? DEFAULT_RELEASE_BASE).replace(/\/+$/, '');
+  const pinned = parsed.version?.replace(/^v/i, '') || undefined;
+
+  // Resolve the version to compare against. A pinned `--version` is taken at
+  // face value (it names the tag to fetch); otherwise the API decides.
+  let latest: string;
+  try {
+    latest = pinned ?? (await fetchLatestVersion(assetName)) ?? '';
+  } catch (err) {
+    process.stderr.write(`superiu-server: could not determine the latest version: ${describeError(err)}\n`);
+    return 1;
+  }
+
+  // An unparseable tag (the rolling `latest`, a nightly) must never look like an
+  // update — `semverGt` already refuses to compare it, but `--force` may still
+  // deliberately fetch it.
+  const hasUpdate = parsed.force || semverGt(latest, current);
+
+  if (parsed.check) {
+    printJson({ current, latest, hasUpdate });
+    return 0;
+  }
+
+  if (!hasUpdate) {
+    printJson({ updated: false, current, latest, restarted: false });
+    return 0;
+  }
+
+  // Where the new binary goes. Defaulting to `process.execPath` is only safe
+  // when that IS the daemon binary; under `node dist/daemon.js` it would
+  // overwrite the node executable.
+  const execName = path.basename(process.execPath);
+  const target = parsed.target ?? (execName === 'superiu-server' ? process.execPath : undefined);
+  if (!target) {
+    process.stderr.write(
+      `superiu-server: refusing to update: the running binary is '${execName}', not 'superiu-server'.\n` +
+        'Run the installed binary, pass --target <path>, or use scripts/install.sh.\n'
+    );
+    printJson({ updated: false, current, latest, restarted: false });
+    return 1;
+  }
+
+  // Pin switches the base from `.../releases/latest/download` to the tag's
+  // `.../releases/download/v<version>`, matching the GitHub Releases layout.
+  const effectiveBase = pinned ? `${base.replace(/\/latest\/download$/, '/download')}/v${pinned}` : base;
+  const url = `${effectiveBase}/${assetName}`;
+
+  // Same directory as the target so the final rename is atomic on one
+  // filesystem; a partial download can then never clobber a working binary.
+  // `installed` is set only after the swap, to the version the new binary
+  // itself reports — the printed `latest` is always the truth on disk.
+  let installed: string | undefined;
+  const tmp = path.join(path.dirname(target), `.${path.basename(target)}.update.${process.pid}`);
+  try {
+    process.stderr.write(`superiu-server: downloading ${url}\n`);
+    await downloadTo(url, tmp);
+    fs.chmodSync(tmp, 0o755);
+
+    // The release pipeline's own version claims (tag name, asset name) are not
+    // evidence: a stale bake ships a binary that keeps self-reporting the old
+    // version and would upgrade forever. The downloaded binary's `version`
+    // output is the only durable value, so it decides whether to swap.
+    const binaryVersion = probeBinaryVersion(tmp);
+    if (!binaryVersion) {
+      throw new Error('the downloaded binary did not report a parseable version; refusing to install');
+    }
+    if (!parsed.force && !semverGt(binaryVersion, current)) {
+      throw new Error(
+        `the release advertises ${latest} but the downloaded binary reports ${binaryVersion}; refusing to install`
+      );
+    }
+
+    fs.renameSync(tmp, target);
+    installed = binaryVersion;
+  } catch (err) {
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      // Best effort cleanup; the download failure below is what matters.
+    }
+    process.stderr.write(`superiu-server: update failed: ${describeError(err)}\n`);
+    printJson({ updated: false, current, latest, restarted: false });
+    return 1;
+  }
+
+  // Restart whatever was running, so the upgrade actually takes effect. The
+  // workspace is probed rather than assumed: the desktop app starts its daemon
+  // in `$HOME/.superiu/workspace`, so an update run from anywhere else must find
+  // that daemon instead of silently swapping the binary of a process that keeps
+  // running from the deleted inode. The reported `workspace` reflects the same
+  // resolution, so the caller sees which daemon was touched.
+  let restarted = false;
+  const workspace = resolveLiveWorkspace(parsed.workspace);
+  const state = readState(workspace);
+  if (state && isAlive(state.pid)) {
+    await terminateAndWait(state.pid);
+    removeState(workspace);
+    try {
+      restartDaemon(target, state);
+      restarted = true;
+    } catch (err) {
+      process.stderr.write(`superiu-server: updated, but restart failed: ${describeError(err)}\n`);
+    }
+  }
+
+  printJson({ updated: true, current, latest: installed ?? latest, restarted });
+  return 0;
+}
+
+// ---------------------------------------------------------------------------
 // Entry
 // ---------------------------------------------------------------------------
 
@@ -571,6 +1671,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
         return;
       case 'stop':
         process.exitCode = await commandStop(parsed);
+        return;
+      case 'update':
+        process.exitCode = await commandUpdate(parsed);
         return;
       case 'token':
         process.exitCode = commandToken();

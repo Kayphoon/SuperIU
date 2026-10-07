@@ -184,6 +184,16 @@ export class GatewayServer {
   private closed = false;
 
   /**
+   * Set while the host is draining for a self-update: every new prompt is
+   * refused so an in-flight turn can finish and nothing new starts. Read and
+   * written by the host through {@link isIdle}; the gateway only enforces it.
+   */
+  private draining = false;
+
+  /** Prompt turns currently running. The gateway is idle at zero. */
+  private activeTurns = 0;
+
+  /**
    * Track the session a socket has registered against. A connection is bound to
    * exactly one session id it names in its prompts; the ack contains the runner's
    * current session id so the client knows what it is observing.
@@ -220,6 +230,19 @@ export class GatewayServer {
   // -------------------------------------------------------------------------
   // Lifecycle
   // -------------------------------------------------------------------------
+
+  /**
+   * Whether the gateway is idle: no prompt turn is currently running. The host
+   * gates a self-update on this, so an upgrade never interrupts a live turn.
+   */
+  isIdle(): boolean {
+    return this.activeTurns === 0;
+  }
+
+  /** Stop accepting new prompt turns; in-flight turns are left to finish. */
+  setDraining(draining: boolean): void {
+    this.draining = draining;
+  }
 
   /** Bind to an existing HTTP server, upgrading requests on {@link path}. */
   attach(server: http.Server): void {
@@ -557,6 +580,15 @@ export class GatewayServer {
     client: ConnectedClient,
     message: { sessionId: string; prompt: string; model?: string; requestId?: string }
   ): void {
+    // Draining for a self-update: refuse the turn outright so nothing new
+    // starts while the process is being replaced.
+    if (this.draining) {
+      this.send(
+        ws,
+        this.ack(false, 'Gateway is updating, please retry shortly.', message.requestId)
+      );
+      return;
+    }
     if (!this.runner) {
       this.send(ws, this.ack(false, 'No agent runner is attached to the gateway.', message.requestId));
       return;
@@ -572,6 +604,7 @@ export class GatewayServer {
 
     this.send(ws, { type: 'server.ack', ok: true, sessionId, requestId: message.requestId });
 
+    this.activeTurns += 1;
     const callbacks = this.runnerCallbacks(sessionId);
     void this.runner
       .run(prompt, callbacks, message.model ? { model: message.model } : {})
@@ -584,6 +617,9 @@ export class GatewayServer {
           timestamp: Date.now(),
           message: err instanceof Error ? err.message : String(err)
         } as Omit<StreamEvent, 'seqId'>);
+      })
+      .finally(() => {
+        this.activeTurns -= 1;
       });
   }
 

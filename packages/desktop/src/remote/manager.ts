@@ -59,6 +59,14 @@ export interface RemoteConnectOptions {
   token?: string;
   /** Local port to forward from; an ephemeral port is chosen when omitted. */
   localPort?: number;
+  /**
+   * Idle auto-update, tri-state: `true`/`false` is an explicit choice that
+   * restarts a running daemon when it disagrees, `undefined` expresses no
+   * preference and adopts whatever the daemon already persisted.
+   */
+  autoUpdateIdle?: boolean;
+  /** Hours between idle auto-update checks; only emitted when the feature is on and the value is `> 0`. */
+  autoUpdateIntervalHours?: number;
   /** Progress callback for the UI. */
   onProgress?: (step: RemoteStep) => void;
   /** Shows a native approval prompt for dangerous commands. */
@@ -186,6 +194,7 @@ export class RemoteConnectionManager {
         await this.bootstrapper.install(alias, probe.arch, {
           releaseBase: options.releaseBase,
           version: options.version,
+          workspace,
         });
       } catch (err) {
         this.progress(onProgress, {
@@ -236,7 +245,7 @@ export class RemoteConnectionManager {
     this.progress(onProgress, { id: 'start', status: 'active' });
     let daemon: RemoteDaemonState;
     try {
-      daemon = await this.ensureDaemon(alias, workspace, token, options.version);
+      daemon = await this.ensureDaemon(alias, workspace, token, options);
     } catch (err) {
       this.progress(onProgress, { id: 'start', status: 'failed', detail: messageOf(err) });
       throw new RemoteConnectionError('start', `Failed to start daemon: ${messageOf(err)}`, err);
@@ -301,35 +310,67 @@ export class RemoteConnectionManager {
    *
    * When the remote `server.json` reports a live daemon we adopt its port and
    * token instead of starting a second instance (which would fight over the
-   * port and invalidate the running token).
+   * port and invalidate the running token). The one exception is a change to
+   * `autoUpdateIdle`: the flag is only read at boot, so adopting would silently
+   * ignore the user's choice — the daemon is stopped and restarted with the new
+   * flags instead. Identical values never restart, and a caller that expresses
+   * no preference (`undefined`) always adopts.
+   *
+   * A graceful `stop` deletes `server.json`, so the restart captures the running
+   * daemon's port and token BEFORE stopping and replays them: the tunnel's fixed
+   * remote port stays valid and already-paired clients keep working.
    */
   private async ensureDaemon(
     alias: string,
     workspace: string,
     token: string,
-    _version: string | undefined,
+    options: RemoteConnectOptions,
   ): Promise<RemoteDaemonState> {
+    let startPort = pickDaemonPort();
+    let startToken = token;
+
     const status = await this.bootstrapper.status(alias, workspace);
     if (status.running && status.port) {
       const existing = await this.bootstrapper.readServerState(alias, workspace);
-      if (existing) {
-        return {
-          ...existing,
-          running: true,
-          port: existing.port ?? status.port,
-          gatewayUrl: `ws://127.0.0.1:${existing.port ?? status.port}/ws`,
-        };
+      const running: RemoteDaemonState = existing
+        ? {
+            ...existing,
+            running: true,
+            port: existing.port ?? status.port,
+            gatewayUrl: `ws://127.0.0.1:${existing.port ?? status.port}/ws`,
+          }
+        : {
+            ...status,
+            gatewayUrl: `ws://127.0.0.1:${status.port}/ws`,
+          };
+
+      const requested = options.autoUpdateIdle;
+      // `undefined` means the caller expressed no preference (the field was
+      // never supplied), so the running daemon is adopted untouched. Only an
+      // explicit value that disagrees triggers a restart.
+      if (requested === undefined || (running.autoUpdateIdle === true) === requested) {
+        return running;
       }
-      return {
-        ...status,
-        gatewayUrl: `ws://127.0.0.1:${status.port}/ws`,
-      };
+
+      // The setting changed: stop the running daemon, then start a fresh one
+      // with the requested flags. The daemon's own persisted token is preferred
+      // over the supplied one — the same precedence the adopt path and the
+      // gateway client use, and the same reason `restartDaemonDetached` replays
+      // `state.token` on a self-update respawn: minting a fresh gateway token
+      // would invalidate every already-paired client. `status.port` is narrowed
+      // to a number here, and when no state file exists there is no token to
+      // preserve, so the supplied one stands.
+      startPort = existing?.port ?? status.port;
+      startToken = existing?.token ?? token;
+      await this.bootstrapper.stop(alias, workspace);
     }
 
     return this.bootstrapper.start(alias, {
-      port: pickDaemonPort(),
-      token,
+      port: startPort,
+      token: startToken,
       workspace,
+      autoUpdateIdle: options.autoUpdateIdle,
+      autoUpdateIntervalHours: options.autoUpdateIntervalHours,
     });
   }
 

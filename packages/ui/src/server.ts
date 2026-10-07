@@ -67,6 +67,8 @@ export interface StartServerOptions {
    * open development mode.
    */
   gatewayToken?: string;
+  /** Build version to report via `/api/status`. Absent in a plain `tsc` dev run. */
+  version?: string;
 }
 
 export interface ServerHandle {
@@ -94,6 +96,10 @@ export interface ServerHandle {
   gateway?: GatewayServer;
   /** WebSocket URL clients should connect to, when a gateway was booted. */
   gatewayUrl?: string;
+  /** True when no turn is running and none is waiting on a human approval. */
+  isIdle(): boolean;
+  /** Stop accepting new turns so an in-flight turn can finish before a self-update. */
+  setDraining(draining: boolean): void;
   /** Idempotent: resolves pending approvals, closes the HTTP server and the agent runner. */
   close(): Promise<void>;
 }
@@ -842,10 +848,21 @@ let approvalSink: ((payload: unknown) => void) | null = null;
 /** Installed by startServer so `POST /api/shutdown` can close the live instance. */
 let shutdownHook: (() => void) | null = null;
 
+/**
+ * Set while the daemon is draining for a self-update: new turns are refused so
+ * an in-flight one can finish. Owned by {@link ServerHandle.setDraining}.
+ */
+let draining = false;
+
+/** The live gateway, when one was booted, so the handle can reach its drain state. */
+let gatewayRef: GatewayServer | undefined;
+
 // Created by startServer: importing this module must have no side effects.
 let settings: UiSettings = loadSettings();
 let runner: AgentRunner = null as unknown as AgentRunner;
 let memoryDir = '';
+/** Build version reported by `buildStatus`; set by startServer from `options.version`. */
+let serverVersion = '0.0.0';
 
 /**
  * Whether the user has told us this model takes `reasoning_effort`.
@@ -980,6 +997,7 @@ function buildStatus() {
     contextPercent: contextUsage.percent,
     reasoningEffort: runner.getModelRoutes().main.reasoningEffort ?? '',
     memoryDir,
+    version: serverVersion,
     workstation: runner.getWorkstation(),
     emotion: runner.emotion,
     posture: describePosture(runner.emotion)
@@ -1759,6 +1777,11 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
   // Per-turn pin: overrides the main route for this turn only, never persisted.
   const turnModel = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : undefined;
 
+  if (draining) {
+    sendError(res, 503, 'Server is updating, please retry shortly.');
+    return;
+  }
+
   if (runner.status !== 'idle') {
     sendError(res, 409, 'Agent is busy. Abort or wait for the current turn.');
     return;
@@ -1981,6 +2004,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
 
   settings = loadSettings();
   memoryDir = await resolveMemoryDir();
+  serverVersion = options.version ?? '0.0.0';
   runner = new AgentRunner(runnerOptions());
 
   const server = http.createServer((req, res) => {
@@ -2026,11 +2050,13 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
       server,
       path: options.gatewayPath ?? '/ws',
       token: options.gatewayToken,
+      serverVersion: options.version,
       // The runner is reached through the narrow `GatewayRunner` surface: the
       // gateway only needs to run a turn, abort one, and report the current
       // session, never the whole core class.
       runner: runner as unknown as GatewayRunner
     });
+    gatewayRef = gateway;
   }
 
   if (!options.quiet) {
@@ -2085,6 +2111,15 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
     theme: settings.theme,
     gateway,
     gatewayUrl: gateway ? `ws://${host}:${listening}${gateway.path}` : undefined,
+    // `runner.status` is the core's authoritative in-flight signal and already
+    // gates `handleChat`; the gateway adds its own in-flight count for turns
+    // started over the WebSocket, and `pendingApprovals` covers a turn parked
+    // on a human.
+    isIdle: () => runner.status === 'idle' && pendingApprovals.size === 0 && (!gatewayRef || gatewayRef.isIdle()),
+    setDraining: (value: boolean) => {
+      draining = value;
+      gatewayRef?.setDraining(value);
+    },
     close
   };
 }
