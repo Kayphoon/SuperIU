@@ -30,11 +30,23 @@ export const INVOKE = {
   completeOnboarding: 'superiu:complete-onboarding',
   checkForUpdate: 'superiu:check-for-update',
   installUpdate: 'superiu:install-update',
-  getUpdateState: 'superiu:get-update-state'
+  getUpdateState: 'superiu:get-update-state',
+  getConnectionInfo: 'superiu:get-connection-info',
+  disconnectRemote: 'superiu:disconnect-remote'
 } as const;
 
 export const REMOTE_PROGRESS_CHANNEL = 'superiu:remote-progress';
 export const UPDATE_STATE_CHANNEL = 'superiu:update-state';
+export const CONNECTION_STATE_CHANNEL = 'superiu:connection-state';
+
+export interface ConnectionInfoPayload {
+  mode: 'local' | 'remote' | 'gateway';
+  alias?: string;
+  remoteWorkspace?: string;
+  localPort?: number;
+  state: 'idle' | 'connected' | 'connecting' | 'reconnecting' | 'closed';
+  rttMs?: number;
+}
 
 /**
  * Menu actions the main process forwards to the renderer. The SPA also handles
@@ -120,4 +132,7 @@ export interface SuperiuDesktopBridge {
   installUpdate?(): Promise<void>;
   getUpdateState?(): Promise<UpdatePayload>;
   onUpdateState?(callback: (state: UpdatePayload) => void): () => void;
+  getConnectionInfo?(): Promise<ConnectionInfoPayload>;
+  onConnectionStateChange?(callback: (info: ConnectionInfoPayload) => void): () => void;
+  disconnectRemote?(): Promise<void>;
 }

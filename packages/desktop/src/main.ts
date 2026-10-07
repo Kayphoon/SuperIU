@@ -31,6 +31,8 @@ import {
   THEME_CHANNEL,
   REMOTE_PROGRESS_CHANNEL,
   UPDATE_STATE_CHANNEL,
+  CONNECTION_STATE_CHANNEL,
+  type ConnectionInfoPayload,
   type NotificationPayload,
   type ThemePayload
 } from './ipc.js';
@@ -110,6 +112,41 @@ let spaNavStartedAt: number | null = null;
 let remoteRendererRevivals = 0;
 /** Windows already carrying the SPA recovery listeners (mainWindow is reused). */
 const spaRecoveryAttached = new WeakSet<BrowserWindow>();
+
+function getConnectionInfo(): ConnectionInfoPayload {
+  if (remoteManager && activeRemoteUrl) {
+    const config = resolveGatewayConfig(resolveWorkspace());
+    const client = remoteManager.gatewayClient;
+    let localPort: number | undefined;
+    try {
+      localPort = Number(new URL(activeRemoteUrl).port) || undefined;
+    } catch {}
+    return {
+      mode: 'remote',
+      alias: config.remote?.alias,
+      remoteWorkspace: config.remote?.workspace,
+      localPort,
+      state: client?.connectionState ?? 'connected',
+      rttMs: client?.rttMs
+    };
+  }
+  if (gatewayClient) {
+    return {
+      mode: 'gateway',
+      state: gatewayClient.connectionState,
+      rttMs: gatewayClient.rttMs
+    };
+  }
+  return {
+    mode: 'local',
+    state: 'connected'
+  };
+}
+
+function broadcastConnectionInfo(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  mainWindow.webContents.send(CONNECTION_STATE_CHANNEL, getConnectionInfo());
+}
 let shuttingDown = false;
 
 // ---------------------------------------------------------------------------
@@ -876,6 +913,9 @@ async function startRemoteMode(config: GatewayConfig, opts: RemoteModeOptions = 
         // Events belong to the gateway console; this process has no local SPA in
         // remote mode, so they are surfaced for diagnostics only.
         console.log(`[superiu] remote event ${event.type} (session ${event.sessionId})`);
+      },
+      onStateChange: (state, rttMs) => {
+        broadcastConnectionInfo();
       }
     });
 
@@ -1019,6 +1059,16 @@ function installIpcHandlers(): void {
       return [];
     }
   });
+  ipcMain.handle(INVOKE.getConnectionInfo, () => {
+    return getConnectionInfo();
+  });
+  ipcMain.handle(INVOKE.disconnectRemote, async () => {
+    await closeRemote();
+    broadcastConnectionInfo();
+    const config = resolveGatewayConfig(resolveWorkspace());
+    showGatewayStatus(config, 'idle');
+  });
+
 
   ipcMain.handle(
     INVOKE.connectRemote,

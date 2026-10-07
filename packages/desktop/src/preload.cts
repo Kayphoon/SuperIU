@@ -25,7 +25,8 @@ import type {
   NotificationPayload,
   SuperiuDesktopBridge,
   ThemePayload,
-  UpdatePayload
+  UpdatePayload,
+  ConnectionInfoPayload
 } from './ipc.js';
 
 // Compile-time drift guards: each annotation pins the literal to the exact type
@@ -46,6 +47,12 @@ const COMPLETE_ONBOARDING: typeof import('./ipc.js').INVOKE.completeOnboarding =
 const CHECK_FOR_UPDATE: typeof import('./ipc.js').INVOKE.checkForUpdate = 'superiu:check-for-update';
 const INSTALL_UPDATE: typeof import('./ipc.js').INVOKE.installUpdate = 'superiu:install-update';
 const GET_UPDATE_STATE: typeof import('./ipc.js').INVOKE.getUpdateState = 'superiu:get-update-state';
+const GET_CONNECTION_INFO: typeof import('./ipc.js').INVOKE.getConnectionInfo =
+  'superiu:get-connection-info';
+const DISCONNECT_REMOTE: typeof import('./ipc.js').INVOKE.disconnectRemote =
+  'superiu:disconnect-remote';
+const CONNECTION_STATE_CHANNEL: typeof import('./ipc.js').CONNECTION_STATE_CHANNEL =
+  'superiu:connection-state';
 const REMOTE_PROGRESS_CHANNEL: typeof import('./ipc.js').REMOTE_PROGRESS_CHANNEL = 'superiu:remote-progress';
 const UPDATE_STATE_CHANNEL: typeof import('./ipc.js').UPDATE_STATE_CHANNEL = 'superiu:update-state';
 
@@ -147,6 +154,26 @@ const bridge: SuperiuDesktopBridge = {
     return (): void => {
       ipcRenderer.off(UPDATE_STATE_CHANNEL, listener);
     };
+  },
+
+  getConnectionInfo(): Promise<ConnectionInfoPayload> {
+    return ipcRenderer.invoke(GET_CONNECTION_INFO);
+  },
+
+  onConnectionStateChange(callback: (info: ConnectionInfoPayload) => void): () => void {
+    void ipcRenderer.invoke(GET_CONNECTION_INFO).then((info: ConnectionInfoPayload) => {
+      if (info) callback(info);
+    }).catch(() => {});
+
+    const listener = (_event: unknown, info: ConnectionInfoPayload): void => callback(info);
+    ipcRenderer.on(CONNECTION_STATE_CHANNEL, listener);
+    return (): void => {
+      ipcRenderer.off(CONNECTION_STATE_CHANNEL, listener);
+    };
+  },
+
+  disconnectRemote(): Promise<void> {
+    return ipcRenderer.invoke(DISCONNECT_REMOTE);
   }
 };
 

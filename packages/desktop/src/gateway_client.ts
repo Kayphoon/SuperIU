@@ -24,6 +24,7 @@ import WebSocket from 'ws';
 import {
   isClientRegisterMessage,
   isPingMessage,
+  isPongMessage,
   isRpcRequest,
   isServerRegisterAckMessage,
   JSON_RPC_VERSION,
@@ -65,7 +66,7 @@ export interface GatewayClientOptions {
   /** Receives stream events and catch-up replays from the gateway. */
   onEvent?: (event: StreamEvent) => void;
   /** Observes connection state transitions (logging / UI). */
-  onStateChange?: (state: GatewayClientState) => void;
+  onStateChange?: (state: GatewayClientState, rttMs?: number) => void;
 }
 
 /** Connection lifecycle state exposed for logging and UI. */
@@ -108,7 +109,9 @@ export class GatewayClient {
   private state: GatewayClientState = 'idle';
   private reconnectAttempts = 0;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-
+  private pingTimer: ReturnType<typeof setInterval> | null = null;
+  private lastRttMs?: number;
+  private inFlightPingSentAt: number | null = null;
   /** Session assigned by the gateway on a successful register ack. */
   private session: ActiveSession | null = null;
   /** Set while the client intends to stay connected (false after `close`). */
@@ -135,6 +138,10 @@ export class GatewayClient {
   get sessionId(): string | null {
     return this.session?.sessionId ?? null;
   }
+  /** Most recent round-trip latency measured via ping/pong. */
+  get rttMs(): number | undefined {
+    return this.lastRttMs;
+  }
 
   // -------------------------------------------------------------------------
   // Lifecycle
@@ -150,6 +157,7 @@ export class GatewayClient {
   close(code = 1000, reason = 'client shutting down'): void {
     this.shouldReconnect = false;
     this.clearReconnectTimer();
+    this.clearPingTimer();
     this.setState('closed');
     if (this.socket) {
       try {
@@ -201,10 +209,12 @@ export class GatewayClient {
       token: this.token,
     };
     this.send(register);
+    this.startPingTimer();
   }
 
   private onClose(): void {
     this.socket = null;
+    this.clearPingTimer();
     if (!this.shouldReconnect) {
       this.setState('closed');
       return;
@@ -229,11 +239,30 @@ export class GatewayClient {
       this.reconnectTimer = null;
     }
   }
+  private startPingTimer(): void {
+    this.clearPingTimer();
+    this.sendPing();
+    this.pingTimer = setInterval(() => this.sendPing(), 4_000);
+  }
+
+  private clearPingTimer(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+    this.inFlightPingSentAt = null;
+  }
+
+  private sendPing(): void {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return;
+    this.inFlightPingSentAt = Date.now();
+    this.send({ type: 'ping', timestamp: this.inFlightPingSentAt });
+  }
 
   private setState(state: GatewayClientState): void {
     if (this.state === state) return;
     this.state = state;
-    this.opts.onStateChange?.(state);
+    this.opts.onStateChange?.(state, this.lastRttMs);
   }
 
   // -------------------------------------------------------------------------
@@ -259,6 +288,15 @@ export class GatewayClient {
       return;
     }
 
+    if (isPongMessage(parsed)) {
+      if (this.inFlightPingSentAt) {
+        const rtt = Math.max(0, Date.now() - this.inFlightPingSentAt);
+        this.lastRttMs = rtt;
+        this.inFlightPingSentAt = null;
+        this.opts.onStateChange?.(this.state, rtt);
+      }
+      return;
+    }
     if (isServerRegisterAckMessage(parsed)) {
       this.handleRegisterAck(parsed);
       return;

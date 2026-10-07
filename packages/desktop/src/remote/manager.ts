@@ -65,6 +65,8 @@ export interface RemoteConnectOptions {
   onApprovalRequired?: GatewayClientOptions['onApprovalRequired'];
   /** Receives stream events from the gateway. */
   onEvent?: GatewayClientOptions['onEvent'];
+  /** Observes gateway connection state and RTT changes. */
+  onStateChange?: GatewayClientOptions['onStateChange'];
 }
 
 /** Result of a successful {@link RemoteConnectionManager.connect}. */
@@ -280,6 +282,7 @@ export class RemoteConnectionManager {
       token: daemon.token ?? token,
       onApprovalRequired: options.onApprovalRequired,
       onEvent: options.onEvent,
+      onStateChange: options.onStateChange,
     });
     try {
       client.connect();

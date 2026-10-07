@@ -3602,6 +3602,11 @@
           <div class="siu-titlebar-center">
             <span class="text-[12.5px] font-medium text-primary">SuperIU</span>
             <span class="siu-divider"></span>
+            <div id="connection-badge" class="inline-flex items-center gap-1.5 min-w-0" hidden>
+              <span id="connection-dot" class="siu-status-dot"></span>
+              <span id="connection-label" class="font-mono text-[11px] text-muted"></span>
+              <span class="siu-divider"></span>
+            </div>
             <span id="title-status" class="font-mono text-[11px] text-muted" data-i18n="status.idle">空闲</span>
           </div>
 
@@ -4213,6 +4218,34 @@
             <div class="siu-prefs-pane-body">
               <div id="remote-desktop-warning" class="siu-banner siu-banner-info" hidden>
                 <p data-i18n="settings.remote.desktopOnly"></p>
+              </div>
+              <!-- Connected host status card -->
+              <div id="remote-connected-card" class="siu-banner siu-banner-info flex flex-col gap-3" hidden>
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <span id="remote-connected-dot" class="siu-status-dot" data-status="completed"></span>
+                    <strong class="text-[13px]" data-i18n="settings.remote.connectedBadge">当前已连接</strong>
+                  </div>
+                  <span id="remote-connected-latency" class="font-mono text-[11px] text-muted"></span>
+                </div>
+                <p class="text-[12px] text-muted leading-relaxed" data-i18n="settings.remote.connectedDesc">当前会话正通过 SSH 隧道在此远程 VPS 上执行。</p>
+                <div class="grid grid-cols-2 gap-2 text-[12px] pt-1 border-t border-line font-mono">
+                  <div>
+                    <span class="text-muted" data-i18n="settings.remote.currentHost">当前主机</span>:
+                    <strong id="remote-connected-alias" class="text-primary ml-1"></strong>
+                  </div>
+                  <div>
+                    <span class="text-muted" data-i18n="settings.remote.currentPort">本地转发端口</span>:
+                    <span id="remote-connected-port" class="ml-1"></span>
+                  </div>
+                  <div class="col-span-2 truncate">
+                    <span class="text-muted" data-i18n="settings.remote.currentWorkspace">远程工作目录</span>:
+                    <span id="remote-connected-workspace" class="ml-1"></span>
+                  </div>
+                </div>
+                <div class="flex justify-end pt-2 border-t border-line">
+                  <button id="btn-remote-switch" type="button" class="siu-btn text-[12px]" data-i18n="settings.remote.switchHost">断开并切换主机</button>
+                </div>
               </div>
 
               <div id="remote-form-wrap" class="flex flex-col gap-4">
@@ -7465,18 +7498,73 @@
         lastAutoRemoteWorkspace = d;
       }
 
+      let activeConnectionInfo = null;
+
+      function updateConnectionUI(info) {
+        activeConnectionInfo = info;
+        const badge = $('connection-badge');
+        const dot = $('connection-dot');
+        const label = $('connection-label');
+        if (!badge || !dot || !label) return;
+
+        if (!info || !window.superiuDesktop) {
+          badge.hidden = true;
+          return;
+        }
+
+        badge.hidden = false;
+        if (info.mode === 'local') {
+          dot.dataset.status = 'idle';
+          label.textContent = tr('connection.local');
+        } else if (info.mode === 'remote') {
+          const alias = info.alias || tr('connection.remote');
+          if (info.state === 'reconnecting') {
+            dot.dataset.status = 'tool_calling';
+            label.textContent = `${alias} · ${tr('connection.reconnecting')}`;
+          } else if (info.state === 'connected') {
+            dot.dataset.status = 'completed';
+            const latency = typeof info.rttMs === 'number' ? ` · ${info.rttMs}ms` : '';
+            label.textContent = `${alias}${latency}`;
+          } else {
+            dot.dataset.status = 'error';
+            label.textContent = `${alias} · ${tr('connection.closed')}`;
+          }
+        } else {
+          badge.hidden = true;
+        }
+
+        renderRemotePane();
+      }
+
       function renderRemotePane() {
         const isDesktop = Boolean(window.superiuDesktop?.connectRemote);
         const warning = $('remote-desktop-warning');
+        const card = $('remote-connected-card');
         const formWrap = $('remote-form-wrap');
         const pipelineWrap = $('remote-pipeline-wrap');
         if (!isDesktop) {
           if (warning) warning.hidden = false;
+          if (card) card.hidden = true;
           if (formWrap) formWrap.hidden = true;
           if (pipelineWrap) pipelineWrap.hidden = true;
           return;
         }
         if (warning) warning.hidden = true;
+
+        if (activeConnectionInfo && activeConnectionInfo.mode === 'remote' && activeConnectionInfo.state === 'connected') {
+          if (card) {
+            card.hidden = false;
+            $('remote-connected-alias').textContent = activeConnectionInfo.alias || '—';
+            $('remote-connected-port').textContent = activeConnectionInfo.localPort ? String(activeConnectionInfo.localPort) : '—';
+            $('remote-connected-workspace').textContent = activeConnectionInfo.remoteWorkspace || '—';
+            $('remote-connected-latency').textContent = typeof activeConnectionInfo.rttMs === 'number' ? `${activeConnectionInfo.rttMs}ms` : '—';
+          }
+          if (formWrap) formWrap.hidden = true;
+          if (pipelineWrap) pipelineWrap.hidden = true;
+          return;
+        }
+
+        if (card) card.hidden = true;
         if (!remoteConnecting && pipelineWrap?.hidden) {
           if (formWrap) formWrap.hidden = false;
         }
@@ -7758,6 +7846,33 @@
       $('btn-remote-finish')?.addEventListener('click', () => {
         closeModal('settings');
       });
+      $('btn-remote-switch')?.addEventListener('click', async () => {
+        if (window.superiuDesktop?.disconnectRemote) {
+          try {
+            await window.superiuDesktop.disconnectRemote();
+          } catch (e) {
+            console.error('Failed to disconnect remote:', e);
+          }
+        }
+        activeConnectionInfo = null;
+        const card = $('remote-connected-card');
+        const formWrap = $('remote-form-wrap');
+        if (card) card.hidden = true;
+        if (formWrap) formWrap.hidden = false;
+        applyRemoteWorkspaceDefault();
+        void loadRemoteSshHosts();
+      });
+
+      // Subscribe to live connection info from desktop shell
+      if (window.superiuDesktop?.onConnectionStateChange) {
+        window.superiuDesktop.onConnectionStateChange((info) => {
+          updateConnectionUI(info);
+        });
+      } else if (window.superiuDesktop?.getConnectionInfo) {
+        void window.superiuDesktop.getConnectionInfo().then((info) => {
+          if (info) updateConnectionUI(info);
+        }).catch(() => {});
+      }
 
       // =======================================================================
       // Command palette
