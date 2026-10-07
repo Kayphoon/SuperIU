@@ -8,6 +8,16 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 ### 中文
 
+- 暂无新变更；滚动 `latest` 渠道当前分发最近一个标签版本的内容。
+
+### English
+
+- No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
+
+## v0.2.17 (2026-10-08)
+
+### 中文
+
 - VPS 守护进程新增 `superiu-server update` 命令：`--check` 仅报告当前版本与最新版本，`--force` 强制升级，`--version <v>` 可指定版本；执行时会下载适配当前主机架构的最新 Linux 二进制，原子替换后重启守护进程。
 - `superiu-server status` 现在会输出 `workspace` 字段，安装脚本可在任意工作目录下定位守护进程（此前升级后始终无法重启）。
 - `/api/status` 与 WebSocket 注册应答现在携带真实的服务器构建版本。
