@@ -14,6 +14,18 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.14 (2026-10-07)
+
+### 中文
+
+- 优化 macOS 生产与本地开发应用隔离：本地开发构建 (`pnpm app:install`) 自动命名为 `SuperIU (Dev).app` 并分配独立 Bundle ID (`com.superiu.desktop.dev`)，与系统生产应用彻底分离；Dev 变体自动豁免生产更新检查。
+- 增强 macOS 脚本安装与更新 (`scripts/install-mac.sh`)：新增本地已安装版本与远端版本比对短路机制，已是最新版本时跳过 170MB 重复下载（支持 `FORCE=1` 强制重装）；安装前自动清理 `~/Applications` 下的旧版本冲突残留。
+
+### English
+
+- Isolate macOS production vs local development app bundles: local dev install (`pnpm app:install`) is now branded as `SuperIU (Dev).app` with bundle ID `com.superiu.desktop.dev` and exempt from production auto-updates, completely separating dev builds from `/Applications/SuperIU.app`.
+- Enhance macOS shell installer/updater (`scripts/install-mac.sh`): add local-vs-remote version comparison to skip downloading when already on the latest release (with `FORCE=1` override option); automatically purge conflicting legacy dev bundles from `~/Applications` before installing.
+
 ## v0.2.13 (2026-10-07)
 
 ### 中文
