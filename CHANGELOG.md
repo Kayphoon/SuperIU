@@ -14,6 +14,24 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.19 (2026-10-08)
+
+### 中文
+
+- 修复远程模式下连接状态徽标（标题栏 `● arm · 42ms`）始终不显示的问题：远程模式加载的是**守护进程自带的 SPA**，而非本地桌面包，因此一个早于徽标特性安装的 VPS 守护进程会一直提供旧版控制台。
+  - **根因**：`RemoteConnectionManager.connect()` 此前只在守护进程**未安装**、或调用方**显式钉住版本**时才安装/升级；没有任何东西钉住版本，所以已安装的守护进程永远不会升级（实测用户的 VPS 守护进程为 `0.1.0`，安装于两天前）。
+  - **修复**：连接时以桌面应用自身版本为「目标守护进程版本」（`daemonTargetVersion`）。已安装的守护进程**低于**该版本即升级；下载**钉住该精确版本**，因此升级后再次连接会判定相等、不再重复下载（收敛，不会陷入升级循环）。版本不可解析时视为未知、保持不动，不做盲目重下。
+  - **机会式升级**：staleness 升级可以失败（开发构建的版本没有对应 release 会 404），此时保留仍可用的旧守护进程并继续连接；只有「守护进程缺失」与「显式钉版本」这两种没有退路的情况才会让连接失败。
+- 从 `updater.ts` 抽出纯 semver 模块 `packages/desktop/src/semver.ts`（`parseVersion` / `semverGt`），使 `remote/manager.ts` 能在不引入 `electron` 的前提下比较版本；`updater.ts` 继续导出这两个符号，对外契约不变。
+
+### English
+
+- Fix the connection status badge (titlebar `● arm · 42ms`) never appearing in remote mode: remote mode loads the **daemon's own bundled SPA**, not the local desktop bundle, so a VPS daemon installed before the badge feature kept serving an old console.
+  - **Root cause**: `RemoteConnectionManager.connect()` only installed/upgraded the daemon when it was **absent** or the caller **explicitly pinned a version**. Nothing pinned one, so an already-installed daemon was never upgraded (measured: the user's VPS daemon was `0.1.0`, installed two days earlier).
+  - **Fix**: connect now targets the desktop app's own version (`daemonTargetVersion`). An installed daemon **older** than that is upgraded, with the download **pinned to that exact version**, so the next connect compares equal and does not re-download (convergence, not an upgrade loop). An unparseable installed version is treated as unknown and left alone rather than blindly re-downloaded.
+  - **Opportunistic upgrade**: a staleness upgrade may fail (a dev build's version has no release and 404s); the still-working old daemon is then kept and the connect continues. Only an absent daemon and an explicit pin — neither of which has a fallback — fail the connect.
+- Extract a pure semver module `packages/desktop/src/semver.ts` (`parseVersion` / `semverGt`) from `updater.ts` so `remote/manager.ts` can compare versions without pulling in `electron`; `updater.ts` still re-exports both symbols, so its public contract is unchanged.
+
 ## v0.2.18 (2026-10-08)
 
 ### 中文

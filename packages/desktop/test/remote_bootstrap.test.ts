@@ -162,3 +162,162 @@ describe('RemoteConnectionManager.ensureDaemon apply-on-change', () => {
     expect(commands.some((cmd) => cmd.includes('setsid nohup'))).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Staleness upgrade: an already-installed daemon must be upgraded when it is
+// older than the desktop app, because remote mode loads the SPA FROM the daemon
+// — a daemon older than the app serves a stale console (this is how a shipped
+// connection badge ended up invisible to a user whose VPS ran a months-old
+// binary). The upgrade is pinned to the target version so it converges instead
+// of re-downloading an older stable forever.
+// ---------------------------------------------------------------------------
+
+describe('RemoteConnectionManager daemon staleness upgrade', () => {
+  /**
+   * A recorder whose probe reports `installedVersion` until an install lands,
+   * after which it reports `installedVersion` = the version it was pinned to.
+   * That models the real convergence: the post-install probe sees the new
+   * binary, so a second connect must NOT install again.
+   */
+  function makeStatefulRecorder(installedVersion: string): {
+    runner: RemoteRunner;
+    commands: string[];
+  } {
+    const commands: string[] = [];
+    let current = installedVersion;
+    // Set by the download command, consumed by the install's verification step:
+    // that is the moment the new binary actually lands on the remote.
+    let pendingInstall: string | undefined;
+    const runner: RemoteRunner = async (_alias, cmd) => {
+      commands.push(cmd);
+      if (cmd.includes('printf "OS=')) {
+        return ok(
+          `OS=Linux\nARCH=x86_64\nHOME=/home/u\nINSTALLED=1\nVERSION={"version":"${current}"}\nRUNNING=1\n`,
+        );
+      }
+      if (cmd.includes('server.json')) return ok('');
+      // The install script contains its own `stop --workspace` prelude, so the
+      // download match MUST come first or the whole install is mistaken for a
+      // bare stop and never records the pinned version.
+      if (cmd.includes('curl -fsSL')) {
+        pendingInstall = cmd.match(/download\/v([0-9.]+)\//)?.[1];
+        return ok('');
+      }
+      if (cmd.includes(' stop --workspace')) return ok('{"stopped":true}\n');
+      if (cmd.includes('status --workspace')) return ok('{"running":true,"port":7345}\n');
+      // The install's own verification step: `${BIN} version`.
+      if (cmd.includes('/superiu-server version')) {
+        if (pendingInstall) {
+          current = pendingInstall;
+          pendingInstall = undefined;
+        }
+        return ok(`{"version":"${current}"}\n`);
+      }
+      return ok('');
+    };
+    return { runner, commands };
+  }
+
+  function managerFor(installedVersion: string) {
+    const { runner, commands } = makeStatefulRecorder(installedVersion);
+    const manager = new RemoteConnectionManager({
+      bootstrapper: new RemoteBootstrapper(runner),
+      tunnel: { open: async () => ({ localPort: 51234 }) } as never,
+      gatewayClientFactory: () => ({ connect() {}, close() {} }) as never,
+    });
+    return { manager, commands };
+  }
+
+  it('installs pinned to the target version when the installed daemon is older', async () => {
+    const { manager, commands } = managerFor('0.1.0');
+    await manager.connect({ alias: 'host', workspace: '/w', daemonTargetVersion: '0.2.18' });
+
+    const download = commands.find((cmd) => cmd.includes('curl -fsSL'));
+    expect(download, 'expected a download command').toBeDefined();
+    expect(download).toContain('/releases/download/v0.2.18/');
+  });
+
+  it('converges: a second connect with the same target does not install again', async () => {
+    const { manager, commands } = managerFor('0.1.0');
+    await manager.connect({ alias: 'host', workspace: '/w', daemonTargetVersion: '0.2.18' });
+    // The first connect MUST install, or "the second one does not" is vacuous.
+    expect(commands.some((cmd) => cmd.includes('curl -fsSL'))).toBe(true);
+    const afterFirst = commands.length;
+    await manager.connect({ alias: 'host', workspace: '/w', daemonTargetVersion: '0.2.18' });
+
+    expect(commands.slice(afterFirst).some((cmd) => cmd.includes('curl -fsSL'))).toBe(false);
+  });
+
+  it('leaves an equal or newer installed daemon untouched', async () => {
+    for (const installed of ['0.2.18', '0.2.19']) {
+      const { manager, commands } = managerFor(installed);
+      await manager.connect({ alias: 'host', workspace: '/w', daemonTargetVersion: '0.2.18' });
+      expect(commands.some((cmd) => cmd.includes('curl -fsSL'))).toBe(false);
+    }
+  });
+
+  it('does not install when the installed version is unparseable', async () => {
+    const { manager, commands } = managerFor('unknown-build');
+    await manager.connect({ alias: 'host', workspace: '/w', daemonTargetVersion: '0.2.18' });
+    expect(commands.some((cmd) => cmd.includes('curl -fsSL'))).toBe(false);
+  });
+
+  it('never upgrades without a target version, even when the daemon is ancient', async () => {
+    const { manager, commands } = managerFor('0.0.1');
+    await manager.connect({ alias: 'host', workspace: '/w' });
+    expect(commands.some((cmd) => cmd.includes('curl -fsSL'))).toBe(false);
+  });
+
+  it('keeps the working daemon and connects when the staleness download fails', async () => {
+    // A dev build's version has no release, so the pinned download 404s. The
+    // stale-but-working daemon must still be adopted rather than failing the
+    // whole connect. The install script is a single shell command, so a mock
+    // cannot prove `mv` did not run; the observable contract is that the
+    // connect succeeds and the install step reports the daemon was kept.
+    const steps: { id: string; status: string; detail?: string }[] = [];
+    const runner: RemoteRunner = async (_alias, cmd) => {
+      if (cmd.includes('printf "OS=')) {
+        return ok('OS=Linux\nARCH=x86_64\nHOME=/home/u\nINSTALLED=1\nVERSION={"version":"0.1.0"}\nRUNNING=1\n');
+      }
+      if (cmd.includes('server.json')) return ok('');
+      if (cmd.includes('curl -fsSL')) return { stdout: '', stderr: 'curl: (22) 404', exitCode: 22 };
+      if (cmd.includes('status --workspace')) return ok('{"running":true,"port":7345}\n');
+      return ok('');
+    };
+    const manager = new RemoteConnectionManager({
+      bootstrapper: new RemoteBootstrapper(runner),
+      tunnel: { open: async () => ({ localPort: 51234 }) } as never,
+      gatewayClientFactory: () => ({ connect() {}, close() {} }) as never,
+    });
+
+    const result = await manager.connect({
+      alias: 'host',
+      workspace: '/w',
+      daemonTargetVersion: '0.2.18',
+      onProgress: (step) => steps.push(step),
+    });
+    expect(result.tunnelPort).toBe(51234);
+    const install = steps.filter((s) => s.id === 'install');
+    expect(install.at(-1)?.status).toBe('done');
+    expect(install.at(-1)?.detail).toMatch(/kept/);
+  });
+
+  it('still fails the connect when no daemon is installed and the install fails', async () => {
+    const runner: RemoteRunner = async (_alias, cmd) => {
+      if (cmd.includes('printf "OS=')) {
+        return ok('OS=Linux\nARCH=x86_64\nHOME=/home/u\nINSTALLED=0\nRUNNING=0\n');
+      }
+      if (cmd.includes('curl -fsSL')) return { stdout: '', stderr: 'boom', exitCode: 1 };
+      return ok('');
+    };
+    const manager = new RemoteConnectionManager({
+      bootstrapper: new RemoteBootstrapper(runner),
+      tunnel: { open: async () => ({ localPort: 51234 }) } as never,
+      gatewayClientFactory: () => ({ connect() {}, close() {} }) as never,
+    });
+
+    await expect(
+      manager.connect({ alias: 'host', workspace: '/w', daemonTargetVersion: '0.2.18' }),
+    ).rejects.toThrow(/Install failed/);
+  });
+});

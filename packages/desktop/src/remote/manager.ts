@@ -15,6 +15,7 @@
 import { randomBytes } from 'node:crypto';
 
 import { GatewayClient, type GatewayClientOptions } from '../gateway_client.js';
+import { parseVersion, semverGt } from '../semver.js';
 import {
   RemoteBootstrapper,
   type RemoteDaemonState,
@@ -55,6 +56,13 @@ export interface RemoteConnectOptions {
   releaseBase?: string;
   /** Pins a specific daemon version. */
   version?: string;
+  /**
+   * Version the daemon is expected to run (normally the desktop app's own).
+   * An already-installed daemon older than this is upgraded on connect; without
+   * it an installed daemon is left untouched, so one predating a feature (or the
+   * SPA it serves) would run forever.
+   */
+  daemonTargetVersion?: string;
   /** Pre-generated pairing token; a fresh one is created when omitted. */
   token?: string;
   /** Local port to forward from; an ephemeral port is chosen when omitted. */
@@ -186,25 +194,63 @@ export class RemoteConnectionManager {
     });
 
     // 2. Install / upgrade -----------------------------------------------------
+    // An absent daemon is always installed. An installed one is left alone
+    // unless the caller pins a version (exact match) or names the version it
+    // should be running (`daemonTargetVersion`, normally the desktop app's own)
+    // and the installed one is older. Without that second rule an installed
+    // daemon is never upgraded, so one predating a feature — or the SPA it
+    // serves, which remote mode loads instead of the local bundle — keeps
+    // running indefinitely.
+    const installedVersion = probe.version;
+    const staleByTarget =
+      options.daemonTargetVersion !== undefined &&
+      probe.installed &&
+      semverGt(options.daemonTargetVersion, installedVersion) &&
+      // Only a parseable installed version is comparable; an unparseable one is
+      // treated as unknown and left alone rather than triggering a blind
+      // re-download on every connect.
+      parseVersion(installedVersion) !== null;
     const needsInstall =
-      !probe.installed || (options.version !== undefined && probe.version !== options.version);
+      !probe.installed ||
+      (options.version !== undefined && probe.version !== options.version) ||
+      staleByTarget;
     if (needsInstall) {
       this.progress(onProgress, { id: 'install', status: 'active' });
       try {
         await this.bootstrapper.install(alias, probe.arch, {
           releaseBase: options.releaseBase,
-          version: options.version,
+          // A staleness upgrade pins the download to the exact version it was
+          // triggered by, so the result is deterministic and the next connect
+          // compares equal. Leaving it unpinned would re-download the same older
+          // stable on every connect whenever stable lags the desktop — an
+          // upgrade loop.
+          version: staleByTarget && options.version === undefined ? options.daemonTargetVersion : options.version,
           workspace,
         });
+        this.progress(onProgress, { id: 'install', status: 'done' });
       } catch (err) {
+        // A staleness upgrade is opportunistic: it can 404 (a dev build's
+        // version has no release) or fail transiently. An absent daemon and an
+        // explicit pin have no fallback, so those still fail the connect; a
+        // stale-but-working daemon is kept and the flow continues. The old
+        // daemon is never stopped when the download fails (the installer stops
+        // it only after the binary lands), so continuing is safe.
+        const hardFailure =
+          !probe.installed || (options.version !== undefined && options.version !== probe.version);
+        if (hardFailure) {
+          this.progress(onProgress, {
+            id: 'install',
+            status: 'failed',
+            detail: messageOf(err),
+          });
+          throw new RemoteConnectionError('install', `Install failed: ${messageOf(err)}`, err);
+        }
         this.progress(onProgress, {
           id: 'install',
-          status: 'failed',
-          detail: messageOf(err),
+          status: 'done',
+          detail: `kept ${installedVersion ?? 'installed'}; upgrade to ${options.daemonTargetVersion} failed`,
         });
-        throw new RemoteConnectionError('install', `Install failed: ${messageOf(err)}`, err);
       }
-      this.progress(onProgress, { id: 'install', status: 'done' });
     } else {
       this.progress(onProgress, {
         id: 'install',

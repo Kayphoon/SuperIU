@@ -1298,6 +1298,10 @@ async function startRemoteMode(config: GatewayConfig, opts: RemoteModeOptions = 
       deviceId: config.deviceId,
       releaseBase: remote.releaseBase,
       version: remote.version,
+      // Remote mode loads the SPA from the daemon, not from this bundle, so an
+      // installed daemon older than this app serves a stale console. Target the
+      // app's own version to upgrade it on connect.
+      daemonTargetVersion: app.getVersion(),
       localPort: remote.localPort,
       autoUpdateIdle: remote.autoUpdateIdle,
       autoUpdateIntervalHours: remote.autoUpdateIntervalHours,
