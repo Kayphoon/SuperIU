@@ -14,6 +14,20 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.13 (2026-10-07)
+
+### 中文
+
+- 标题栏增加连接状态徽标与往返延迟显示：本地模式展示静音徽标；远程 VPS 模式显示主机别名与真实 RTT 延迟（如 `● arm · 42ms`），断线或重连时即时呈现实时状态（`○ arm · 正在重连…`）。
+- 服务端与桌面客户端打通 WebSocket 往返延迟（RTT）主动采样与状态机事件广播（`connecting` / `connected` / `reconnecting` / `closed`），不再静默失联。
+- 设置「远程 VPS」面板增加「已连接主机」卡片，直观呈现当前主机、远端目录、本地转发端口与网络延迟，并提供「断开并切换主机」完整交互。
+
+### English
+
+- Add connection status indicator and round-trip latency to Titlebar: shows quiet badge in local mode, and host alias with real RTT latency in remote VPS mode (e.g. `● arm · 42ms`), switching instantly on reconnect or drop (`○ arm · Reconnecting…`).
+- Implement active WebSocket RTT latency measurement and forward GatewayClient connection state events (`connecting` / `connected` / `reconnecting` / `closed`) through IPC to the web console.
+- Add "Currently Connected" status card to Remote VPS settings pane, showing connected host alias, remote workspace, local forwarding port, latency, and a functional "Disconnect & Switch Host" action.
+
 ## v0.2.12 (2026-10-07)
 
 ### 中文
