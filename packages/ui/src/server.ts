@@ -117,8 +117,15 @@ let PUBLIC_DIR = path.resolve(HERE, '..', 'public');
 let SETTINGS_FILE = path.join(process.cwd(), '.superiu', 'ui-settings.json');
 
 /**
- * Models offered in the secondary menu's model selector; free-text entry is also
- * accepted.
+ * The shipped model-id catalog: suggestions, never a selection.
+ *
+ * Nothing here is "configured" until the user picks it. The settings pane's
+ * model grid offers these ids as `#model-choices` datalist suggestions, and the
+ * capability/reasoning metadata maps cover them so a suggestion can be labeled
+ * before it is ever chosen. No select and no pill renders from this list: an
+ * install with nothing configured must show no model anywhere, which is why the
+ * lists the API serves come from `configuredModelIds()` and only
+ * `settingsView().knownModels` exposes this catalog.
  *
  * Every id here is one its vendor's own model list currently serves, because a
  * retired id is not merely stale copy: picking one sends a request the provider
@@ -300,10 +307,17 @@ export interface ModelOptionConfig {
  * product source and rot the moment they change it. Unmatched endpoints land in
  * the `custom` slot instead.
  *
- * `models` is a short, representative slice of what each vendor currently
- * serves — not an exhaustive catalog — so every entry must still be a live id
- * from that vendor's own model list. A retired id here is worse than a missing
- * one: it is offered in the model grid and cannot succeed when picked.
+ * `models` is the catalog this preset shipped when the app seeded a fresh
+ * install with it. It is no longer written into a provider —
+ * `createDefaultProviders()` seeds `models: []`, so nothing is configured until
+ * the user picks a model — and survives as the fingerprint that recognizes an
+ * app-written list: a stored list byte-identical to this one was written by a
+ * default, not chosen by the user, and `migratePresetModels()` clears it.
+ *
+ * As a catalog it is a short, representative slice of what each vendor
+ * currently serves — not an exhaustive one — so every entry must still be a live
+ * id from that vendor's own model list. A retired id here is worse than a
+ * missing one: it is offered in the model grid and cannot succeed when picked.
  */
 const PROVIDER_PRESETS: ReadonlyArray<{
   id: string;
@@ -356,20 +370,21 @@ const PROVIDER_PRESETS: ReadonlyArray<{
 const CUSTOM_PROVIDER_ID = 'custom';
 
 /**
- * One-time migration key: the `models[]` list each preset shipped BEFORE the
- * current catalog, keyed by provider id.
+ * Model lists each preset shipped BEFORE the current catalog, keyed by provider
+ * id — the fingerprints of a settings file this app wrote itself.
  *
  * `loadSettings()` only calls `createDefaultProviders()` when a file has no
  * `providers` at all, so an existing `ui-settings.json` keeps whatever lists it
- * was written with — the refreshed catalog above is invisible to it, and the
- * model picker keeps offering ids the vendor has since retired. This table
- * lets a stored list be recognized as "the old shipped default" and moved
- * forward.
+ * was written with. Those lists were never the user's: an install with nothing
+ * configured still carried a full catalog of ids the user never chose, and the
+ * model picker offered them as if they had. `migratePresetModels()` therefore
+ * CLEARS a stored list that matches one of these (or the current catalog above)
+ * byte for byte — see its comment for why the match must be exact.
  *
  * Entries are removed once no shipped version can have written them (i.e. once
  * a build old enough to write this list is no longer in the wild). Do not add
- * a list here speculatively: a wrong entry would silently overwrite a user's
- * own edit.
+ * a list here speculatively: a wrong entry would silently discard a user's own
+ * edit.
  */
 const LEGACY_PRESET_MODELS: Readonly<Record<string, readonly string[][]>> = {
   openai: [['gpt-4o', 'gpt-4o-mini', 'gpt-4.1', 'o3-mini', 'o1']],
@@ -379,32 +394,36 @@ const LEGACY_PRESET_MODELS: Readonly<Record<string, readonly string[][]>> = {
 };
 
 /**
- * Move a stored preset's model list forward, but ONLY when it is still exactly
- * the list an earlier build shipped.
+ * Clear a preset's model list when it is still exactly a catalog this app
+ * shipped — the list a fresh install was seeded with, not one the user built.
  *
  * The safety property is the exact match: same length AND same order. A stored
  * list that differs by even one id — added, removed, or reordered — is a user
  * edit, and any looser test (substring, subset, set equality) would silently
- * discard it. When the list is not a known shipped list the provider is left
+ * discard it. When the list matches nothing shipped the provider is left
  * completely untouched, including every field other than `models`.
  *
- * The returned value is in memory only; the caller's next `persistSettings()`
- * writes it. Migrating here must never write to disk on its own, or merely
- * reading settings would mutate the user's file.
+ * `cleared` reports that this provider's list was app-written, which is what
+ * tells the caller the two named models may be app-written too (see
+ * `loadSettings`). The returned value is in memory only; the caller's next
+ * `persistSettings()` writes it. Clearing here must never write to disk on its
+ * own, or merely reading settings would mutate the user's file.
  */
-function migratePresetModels(provider: ProviderConfig): ProviderConfig {
+function migratePresetModels(provider: ProviderConfig): { provider: ProviderConfig; cleared: boolean } {
+  // Every catalog this app shipped for this id: the current preset plus each
+  // legacy list. Empty for an id with no preset row — a hand-rolled relay's list
+  // is the user's by construction, so nothing there may be cleared.
+  const shipped: Array<readonly string[]> = [];
   const preset = PROVIDER_PRESETS.find((candidate) => candidate.id === provider.id);
-  const legacyLists = LEGACY_PRESET_MODELS[provider.id];
-  if (!preset || !legacyLists) return provider;
+  if (preset) shipped.push(preset.models);
+  for (const legacy of LEGACY_PRESET_MODELS[provider.id] ?? []) shipped.push(legacy);
 
-  const isShippedList = legacyLists.some(
-    (legacy) => legacy.length === provider.models.length && legacy.every((id, i) => id === provider.models[i])
+  const isShippedList = shipped.some(
+    (list) => list.length === provider.models.length && list.every((id, i) => id === provider.models[i])
   );
-  if (!isShippedList) return provider;
+  if (!isShippedList) return { provider, cleared: false };
 
-  // A fresh array, never the preset's own: assigning the constant would let a
-  // later in-place edit of one provider's models corrupt the preset itself.
-  return { ...provider, models: [...preset.models] };
+  return { provider: { ...provider, models: [] }, cleared: true };
 }
 
 /** Default label of a preset, or '' when the id has no preset (e.g. `custom`). */
@@ -430,7 +449,11 @@ function createDefaultProviders(currentApiKey: string, currentBaseURL: string): 
       enabled,
       apiKey: enabled ? currentApiKey : '',
       baseURL: preset.baseURL,
-      models: preset.models,
+      // Empty, not the preset's catalog: nothing is configured until the user
+      // picks it, and seeding ids here is what made an install with no model
+      // configured display — and persist — a grid full of them. The shipped ids
+      // still reach the renderer as autocomplete via `knownModels`.
+      models: [],
       // Not shipped from the server: the renderer localizes the blurb from its
       // dictionary, so only a user-typed description ever occupies this field.
       description: '',
@@ -527,12 +550,22 @@ function serializeMessages(messages: ContextMessage[]) {
   }));
 }
 
+/**
+ * Read `ui-settings.json`, merged over the environment.
+ *
+ * "Configured" means present in the user's own file or environment — never a
+ * catalog this app ships. A fresh install therefore serves an empty model name
+ * and empty provider lists: the presets are slots to fill, not models the user
+ * chose. `DEFAULT_MAIN_MODEL`/`DEFAULT_REVIEW_MODEL` remain the core runner's
+ * fallback (`packages/core/src/runner.ts`), so the app still runs with nothing
+ * configured — it merely stops claiming a choice nobody made.
+ */
 function loadSettings(): UiSettings {
   const defaults: UiSettings = {
     apiKey: process.env.OPENAI_API_KEY ?? '',
     baseURL: process.env.OPENAI_BASE_URL ?? '',
-    modelName: process.env.OPENAI_MODEL_NAME ?? DEFAULT_MAIN_MODEL,
-    reviewModelName: process.env.OPENAI_REVIEW_MODEL_NAME ?? DEFAULT_REVIEW_MODEL,
+    modelName: process.env.OPENAI_MODEL_NAME ?? '',
+    reviewModelName: process.env.OPENAI_REVIEW_MODEL_NAME ?? '',
     tinyModelName: process.env.OPENAI_TINY_MODEL_NAME ?? '',
     titleModelName: process.env.OPENAI_TITLE_MODEL_NAME ?? '',
     memoryModelName: process.env.OPENAI_MEMORY_MODEL_NAME ?? '',
@@ -573,13 +606,28 @@ function loadSettings(): UiSettings {
     }
     providers = providers.filter((p) => p.id);
 
-    // Move a preset still carrying an earlier build's model list onto the
-    // current catalog. Exact-match only, so a user's own edit survives; see
-    // `migratePresetModels`. In memory only — the next persist writes it.
-    providers = providers.map(migratePresetModels);
+    // Clear a preset still carrying a catalog this app shipped: that list is the
+    // app's default, not a model the user chose. Exact-match only, so a user's
+    // own edit survives; see `migratePresetModels`. In memory only — the next
+    // persist writes it.
+    //
+    // A cleared catalog is also proof that this file was written by the app,
+    // which is what licenses clearing its default model names below: nobody
+    // types a whole vendor catalog by hand, so nobody typed the name that
+    // shipped beside it either.
+    let appWrittenFile = false;
+    providers = providers.map((provider) => {
+      const migrated = migratePresetModels(provider);
+      if (migrated.cleared) appWrittenFile = true;
+      return migrated.provider;
+    });
 
     if (providers.length === 0) {
+      // A file with no providers at all is app-written too: every build that
+      // persisted settings seeded these slots, so the names beside them came
+      // from the same defaults.
       providers = createDefaultProviders(effectiveKey, effectiveBaseURL);
+      appWrittenFile = true;
     }
 
     const activeProviderId = typeof raw.activeProviderId === 'string' && raw.activeProviderId
@@ -592,14 +640,28 @@ function loadSettings(): UiSettings {
     // from starting.
     const { configs: modelConfigs } = scanModelConfigs(raw.modelConfigs);
 
+    // The two named models, resolved the way tiny/title/memory are: an ABSENT
+    // key falls back to the environment, which configures models in its own
+    // right, while an explicit empty value means "none" and is never re-filled —
+    // resurrecting a shipped default there is what made a cleared field show a
+    // model again on the next load.
+    //
+    // An app-written default in an app-written file is not a choice either, so it
+    // goes with the catalog: only the exact shipped default is cleared, and only
+    // while no surviving provider still lists it, so a name the user typed — or a
+    // default they added to a provider — survives.
+    const survivingModels = new Set(providers.flatMap((provider) => provider.models));
+    const namedModel = (stored: unknown, shippedDefault: string, fromEnv: string | undefined): string => {
+      if (typeof stored !== 'string') return fromEnv ?? '';
+      if (!stored) return '';
+      return appWrittenFile && stored === shippedDefault && !survivingModels.has(stored) ? '' : stored;
+    };
+
     return {
       apiKey: effectiveKey,
       baseURL: effectiveBaseURL,
-      modelName: typeof raw.modelName === 'string' && raw.modelName ? raw.modelName : defaults.modelName,
-      reviewModelName:
-        typeof raw.reviewModelName === 'string' && raw.reviewModelName
-          ? raw.reviewModelName
-          : defaults.reviewModelName,
+      modelName: namedModel(raw.modelName, DEFAULT_MAIN_MODEL, process.env.OPENAI_MODEL_NAME),
+      reviewModelName: namedModel(raw.reviewModelName, DEFAULT_REVIEW_MODEL, process.env.OPENAI_REVIEW_MODEL_NAME),
       tinyModelName: typeof raw.tinyModelName === 'string' ? raw.tinyModelName.trim() : defaults.tinyModelName,
       titleModelName: typeof raw.titleModelName === 'string' ? raw.titleModelName.trim() : defaults.titleModelName,
       memoryModelName: typeof raw.memoryModelName === 'string' ? raw.memoryModelName.trim() : defaults.memoryModelName,
@@ -913,22 +975,37 @@ function levelFor(model: string): ReasoningEffort | undefined {
 }
 
 /**
- * Every model id the console can offer, de-duplicated.
+ * The model ids the user has actually configured, de-duplicated: every id in a
+ * provider's own `models[]` (in provider order), then the two named models.
  *
- * The union of the preset list, every provider's own model list, and the two
- * models currently configured — a provider's `models[]` is where a hand-typed id
- * lands, so covering only `MODEL_CHOICES` would leave the user's own model
- * without a context window and the usage meter dividing by the default. Shared
- * with the capability map so both halves describe the same set of models.
+ * This is what the API serves as `modelChoices`, and it is deliberately NOT
+ * `MODEL_CHOICES`: the shipped catalog is a suggestion list, and offering it as
+ * a selection is what made an install with nothing configured display a model.
+ * Empty strings are dropped, so an unconfigured install yields `[]`.
+ */
+function configuredModelIds(): string[] {
+  const ids: string[] = [];
+  for (const provider of settings.providers ?? []) {
+    for (const model of provider.models ?? []) ids.push(model);
+  }
+  ids.push(settings.modelName, settings.reviewModelName);
+  return [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+}
+
+/**
+ * Every model id the console can describe, de-duplicated: the shipped catalog
+ * plus everything configured.
+ *
+ * The union covers the shipped suggestions, every provider's own model list and
+ * the two named models — a provider's `models[]` is where a hand-typed id lands,
+ * so covering only `MODEL_CHOICES` would leave the user's own model without a
+ * context window and the usage meter dividing by the default. It backs the
+ * capability and reasoning maps, which must be able to label a suggestion before
+ * it is ever chosen; it must never be served as a selection, which is
+ * `configuredModelIds()`'s job.
  */
 function advertisedModelIds(): string[] {
-  const ids = new Set<string>(MODEL_CHOICES);
-  for (const provider of settings.providers ?? []) {
-    for (const model of provider.models ?? []) ids.add(model);
-  }
-  ids.add(settings.modelName);
-  ids.add(settings.reviewModelName);
-  return [...new Set([...ids].map((id) => id.trim()).filter(Boolean))];
+  return [...new Set([...MODEL_CHOICES, ...configuredModelIds()])];
 }
 
 interface PublicModelRoute {
@@ -959,12 +1036,11 @@ function publicRoutes(): Record<string, PublicModelRoute> {
 }
 
 /**
- * Capability metadata for every model the console can offer, keyed by id.
+ * Capability metadata for every model the console can describe, keyed by id.
  *
- * The union of the preset list, every provider's own model list, and the two
- * models currently configured — a provider's `models[]` is where a hand-typed
- * id lands, so covering only `MODEL_CHOICES` would leave the user's own model
- * without a context window and the usage meter dividing by the default.
+ * Keyed by `advertisedModelIds()` rather than the configured set, because the
+ * renderer must be able to label a shipped suggestion the moment the user types
+ * it into the grid — before any provider lists it.
  */
 function modelMetadataView(): Record<string, ModelMetadata> {
   return Object.fromEntries(
@@ -998,7 +1074,10 @@ function buildStatus() {
     model: settings.modelName,
     reviewModel: settings.reviewModelName,
     autoReview: settings.autoReview,
-    modelChoices: MODEL_CHOICES,
+    // Only what the user configured: the shipped catalog is a suggestion list,
+    // and serving it here is what put 12 models in the ⌘J selector of an
+    // install with none configured.
+    modelChoices: configuredModelIds(),
     modelRoutes: publicRoutes(),
     contextTokens: contextUsage.tokens,
     contextLimit: contextUsage.limit,
@@ -1245,7 +1324,19 @@ function settingsView() {
      * rather than in its own automatic state.
      */
     modelReasoning: Object.fromEntries(advertisedModelIds().map((id) => [id, supportsReasoningEffort(id)])),
-    modelChoices: MODEL_CHOICES,
+    /**
+     * The user's own models — see `configuredModelIds`. NOT the shipped
+     * catalog: a select or a pill rendering this list must show nothing at all
+     * until the user has configured a model.
+     */
+    modelChoices: configuredModelIds(),
+    /**
+     * The shipped id catalog, for the model grid's `#model-choices` datalist
+     * autocomplete only. It is deliberately separate from `modelChoices`: these
+     * are suggestions the user may pick, not models they have chosen, and no
+     * select may render them.
+     */
+    knownModels: MODEL_CHOICES,
     /**
      * Capability metadata (vision / tools / context window) per model id. The
      * renderer needs the window to label a model picker and the usage meter to
@@ -2096,12 +2187,23 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
 
   if (!options.quiet) {
     const workstation = runner.getWorkstation();
+    // Diagnostics for whoever started the server, so they report the model the
+    // runner will actually call rather than the configured name: with nothing
+    // configured that is the core fallback (`packages/core/src/runner.ts`), and
+    // an empty field here would hide it. The `(default)` marker keeps a fallback
+    // from reading as a choice the user made — the same distinction the web
+    // shell draws by serving `model: ''` to the composer.
+    const effective = runner.getModelRoutes();
+    const describeModel = (configured: string, inForce: string): string =>
+      configured ? configured : `${inForce} (default)`;
     console.log('=== SuperIU Web UI (@agent/ui) ===');
     console.log(`  Listening:   ${socketPath ? socketPath : `http://${host}:${listening}`}`);
-    console.log(`  Main model:  ${settings.modelName}`);
+    console.log(`  Main model:  ${describeModel(settings.modelName, effective.main.model)}`);
     console.log(`  Language:    ${settings.language}`);
     console.log(`  Theme:       ${settings.theme}`);
-    console.log(`  Tool model:  ${settings.reviewModelName} (autoReview ${settings.autoReview ? 'on' : 'off'})`);
+    console.log(
+      `  Tool model:  ${describeModel(settings.reviewModelName, effective.review.model)} (autoReview ${settings.autoReview ? 'on' : 'off'})`
+    );
     console.log(`  Session:     ${runner.getSessionId()}`);
     // A boot with no resumable session starts a draft, so the path printed here
     // may not exist yet; do not present it as an existing log.

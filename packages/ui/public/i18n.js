@@ -87,6 +87,10 @@ const DICT = {
     'composer.model.favorite.remove': '取消收藏 {model}',
     'composer.model.vision': '支持图像输入',
     'composer.model.tools': '支持工具调用',
+    // The honest empty state for every surface that names a model: the server
+    // sends '' when the user has configured nothing, and a dash there reads as
+    // a broken control rather than as "not set up yet".
+    'model.unset': '未配置模型',
 
     'composer.context.title': '{tokens} / {limit}（{percent}%）',
     'composer.context.aria': '上下文占用 {percent}%',
@@ -533,6 +537,7 @@ const DICT = {
     'composer.model.favorite.remove': 'Remove {model} from favorites',
     'composer.model.vision': 'Accepts image input',
     'composer.model.tools': 'Supports tool calls',
+    'model.unset': 'No model configured',
 
     'composer.context.title': '{tokens} / {limit} ({percent}%)',
     'composer.context.aria': 'Context usage {percent}%',

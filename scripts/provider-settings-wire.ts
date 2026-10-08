@@ -27,6 +27,7 @@ import * as http from 'node:http';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { startServer } from '../packages/ui/dist/server.js';
+import { DEFAULT_MAIN_MODEL, DEFAULT_REVIEW_MODEL } from '../packages/core/dist/index.js';
 
 const ALPHA_KEY = 'sk-alpha-key-1111';
 const BETA_KEY = 'sk-beta-key-2222';
@@ -296,18 +297,23 @@ function providerEntry(id: string, baseURL: string, apiKey: string, enabled = fa
 }
 
 /**
- * Preset-catalog migration: a settings file written before the current catalog
- * must have its shipped model lists moved forward, while any user edit survives.
+ * Shipped-catalog clearing: a settings file this app wrote must stop claiming
+ * models the user never chose — the app's own catalog and the model names that
+ * shipped with it — while any user edit survives byte for byte.
  *
- * Each case boots its own server against its own file, because the migration
+ * Each case boots its own server against its own file, because the clearing
  * happens in `loadSettings()` and a shared boot would only exercise it once.
  */
 async function runMigrationTests() {
-  console.log('=== Preset catalog migration verification ===\n');
+  console.log('=== Shipped-catalog clearing verification ===\n');
 
-  /** Boot a server over `providers` and return the provider rows it serves. */
-  const boot = async (providers: unknown[]) => {
-    const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), 'superiu-migration-'));
+  /**
+   * Boot a server over `providers` — an app-written file, so it also carries the
+   * shipped default model names — and return the rows, both views and the file.
+   * `overrides` replaces top-level fields (the model names, mostly).
+   */
+  const boot = async (providers: unknown[], overrides: Record<string, unknown> = {}) => {
+    const sandbox = await fs.mkdtemp(path.join(os.tmpdir(), 'superiu-clearing-'));
     const settingsFile = path.join(sandbox, '.superiu', 'ui-settings.json');
     await fs.mkdir(path.dirname(settingsFile), { recursive: true });
     // `startServer` resolves its session/memory dirs from the process cwd while
@@ -319,13 +325,14 @@ async function runMigrationTests() {
       {
         apiKey: TOP_LEVEL_KEY,
         baseURL: 'https://api.openai.com/v1',
-        modelName: 'gpt-4o',
-        reviewModelName: 'gpt-4o-mini',
+        modelName: DEFAULT_MAIN_MODEL,
+        reviewModelName: DEFAULT_REVIEW_MODEL,
         autoReview: true,
         reasoningEffort: '',
         language: 'en',
         activeProviderId: 'openai',
-        providers
+        providers,
+        ...overrides
       },
       null,
       2
@@ -335,9 +342,12 @@ async function runMigrationTests() {
     const handle = await startServer({ port: 0, workspaceDir: sandbox, settingsFile, quiet: true });
     const onDisk = await fs.readFile(settingsFile, 'utf-8');
     const view = await requestJson(`${handle.url}/api/settings`);
+    const status = await requestJson(`${handle.url}/api/status`);
     const rows = (view.providers as Array<Record<string, unknown>>) ?? [];
     return {
       rows,
+      view,
+      status,
       onDisk,
       written,
       close: async () => {
@@ -374,33 +384,44 @@ async function runMigrationTests() {
     anthropic: ['claude-sonnet-5', 'claude-opus-5-5', 'claude-haiku-4-5']
   };
 
-  await test('an old exact preset model list is refreshed to the current catalog', async () => {
+  await test('a shipped catalog is cleared, legacy and current alike', async () => {
     const h = await boot([
       presetRow('openai', { models: LEGACY.openai }),
-      presetRow('gemini', { models: LEGACY.gemini }),
+      presetRow('gemini', { models: CURRENT.gemini }),
       presetRow('deepseek', { models: LEGACY.deepseek }),
-      presetRow('anthropic', { models: LEGACY.anthropic })
+      presetRow('anthropic', { models: CURRENT.anthropic })
     ]);
     try {
       for (const id of ['openai', 'gemini', 'deepseek', 'anthropic'] as const) {
         const row = h.rows.find((r) => r.id === id);
         assert(row, `provider '${id}' vanished during load`);
         assert(
-          JSON.stringify(row.models) === JSON.stringify(CURRENT[id]),
-          `'${id}' models are ${JSON.stringify(row.models)}, expected ${JSON.stringify(CURRENT[id])}`
+          JSON.stringify(row.models) === '[]',
+          `'${id}' still serves an app-written catalog: ${JSON.stringify(row.models)}`
         );
       }
+      // The names the app shipped beside those catalogs are the same lie, so they
+      // go with them: no model anywhere, not merely an empty grid.
+      assert(h.view.modelName === '', `modelName is '${String(h.view.modelName)}', expected ''`);
+      assert(h.view.reviewModelName === '', `reviewModelName is '${String(h.view.reviewModelName)}', expected ''`);
+      assert(JSON.stringify(h.view.modelChoices) === '[]', `modelChoices: ${JSON.stringify(h.view.modelChoices)}`);
+      assert(h.status.model === '', `status.model is '${String(h.status.model)}', expected ''`);
+      assert(
+        JSON.stringify(h.status.modelChoices) === '[]',
+        `status.modelChoices: ${JSON.stringify(h.status.modelChoices)}`
+      );
     } finally {
       await h.close();
     }
   });
 
-  await test('a user-customized model list is left byte-identical', async () => {
-    // Three independent ways to differ from the shipped list: one id added, one
-    // removed, and a reorder that keeps the same members. All three are edits.
-    const added = [...LEGACY.gemini, 'my-private-model'];
-    const removed = LEGACY.gemini.slice(0, -1);
-    const reordered = [...LEGACY.gemini].reverse();
+  await test('a user-customized model list survives byte-identical', async () => {
+    // Three independent ways to differ from a shipped list: one id added, one
+    // removed, and a reorder that keeps the same members. All three are edits —
+    // including the reorder, which any set comparison would have swallowed.
+    const added = [...CURRENT.gemini, 'my-private-model'];
+    const removed = CURRENT.deepseek.slice(0, -1);
+    const reordered = [...LEGACY.anthropic].reverse();
     const h = await boot([
       presetRow('gemini', { models: added }),
       presetRow('deepseek', { models: removed }),
@@ -417,9 +438,16 @@ async function runMigrationTests() {
         assert(row, `provider '${id}' vanished during load`);
         assert(
           JSON.stringify(row.models) === JSON.stringify(models),
-          `'${id}' was migrated over a user edit: ${JSON.stringify(row.models)} != ${JSON.stringify(models)}`
+          `'${id}' was cleared over a user edit: ${JSON.stringify(row.models)} != ${JSON.stringify(models)}`
         );
       }
+      // Nothing was cleared, so the file is not app-written and its model name is
+      // left alone: the name clearing is gated on a cleared catalog, not on the
+      // name merely matching a shipped default.
+      assert(
+        h.view.modelName === DEFAULT_MAIN_MODEL,
+        `modelName was cleared without a cleared catalog: '${String(h.view.modelName)}'`
+      );
     } finally {
       await h.close();
     }
@@ -429,7 +457,7 @@ async function runMigrationTests() {
     const customModels = ['local-llama', 'another-local'];
     const h = await boot([
       presetRow('custom', { models: customModels, custom: true, name: 'My gateway' }),
-      presetRow('my-relay', { models: LEGACY.openai, custom: true })
+      presetRow('my-relay', { models: CURRENT.openai, custom: true })
     ]);
     try {
       const custom = h.rows.find((r) => r.id === 'custom');
@@ -438,23 +466,24 @@ async function runMigrationTests() {
         JSON.stringify(custom.models) === JSON.stringify(customModels),
         `the custom provider's models were touched: ${JSON.stringify(custom.models)}`
       );
-      // A non-preset id carrying the OLD openai list verbatim still must not be
-      // rewritten: the table is keyed by preset id, and this id has no row.
+      // A non-preset id carrying a shipped openai catalog verbatim still must not
+      // be cleared: the fingerprints are keyed by preset id, and this id has no
+      // row, so its list is the user's by construction.
       const relay = h.rows.find((r) => r.id === 'my-relay');
       assert(relay, 'the unknown-id provider vanished during load');
       assert(
-        JSON.stringify(relay.models) === JSON.stringify(LEGACY.openai),
-        `an id with no preset row was migrated: ${JSON.stringify(relay.models)}`
+        JSON.stringify(relay.models) === JSON.stringify(CURRENT.openai),
+        `an id with no preset row was cleared: ${JSON.stringify(relay.models)}`
       );
     } finally {
       await h.close();
     }
   });
 
-  await test('only models move: name, apiKey and baseURL survive the migration', async () => {
+  await test('only models are cleared: name, apiKey and baseURL survive', async () => {
     const h = await boot([
       presetRow('gemini', {
-        models: LEGACY.gemini,
+        models: CURRENT.gemini,
         name: 'My Gemini',
         apiKey: 'sk-gemini-secret',
         baseURL: 'https://my-proxy.example/v1',
@@ -466,8 +495,8 @@ async function runMigrationTests() {
       const row = h.rows.find((r) => r.id === 'gemini');
       assert(row, 'the gemini provider vanished during load');
       assert(
-        JSON.stringify(row.models) === JSON.stringify(CURRENT.gemini),
-        `models were not refreshed: ${JSON.stringify(row.models)}`
+        JSON.stringify(row.models) === '[]',
+        `the shipped catalog was not cleared: ${JSON.stringify(row.models)}`
       );
       assert(row.name === 'My Gemini', `name changed to '${String(row.name)}'`);
       assert(
@@ -482,14 +511,113 @@ async function runMigrationTests() {
     }
   });
 
-  await test('the migration does not write to disk on its own', async () => {
+  await test('a user-chosen model name survives the clearing', async () => {
+    const h = await boot([presetRow('openai', { models: CURRENT.openai })], {
+      modelName: 'my-own-model',
+      reviewModelName: 'my-review-model'
+    });
+    try {
+      const row = h.rows.find((r) => r.id === 'openai');
+      assert(row, 'the openai provider vanished during load');
+      assert(JSON.stringify(row.models) === '[]', `the catalog was not cleared: ${JSON.stringify(row.models)}`);
+      // The catalog was app-written; these names were not.
+      assert(h.view.modelName === 'my-own-model', `modelName became '${String(h.view.modelName)}'`);
+      assert(
+        h.view.reviewModelName === 'my-review-model',
+        `reviewModelName became '${String(h.view.reviewModelName)}'`
+      );
+      assert(
+        JSON.stringify(h.view.modelChoices) === JSON.stringify(['my-own-model', 'my-review-model']),
+        `modelChoices: ${JSON.stringify(h.view.modelChoices)}`
+      );
+    } finally {
+      await h.close();
+    }
+  });
+
+  await test('a shipped default name a surviving provider still lists is kept', async () => {
+    // The rule is not "the name equals the default": it is "the file wrote the
+    // name AND nothing in it still serves that model". Here openai's catalog is
+    // cleared, but the relay lists the id, so this install does depend on it.
+    const h = await boot([
+      presetRow('openai', { models: CURRENT.openai }),
+      presetRow('my-relay', { models: [DEFAULT_MAIN_MODEL], custom: true })
+    ]);
+    try {
+      assert(
+        h.view.modelName === DEFAULT_MAIN_MODEL,
+        `a served model name was cleared: '${String(h.view.modelName)}'`
+      );
+      // Its review counterpart is served by nobody, so it goes.
+      assert(
+        h.view.reviewModelName === '',
+        `an unserved shipped default survived: '${String(h.view.reviewModelName)}'`
+      );
+      assert(
+        JSON.stringify(h.view.modelChoices) === JSON.stringify([DEFAULT_MAIN_MODEL]),
+        `modelChoices: ${JSON.stringify(h.view.modelChoices)}`
+      );
+    } finally {
+      await h.close();
+    }
+  });
+
+  await test('modelChoices is the user’s own list: providers first, then the names, de-duplicated', async () => {
+    const h = await boot([presetRow('custom', { models: ['b-model', 'a-model'], custom: true, name: 'Mine' })], {
+      modelName: 'a-model',
+      reviewModelName: 'review-model'
+    });
+    try {
+      // Provider order is kept as stored (not sorted), the repeated id collapses,
+      // and the two named models come last.
+      assert(
+        JSON.stringify(h.view.modelChoices) === JSON.stringify(['b-model', 'a-model', 'review-model']),
+        `modelChoices: ${JSON.stringify(h.view.modelChoices)}`
+      );
+      assert(
+        JSON.stringify(h.status.modelChoices) === JSON.stringify(['b-model', 'a-model', 'review-model']),
+        `status.modelChoices: ${JSON.stringify(h.status.modelChoices)}`
+      );
+    } finally {
+      await h.close();
+    }
+  });
+
+  await test('a file with no providers serves no model anywhere', async () => {
+    const h = await boot([]);
+    try {
+      assert(h.rows.length > 0, 'the preset slots were not seeded');
+      for (const row of h.rows) {
+        assert(
+          JSON.stringify(row.models) === '[]',
+          `'${String(row.id)}' was seeded with ${JSON.stringify(row.models)}`
+        );
+      }
+      assert(h.view.modelName === '', `modelName is '${String(h.view.modelName)}', expected ''`);
+      assert(h.view.reviewModelName === '', `reviewModelName is '${String(h.view.reviewModelName)}'`);
+      assert(JSON.stringify(h.view.modelChoices) === '[]', `modelChoices: ${JSON.stringify(h.view.modelChoices)}`);
+      assert(h.status.model === '', `status.model is '${String(h.status.model)}'`);
+      assert(
+        JSON.stringify(h.status.modelChoices) === '[]',
+        `status.modelChoices: ${JSON.stringify(h.status.modelChoices)}`
+      );
+      // The shipped ids still reach the grid as suggestions — through the
+      // separate `knownModels` field, which no select may render.
+      const known = h.view.knownModels as string[] | undefined;
+      assert(Array.isArray(known) && known.length > 0, 'knownModels is not the shipped catalog');
+    } finally {
+      await h.close();
+    }
+  });
+
+  await test('the clearing does not write to disk on its own', async () => {
     // Loading is not persisting: a read-only boot must leave the file exactly as
     // written, or merely opening the console would rewrite the user's settings.
-    const h = await boot([presetRow('gemini', { models: LEGACY.gemini })]);
+    const h = await boot([presetRow('gemini', { models: CURRENT.gemini })]);
     try {
       assert(
         h.onDisk === h.written,
-        'loadSettings() rewrote the settings file; the migration must stay in memory until the next persist'
+        'loadSettings() rewrote the settings file; the clearing must stay in memory until the next persist'
       );
     } finally {
       await h.close();
@@ -498,9 +626,9 @@ async function runMigrationTests() {
 
   console.log();
   if (failures > 0) {
-    throw new Error(`${failures} migration test(s) failed`);
+    throw new Error(`${failures} clearing test(s) failed`);
   }
-  console.log('=== All preset catalog migration tests passed ===');
+  console.log('=== All shipped-catalog clearing tests passed ===');
 }
 
 async function runWireTests() {

@@ -5646,7 +5646,7 @@
           : tr('menu.model.effort.title') + ' · ' + tr('menu.model.noEffort');
         const chip = $('tool-model-chip');
         const autoReviewOff = payload.autoReview === false;
-        chip.textContent = (payload.reviewModel || '—') + (autoReviewOff ? ' · ' + tr('menu.model.autoReviewOff') : '');
+        chip.textContent = (payload.reviewModel || tr('model.unset')) + (autoReviewOff ? ' · ' + tr('menu.model.autoReviewOff') : '');
         chip.title = tr('menu.model.tool.title') + (autoReviewOff ? ' · ' + tr('menu.model.autoReviewOff') : '');
 
         renderEmotion(payload.emotion, payload.posture);
@@ -5674,13 +5674,26 @@
       function fillModelSelect(current, choices) {
         const select = $('model-select');
         const options = [...new Set([current, ...choices].filter(Boolean))];
-        const signature = options.join('|');
+        // An empty list is a real state — nothing is configured — and the
+        // placeholder that names it is a dictionary lookup, so it joins the
+        // memo: a language switch has to rebuild the option's text.
+        const emptyLabel = options.length ? '' : tr('model.unset');
+        const signature = JSON.stringify([options, emptyLabel]);
         if (select.dataset.signature === signature) {
           select.value = current || '';
           return;
         }
         select.dataset.signature = signature;
         select.innerHTML = '';
+        if (!options.length) {
+          // A disabled option rather than a blank box: the select is a control,
+          // so it has to say why it offers nothing.
+          const placeholder = el('option', '');
+          placeholder.value = '';
+          placeholder.textContent = emptyLabel;
+          placeholder.disabled = true;
+          select.appendChild(placeholder);
+        }
         for (const model of options) {
           const option = el('option', '');
           option.value = model;
@@ -6275,8 +6288,8 @@
                 (payload.sessionFile && payload.sessionPersisted === false
                   ? tr('session.file.notWritten', { path: '' })
                   : ''),
-              tr('status.card.mainModel') + payload.model,
-              tr('status.card.toolModel') + payload.reviewModel + (payload.autoReview ? '' : tr('status.card.autoReviewOff')),
+              tr('status.card.mainModel') + (payload.model || tr('model.unset')),
+              tr('status.card.toolModel') + (payload.reviewModel || tr('model.unset')) + (payload.autoReview ? '' : tr('status.card.autoReviewOff')),
               tr('status.card.effort') + (payload.modelRoutes && payload.modelRoutes.main && payload.modelRoutes.main.reasoningEffort
                 ? effortLevelLabel(payload.modelRoutes.main.reasoningEffort)
                 : tr('status.card.noEffort')),
@@ -6833,7 +6846,16 @@
           return;
         }
 
-        const needle = $('provider-model-search').value.trim().toLowerCase();
+        // A provider with no models has nothing to filter, so the search box is
+        // hidden rather than left as a stray empty field — and its needle is
+        // dropped with it, or a model added afterwards would be filtered out by
+        // a query the user can no longer see or clear.
+        const search = $('provider-model-search');
+        const hasModels = provider.models.length > 0;
+        search.hidden = !hasModels;
+        if (!hasModels) search.value = '';
+
+        const needle = search.value.trim().toLowerCase();
         const models = provider.models.filter((model) => model.toLowerCase().includes(needle));
         for (const model of models) {
           const item = el('div', 'siu-model-item');
@@ -6907,7 +6929,10 @@
           sel.value = currentVal || '';
         };
 
-        populate('role-main-model', state.draftMainModel, null);
+        // With nothing configured the main role select would render as an empty
+        // box; name the state instead of leaving a blank control. Only then —
+        // with models present the select keeps its plain option list.
+        populate('role-main-model', state.draftMainModel, sorted.length ? null : 'model.unset');
         populate('role-tiny-model', state.draftTinyModel, 'settings.modelRoles.followMain');
         populate('role-review-model', state.draftReviewModel, 'settings.modelRoles.followTiny');
         populate('role-title-model', state.draftTitleModel, 'settings.modelRoles.followTiny');
@@ -7006,7 +7031,11 @@
 
         const list = $('model-choices');
         list.innerHTML = '';
-        for (const model of view.modelChoices || []) {
+        // The datalist is the add-model field's autocomplete, so it offers the
+        // shipped id catalog — NOT `modelChoices`, which holds only what the
+        // user has already configured and would autocomplete nothing on a fresh
+        // install.
+        for (const model of view.knownModels || []) {
           const option = el('option', '');
           option.value = model;
           list.appendChild(option);
@@ -8256,7 +8285,7 @@
         // showing the previous one until the next settings fetch.
         const model = (payload && payload.model) || view.modelName || '';
         state.currentModel = model;
-        $('model-label').textContent = model || '—';
+        $('model-label').textContent = model || tr('model.unset');
         $('btn-model').title = tr('composer.model.title') + (model ? ' · ' + model : '');
 
         renderContextMeter(
@@ -8498,7 +8527,11 @@
         // The pinned rows count too: otherwise a filter that matches only the
         // current model shows that row AND "no matching model" beside it.
         const visible = matched + favorites.length + (current && !currentListed && currentMatches ? 1 : 0);
-        if (!visible) {
+        // Only a search that found nothing is "no matching model". With an empty
+        // needle the list is empty because nothing is CONFIGURED, and the
+        // per-provider hint below says exactly that — "no matching model" would
+        // name a search the user never ran.
+        if (!visible && needle) {
           const empty = el('div', 'siu-popover-empty', tr('composer.model.empty'));
           // A listbox may own only `option` or `group`; this is a message, so
           // `presentation` drops the generic-div role like the group head does.
