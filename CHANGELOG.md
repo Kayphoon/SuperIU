@@ -14,6 +14,28 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.20 (2026-10-08)
+
+### 中文
+
+- 远程连接新增 **Unix 域套接字传输**：`superiu-server` 支持 `--socket <path>`，在工作区内以 **`0600` 权限的 Unix 套接字**提供 SPA 与网关，不再占用回环 TCP 端口；桌面端用 OpenSSH 的 StreamLocalForward（`-L <localPort>:<remoteSocket>`）把本地端口转发到该套接字。
+  - **传输方式能力协商**：连接时探测远端二进制是否广告 `--socket`，支持才走套接字，否则自动回退到原有端口模式；已运行的守护进程按其上报的传输方式采纳，不强制重启。
+  - 升级守护进程后**重新探测**并以套接字方式启动新二进制——否则升级前探测到的「不支持套接字」结果会把新守护进程永久钉在端口模式。
+  - 修复套接字模式下守护进程无法被采纳的问题：套接字守护进程上报 `port: 0`，此前仅凭端口判断存活会漏判，进而丢失已配对的 token。
+- **SSH 连接复用**：所有远端命令与隧道复用同一个已认证的 OpenSSH ControlMaster 连接（`ControlMaster=auto` + `ControlPath` + `ControlPersist=10m`，控制套接字位于 `~/.superiu/run`，权限 `0700`）。首次认证后探测/安装/启动/隧道均为毫秒级，且不会再反复弹出密钥口令提示。Windows 上自动跳过（Win32-OpenSSH 不支持连接复用）。
+- 新增 `GET /readyz` 就绪端点：桌面端在隧道建立后探测该端点（旧守护进程返回 404 时按就绪处理），确认守护进程真正可服务后再连接网关客户端。
+- 连接状态页重构为原生竖向 7 步时间线，并改用应用自身的原生图标（内联 Base64），不再使用字母渐变方块。
+
+### English
+
+- Remote connections gain a **Unix domain socket transport**: `superiu-server` accepts `--socket <path>` and serves the SPA and gateway on a **`0600` socket inside the workspace** instead of a loopback TCP port; the desktop forwards a local port to that socket over OpenSSH StreamLocalForward (`-L <localPort>:<remoteSocket>`).
+  - **Capability-negotiated transport**: connect probes whether the remote binary advertises `--socket` and uses the socket only when it does, otherwise falling back to the original port mode; an already-running daemon is adopted with whatever transport it reports, without a forced restart.
+  - After a daemon upgrade the probe is **refreshed** and the new binary is started on a socket — otherwise the stale pre-upgrade "no socket support" result would pin the new daemon to port mode forever.
+  - Fix a socket-mode daemon not being adopted: it reports `port: 0`, so a port-only liveness check missed it and lost the already-paired token.
+- **SSH connection reuse**: every remote command and the tunnel share one authenticated OpenSSH ControlMaster connection (`ControlMaster=auto` + `ControlPath` + `ControlPersist=10m`, control sockets under `~/.superiu/run` at `0700`). After the first authentication, probe/install/start/tunnel are millisecond-fast and the key passphrase is never re-prompted. Skipped on Windows (Win32-OpenSSH does not support multiplexing).
+- New `GET /readyz` readiness endpoint: after the tunnel is up the desktop probes it (a 404 from an older daemon is treated as ready) and only then connects the gateway client.
+- The connection status page is rebuilt as a native vertical 7-step timeline using the app's own native icon (inline base64) instead of the lettered gradient tile.
+
 ## v0.2.19 (2026-10-08)
 
 ### 中文
