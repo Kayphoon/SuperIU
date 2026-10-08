@@ -14,6 +14,24 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.22 (2026-10-08)
+
+### 中文
+
+- 修复「没有配置任何模型时，界面仍显示模型」：全新安装会把出厂预设目录写进每个服务商，并把 `gpt-4o` 当作当前模型显示（composer 模型药丸、⌘J 模型下拉），保存时还会一并写进 `ui-settings.json`——这些型号用户从未添加过。
+  - **「已配置」只认用户自己的配置文件与环境变量**：`modelName`/`reviewModelName` 不再回退出厂默认值，新建服务商的模型列表从**空**开始，接口的 `modelChoices` 只包含用户自己的模型（各服务商 `models[]` 加两个模型名，去重）。
+  - **清空旧版本写进去的出厂目录**：加载时，模型列表若与出厂目录**逐字节相同**（含历史版本列表）即视为 app 写入而非用户选择，清空为 `[]`；同一文件里 app 写的出厂默认模型名（`gpt-4o`/`gpt-4o-mini`）在没有任何服务商仍列出它时一并清空。用户增删改过（哪怕只差一个 id 或顺序）的列表**一字不动**；只读加载**不写盘**，清理在下一次保存时落盘。
+  - **空态如实显示**：模型药丸、工具/审查模型 chip、⌘J 模型下拉显示「未配置模型」；模型弹层对未配置的服务商提示「{服务商} 尚未添加模型」，不再谎称「没有匹配的模型」；服务商没有模型时隐藏模型搜索框。设置面板「添加模型」输入框仍以出厂型号作为自动补全候选（仅建议，不算已配置）。
+  - **取舍**：出厂目录不再预填，选择模型需点「获取模型」或手动输入；core 仍以 `gpt-4o` 兜底运行（服务端启动横幅标注 `(default)`），只是界面不再把它冒充成用户的选择。
+
+### English
+
+- Fix "the UI shows a model even though nothing is configured": a fresh install seeded every provider with the shipped preset catalog, presented `gpt-4o` as the model in force (the composer's model pill and the ⌘J model selector), and persisted all of it into `ui-settings.json` — model ids the user never added.
+  - **"Configured" now means present in the user's own settings file or environment**: `modelName`/`reviewModelName` no longer fall back to the shipped defaults, a provider starts with an **empty** model list, and the API's `modelChoices` carries only the user's own models (each provider's `models[]` plus the two model names, de-duplicated).
+  - **Stored shipped catalogs are cleared**: on load, a model list **byte-identical** to a catalog this app shipped (including the older lists) is treated as written by the app rather than chosen by the user and cleared to `[]`; the shipped default model names beside it (`gpt-4o`/`gpt-4o-mini`) are cleared too when no provider still lists them. A list the user edited — even by one id or a reorder — is left untouched, and merely reading settings **never writes to disk**; the clearing lands on the next save.
+  - **Honest empty states**: the model pill, the tool/review-model chip and the ⌘J model selector read "No model configured"; the model popover tells an unconfigured provider's story ("{provider} has no models yet") instead of claiming "no matching model", and the model search box is hidden for a provider with no models. The settings pane's add-model field still offers the shipped ids as autocomplete — suggestions only, never counted as configured.
+  - **Trade-off**: the preset catalog is no longer pre-filled, so picking a model requires **Fetch models** or typing an id; core still runs on its `gpt-4o` fallback (the server banner marks it `(default)`), it just stops presenting it as a choice the user made.
+
 ## v0.2.21 (2026-10-08)
 
 ### 中文
