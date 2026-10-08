@@ -1142,14 +1142,21 @@ function gatewayStatusHtml(
   }
 
   * { box-sizing: border-box; }
+  html {
+    height: 100%;
+  }
   html, body {
     margin: 0;
-    min-height: 100%;
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
   body {
+    min-height: 100%;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
     background: var(--bg-canvas);
     color: var(--text);
     font-size: 13.5px;
@@ -1168,9 +1175,10 @@ function gatewayStatusHtml(
   }
 
   .wrap {
+    width: 100%;
     max-width: 540px;
-    margin: 0 auto;
-    padding: 46px 20px 24px;
+    margin: auto;
+    padding: 46px 20px 28px;
     display: flex;
     flex-direction: column;
     gap: 12px;
@@ -1712,7 +1720,7 @@ function gatewayStatusHtml(
   /* Compact Mode */
   @media (max-height: 760px) {
     .wrap {
-      padding: 38px 16px 16px;
+      padding: 42px 16px 20px;
       gap: 9px;
     }
     .head {
