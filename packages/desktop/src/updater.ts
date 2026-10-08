@@ -26,6 +26,7 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as path from 'node:path';
+import { assembleFromBlockMap, parseBlockMap } from './blockmap.js';
 import { REPO_SLUG } from './constants.js';
 import { parseVersion, semverGt, type ParsedVersion } from './semver.js';
 
@@ -42,6 +43,16 @@ const UPDATE_STAGE_DIR_NAME = 'superiu-update';
 
 /** The zip is downloaded beside the staging directory, never inside it. */
 const UPDATE_ZIP_NAME = 'superiu-update.zip';
+
+/**
+ * Cache of the previously downloaded zip, kept purely as the diff base for the
+ * next update (the updater fetches only the blocks that changed). It is a
+ * convenience, never a source of truth: block matching is content-addressed, so
+ * a cached zip from a build the user never installed is still a perfectly valid
+ * base — every byte-identical block matches regardless of which release produced
+ * it.
+ */
+const UPDATE_BASE_ZIP_NAME = 'superiu-base.zip';
 
 /**
  * Records which version the staging directory currently holds.
@@ -184,6 +195,12 @@ export interface UpdateCheckResult {
   releaseNotes?: string;
   downloadUrl?: string;
   assetName?: string;
+  /**
+   * URL of the `.blockmap` asset published beside the zip, when the release has
+   * one. Absent (never an empty string) for releases published before block maps
+   * existed, so those keep downloading the full zip.
+   */
+  blockmapUrl?: string;
 }
 
 /** Minimal shape of a GitHub release asset needed to pick the macOS download. */
@@ -411,13 +428,21 @@ export async function checkForUpdates(
 
     const releaseNotes = release.body?.trim() || undefined;
 
+    // The map that enables differential downloads is published as a sibling of
+    // the zip, in the same release; `release.assets` is optional in the API
+    // payload, so an older release simply yields no match and no `blockmapUrl`.
+    const blockmapAsset = release.assets?.find((a) => a.name === `${asset?.name}.blockmap`);
+
     return {
       hasUpdate: true,
       currentVersion,
       latestVersion,
       ...(releaseNotes ? { releaseNotes } : {}),
       ...(asset?.browser_download_url ? { downloadUrl: asset.browser_download_url } : {}),
-      ...(asset?.name ? { assetName: asset.name } : {})
+      ...(asset?.name ? { assetName: asset.name } : {}),
+      ...(blockmapAsset?.browser_download_url
+        ? { blockmapUrl: blockmapAsset.browser_download_url }
+        : {})
     };
   } catch (err) {
     if (!options.silent) {
@@ -585,6 +610,73 @@ export async function replaceBundle(preparedApp: string, target: string): Promis
   await fsp.rm(backupTarget, { recursive: true, force: true }).catch(() => undefined);
 }
 
+/** Fetch a release block map (small JSON) as text; throws on a bad response. */
+async function fetchBlockMapText(url: string): Promise<string> {
+  const response = await fetch(url, {
+    headers: { 'User-Agent': 'SuperIU-Desktop' },
+    // The map is small, so a flat deadline is enough; there is no progress to
+    // keep alive the way there is for the zip itself.
+    signal: AbortSignal.timeout(30_000)
+  });
+  if (!response.ok) {
+    throw new Error(`区块映射下载失败：服务器返回 ${response.status}`);
+  }
+  return response.text();
+}
+
+/**
+ * Put the update zip at `zipPath`, using the previous download as a diff base.
+ *
+ * When the release shipped a block map and a cached base zip is on hand, only
+ * the blocks that changed are fetched and stitched onto the local base, which
+ * turns a routine update from a full multi-hundred-MB download into a few MB.
+ * Everything about that path is opportunistic: a missing map, a missing base,
+ * a dev checkout, or any failure while assembling falls back to the plain full
+ * download, so the updater can never be *less* reliable than before.
+ */
+async function acquireZip(
+  updateInfo: UpdateCheckResult,
+  zipPath: string,
+  baseZipPath: string
+): Promise<void> {
+  const downloadUrl = updateInfo.downloadUrl;
+  if (!downloadUrl) {
+    throw new Error('更新信息缺少下载地址');
+  }
+
+  // One adapter, shared by both paths, so progress looks identical to the UI
+  // whether the bytes arrived as a diff or as the whole zip.
+  const onProgress = (percent: number): void => {
+    setState({ phase: 'downloading', latestVersion: updateInfo.latestVersion, percent });
+  };
+
+  if (app.isPackaged && updateInfo.blockmapUrl && fs.existsSync(baseZipPath)) {
+    try {
+      const map = parseBlockMap(await fetchBlockMapText(updateInfo.blockmapUrl));
+      await assembleFromBlockMap({
+        url: downloadUrl,
+        localPath: baseZipPath,
+        outPath: zipPath,
+        map,
+        onProgress
+      });
+      return;
+    } catch (err) {
+      // Any problem at all — unparsable map, a server that ignores `Range`, a
+      // base that drifted — means the diff path is not trustworthy here. Say so
+      // once and fall through; the partial `outPath` must not survive to be
+      // mistaken for a finished zip.
+      console.warn(
+        '[superiu] differential update failed, falling back to full download:',
+        err instanceof Error ? err.message : err
+      );
+      await fsp.rm(zipPath, { force: true }).catch(() => undefined);
+    }
+  }
+
+  await downloadFile(downloadUrl, zipPath, onProgress);
+}
+
 /**
  * Download an update into the staging directory and validate what came out.
  *
@@ -601,6 +693,7 @@ async function prepareUpdate(updateInfo: UpdateCheckResult): Promise<void> {
   const tempRoot = app.getPath('temp');
   const extractDir = path.join(tempRoot, UPDATE_STAGE_DIR_NAME);
   const zipPath = path.join(tempRoot, UPDATE_ZIP_NAME);
+  const baseZipPath = path.join(tempRoot, UPDATE_BASE_ZIP_NAME);
 
   // A build staged by an earlier session for this exact version is already the
   // answer: reusing it keeps the "restart to install" offer immediate instead of
@@ -619,10 +712,12 @@ async function prepareUpdate(updateInfo: UpdateCheckResult): Promise<void> {
   // update — and also in development, where it is the only copy the user can
   // act on; it is discarded only when extraction did not produce a usable app.
   let keepExtracted = false;
+  // The verified zip is worth keeping as the next update's diff base, but only
+  // once the bundle it produced has validated — and never on the development
+  // path, which returns early and will never install a packaged update.
+  let cacheZipAsBase = false;
   try {
-    await downloadFile(updateInfo.downloadUrl, zipPath, (percent) => {
-      setState({ phase: 'downloading', latestVersion: updateInfo.latestVersion, percent });
-    });
+    await acquireZip(updateInfo, zipPath, baseZipPath);
 
     // `ditto -x -k` is the macOS-native way to unpack a zip while preserving the
     // bundle's symlinks, extended attributes and code signature.
@@ -654,8 +749,19 @@ async function prepareUpdate(updateInfo: UpdateCheckResult): Promise<void> {
     }
 
     keepExtracted = true;
+    cacheZipAsBase = true;
   } finally {
-    await fsp.rm(zipPath, { force: true }).catch(() => undefined);
+    if (cacheZipAsBase) {
+      // Best effort: a rename that fails (a locked or read-only temp dir) must
+      // still not leave the scratch zip behind for the next attempt to trip on.
+      try {
+        await fsp.rename(zipPath, baseZipPath);
+      } catch {
+        await fsp.rm(zipPath, { force: true }).catch(() => undefined);
+      }
+    } else {
+      await fsp.rm(zipPath, { force: true }).catch(() => undefined);
+    }
     if (!keepExtracted) {
       await fsp.rm(extractDir, { recursive: true, force: true }).catch(() => undefined);
     }

@@ -60,6 +60,26 @@ jobs:
           chmod +x "release/${{ matrix.asset }}"
           sha256sum "release/${{ matrix.asset }}" > "release/${{ matrix.asset }}.sha256"
 
+      # A delta patch lets an installed daemon fetch a few MB instead of the
+      # whole ~80MB binary. It is generated against the most recently published
+      # binary for the same asset; on the very first release there is none, so
+      # the script writes nothing and clients fall back to a full download. The
+      # script never fails the job — a missing patch is a lost optimization, not
+      # a broken release.
+      - name: Build delta patch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          node scripts/build-server-patch.mjs \
+            --asset "${{ matrix.asset }}" \
+            --binary "dist/server/${{ matrix.asset }}" \
+            --out "release/${{ matrix.asset }}.patch" \
+            --repo "${{ github.repository }}" \
+            --exclude-tag "${{ github.ref_name }}"
+          if [ -f "release/${{ matrix.asset }}.patch" ]; then
+            sha256sum "release/${{ matrix.asset }}.patch" > "release/${{ matrix.asset }}.patch.sha256"
+          fi
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -94,7 +114,7 @@ jobs:
       - name: Checksum
         working-directory: packages/desktop/dist
         run: |
-          for f in *.zip *.dmg; do
+          for f in *.zip *.zip.blockmap *.dmg; do
             [ -f "$f" ] && shasum -a 256 "$f" > "$f.sha256"
           done
 
@@ -105,6 +125,8 @@ jobs:
           path: |
             packages/desktop/dist/*.zip
             packages/desktop/dist/*.zip.sha256
+            packages/desktop/dist/*.zip.blockmap
+            packages/desktop/dist/*.zip.blockmap.sha256
             packages/desktop/dist/*.dmg
             packages/desktop/dist/*.dmg.sha256
           if-no-files-found: error

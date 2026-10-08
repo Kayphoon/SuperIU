@@ -88,6 +88,8 @@ superiu-server update --version 0.3.0  # pin an exact release
 
 By default headless updates are operator-triggered: re-run `scripts/install.sh`, or call `superiu-server update`. There is **no background updater running out of the box**. The macOS desktop app remains the only component with an in-app auto-updater.
 
+Both shells upgrade **differentially** when the release carries the extra metadata: the macOS release ships a `<zip>.blockmap` and the server release ships a `<binary>.patch`, so a routine update downloads only the parts that changed — typically a few MB instead of ~100 MB (desktop) or ~80 MB (server) — and reassembles the package locally before the usual signature-verified swap. The server additionally reads only the patch's 78-byte header first and skips the patch entirely when the binary on disk is not the one the patch was built from. Every failure mode (no map or patch published, a source that does not match, a server or proxy that ignores HTTP `Range`) falls back to the full download, so this can only ever save traffic.
+
 #### Opt-in idle auto-update
 
 Set `--auto-update-idle` (or `SUPERIU_AUTO_UPDATE_IDLE=1`; `1`, `true`, and `yes` are truthy) to let the daemon upgrade itself in the background. Turn it back off with `--no-auto-update-idle` (or `SUPERIU_AUTO_UPDATE_IDLE=0|false|no`), which also forgets the persisted setting — without an explicit off, a daemon that was once enabled keeps the feature on across restarts. This is **off by default** — nothing happens until you enable it. The interval is `--auto-update-interval-hours <n>` (or `SUPERIU_AUTO_UPDATE_INTERVAL_HOURS`), default `6`, and must be greater than `0`; the first check runs one full interval after boot, never at startup.

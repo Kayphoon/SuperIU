@@ -47,6 +47,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { computeBlockMapSync, serializeBlockMap } from '../src/blockmap.js';
 
 // ---------------------------------------------------------------------------
 // Paths and constants
@@ -682,6 +683,18 @@ function main(): void {
     run('/usr/bin/ditto', ['-c', '-k', '--keepParent', APP_PATH, zipPath]);
     const sizeMb = (fs.statSync(zipPath).size / (1024 * 1024)).toFixed(1);
     log('zip', `distribution archive ${path.relative(REPO_ROOT, zipPath)} (${sizeMb} MB)`);
+
+    // Ship a block map beside the zip: the updater uses it to fetch only the
+    // blocks that changed since the previous release instead of the whole
+    // archive. The CI release uploads it as `<zip>.blockmap` next to the zip.
+    const blockmapPath = `${zipPath}.blockmap`;
+    const blockmap = computeBlockMapSync(zipPath);
+    fs.writeFileSync(blockmapPath, serializeBlockMap(blockmap));
+    log(
+      'blockmap',
+      `${path.relative(REPO_ROOT, blockmapPath)} (${blockmap.blocks.length} blocks, ` +
+        `${(fs.statSync(blockmapPath).size / 1024).toFixed(1)} KB)`
+    );
   }
 
   if (CREATE_DMG) {

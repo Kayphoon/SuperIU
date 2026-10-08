@@ -22,6 +22,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { applyDelta, DELTA_HEADER_SIZE, parseDeltaHeader, sha256File, type DeltaHeader } from './delta.js';
 import { startServer, type ServerHandle } from './server.js';
 
 /**
@@ -1111,6 +1112,15 @@ const ARCH_ASSETS: Record<string, string> = {
   arm64: 'superiu-server-linux-arm64'
 };
 
+/**
+ * Suffix of the delta patch published beside each release binary, so the asset
+ * for `superiu-server-linux-x64` is `superiu-server-linux-x64.patch`. Appending
+ * it to the *full* download URL keeps the same layout for both the rolling
+ * `.../releases/latest/download/<asset>` base and the pinned
+ * `.../releases/download/v<version>/<asset>` base.
+ */
+const PATCH_SUFFIX = '.patch';
+
 /** How long a single GitHub API request may take before it is aborted. */
 const FETCH_TIMEOUT_MS = 30_000;
 
@@ -1200,6 +1210,107 @@ async function downloadTo(url: string, destination: string): Promise<void> {
     }
     throw err;
   }
+}
+
+/**
+ * Read the delta patch's header for `url`, or `null` when there is no usable
+ * patch there.
+ *
+ * The header is a fixed-size, *un-gzipped* 78-byte prefix (see `delta.ts`), so a
+ * single ranged request answers the only question that matters before paying for
+ * a patch: does its recorded source binary match the one on disk? A patch built
+ * against a different build can never be applied, and discovering that after
+ * downloading megabytes would waste far more traffic than this preflight costs.
+ * Every failure — a release that ships no patch (404), a truncated response, a
+ * network error — is `null`, and the caller simply downloads the full binary.
+ */
+async function fetchPatchHeader(url: string): Promise<DeltaHeader | null> {
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'superiu-server-updater',
+        Range: `bytes=0-${DELTA_HEADER_SIZE - 1}`
+      },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
+    });
+    if (!response.ok || !response.body) return null;
+
+    const reader = response.body.getReader();
+    const head = new Uint8Array(DELTA_HEADER_SIZE);
+    let filled = 0;
+    while (filled < DELTA_HEADER_SIZE) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const take = Math.min(value.byteLength, DELTA_HEADER_SIZE - filled);
+      head.set(value.subarray(0, take), filled);
+      filled += take;
+    }
+    // Stop the transfer as soon as the header is complete: a server that
+    // ignored the range and is streaming the whole patch must not be read to
+    // the end. A failed cancel is irrelevant — the bytes are already in hand.
+    try {
+      await reader.cancel();
+    } catch {
+      // Ignored: only the header was needed, and it is complete.
+    }
+    if (filled < DELTA_HEADER_SIZE) return null;
+
+    try {
+      return parseDeltaHeader(head);
+    } catch {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Put the release binary at `destination`, preferring the published delta patch
+ * over the full download.
+ *
+ * This is a pure traffic optimization, and it is safe because `applyDelta` is
+ * the only thing that decides success: it re-verifies the source file against
+ * the sha256 recorded in the patch header and re-verifies the file it produced,
+ * so a return means `destination` is byte-identical to the published release
+ * binary — and the caller's `probeBinaryVersion` + `semverGt` checks then run on
+ * it exactly as they do for a full download. Anything else (no patch published,
+ * a patch built against a different binary, a corrupt or half-applied patch, a
+ * network error) falls back to the plain download, which is what keeps this
+ * optimization from ever being able to break an update.
+ */
+async function acquireBinary(url: string, destination: string, source: string): Promise<'patch' | 'full'> {
+  const patchFile = `${destination}${PATCH_SUFFIX}`;
+  try {
+    const localSha = await sha256File(source);
+    const header = await fetchPatchHeader(`${url}${PATCH_SUFFIX}`);
+    if (header && header.sourceSha256 === localSha) {
+      await downloadTo(`${url}${PATCH_SUFFIX}`, patchFile);
+      await applyDelta(source, patchFile, destination);
+      return 'patch';
+    }
+  } catch (err) {
+    process.stderr.write(
+      `superiu-server: delta patch unusable, downloading the full binary: ${describeError(err)}\n`
+    );
+    // `applyDelta` removes its own output when it fails, but a throw after a
+    // partial write cannot be ruled out: a half-applied file must never be
+    // mistaken for a completed download.
+    try {
+      fs.rmSync(destination, { force: true });
+    } catch {
+      // Best effort: the full download below overwrites it anyway.
+    }
+  } finally {
+    try {
+      fs.rmSync(patchFile, { force: true });
+    } catch {
+      // Best effort: the patch is scratch, and the caller reports its own errors.
+    }
+  }
+
+  await downloadTo(url, destination);
+  return 'full';
 }
 
 /**
@@ -1375,6 +1486,12 @@ function probeBinaryVersion(binary: string): string | undefined {
 
 export interface UpdateTickSeams {
   fetchLatest?: (assetName: string) => Promise<string | undefined>;
+  /**
+   * Acquire the release binary at `url` into `destination`. The default prefers
+   * the delta patch published beside the binary and falls back to the full
+   * download; a caller-supplied implementation replaces that whole acquisition
+   * step (tests pin it to the plain download).
+   */
   download?: (url: string, destination: string) => Promise<void>;
   probeVersion?: (binary: string) => string | undefined;
   /**
@@ -1403,7 +1520,15 @@ export async function runUpdateTick(
   seams: UpdateTickSeams = {}
 ): Promise<void> {
   const doFetchLatest = seams.fetchLatest ?? fetchLatestVersion;
-  const doDownload = seams.download ?? downloadTo;
+  // The default acquires the release binary through `acquireBinary`, which
+  // prefers the published delta patch and falls back to the full download. A
+  // caller-supplied `download` replaces that whole acquisition step — tests pin
+  // it to the plain download.
+  const doDownload =
+    seams.download ??
+    (async (url: string, destination: string): Promise<void> => {
+      await acquireBinary(url, destination, target);
+    });
   const doProbeVersion = seams.probeVersion ?? probeBinaryVersion;
   const doWriteState = seams.writeState ?? writeUpdateState;
   const doRestart = seams.restart ?? restartDaemonDetached;
@@ -1613,7 +1738,10 @@ async function commandUpdate(parsed: ParsedArgs): Promise<number> {
   const tmp = path.join(path.dirname(target), `.${path.basename(target)}.update.${process.pid}`);
   try {
     process.stderr.write(`superiu-server: downloading ${url}\n`);
-    await downloadTo(url, tmp);
+    const mode = await acquireBinary(url, tmp, target);
+    process.stderr.write(
+      `superiu-server: acquired the new binary via ${mode === 'patch' ? 'delta patch' : 'full download'}\n`
+    );
     fs.chmodSync(tmp, 0o755);
 
     // The release pipeline's own version claims (tag name, asset name) are not
