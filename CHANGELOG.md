@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.23 (2026-10-08)
+
+### 中文
+
+- 修复桌面端远程 SSH / 网关连接状态页面（`gatewayStatusHtml`）在窗口中未垂直居中的问题：
+  - 此前容器仅配置了水平居中与固定顶部内边距（`padding-top: 46px`），在 1280×860 及高分辨率屏幕大窗口下底部大量留白、视觉严重偏上；
+  - 将 `body` 设为 `min-height: 100vh; display: flex; flex-direction: column; align-items: center;`，并通过 `.wrap { margin: auto; }` 实现视口上下边距自动均分的垂直+水平双向居中；
+  - 依赖 flexbox `margin: auto` 溢出自适应机制：在小窗口或展开详细步骤日志超出视口时，margin 安全折叠为 0，防止顶部被负向滚动裁切，同时保留顶部对 macOS 38px 拖拽区（交通灯）的避让安全间距。
+
+### English
+
+- Fix desktop remote SSH / gateway connection status view (`gatewayStatusHtml`) not being centered in the window:
+  - Previously, the container only had horizontal centering with a fixed top offset (`padding-top: 46px`), leaving large empty space at the bottom in the 1280x860 default window and high-resolution displays.
+  - Set `body` to `min-height: 100vh; display: flex; flex-direction: column; align-items: center;` and applied `margin: auto` to `.wrap` for balanced vertical and horizontal centering.
+  - Leveraged flexbox `margin: auto` overflow behavior: when window height is small or step details expand beyond the viewport, margin safely collapses to 0 to prevent negative-scroll top clipping, while preserving macOS 38px titlebar drag region and traffic lights clearance.
+
 ## v0.2.22 (2026-10-08)
 
 ### 中文
