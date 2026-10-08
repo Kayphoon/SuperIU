@@ -722,6 +722,7 @@ interface StatusCopy {
   /** `lang` attribute for the status document. */
   htmlLang: string;
   documentTitle: (app: string) => string;
+  modeBadge: { remote: string; gateway: string };
   tagline: { remote: string; gateway: string };
   toneTitle: {
     connectingRemote: string;
@@ -759,6 +760,7 @@ const STATUS_COPY: Record<'zh' | 'en', StatusCopy> = {
   zh: {
     htmlLang: 'zh',
     documentTitle: (app) => `${app} — 状态`,
+    modeBadge: { remote: 'SSH', gateway: '网关' },
     tagline: { remote: '通过 SSH 连接的远程工作区', gateway: '网关工作区' },
     toneTitle: {
       connectingRemote: '正在通过 SSH 连接…',
@@ -802,6 +804,7 @@ const STATUS_COPY: Record<'zh' | 'en', StatusCopy> = {
   en: {
     htmlLang: 'en',
     documentTitle: (app) => `${app} — Status`,
+    modeBadge: { remote: 'SSH', gateway: 'Gateway' },
     tagline: { remote: 'Remote workspace over SSH', gateway: 'Gateway workspace' },
     toneTitle: {
       connectingRemote: 'Connecting over SSH…',
@@ -844,6 +847,27 @@ const STATUS_COPY: Record<'zh' | 'en', StatusCopy> = {
   }
 };
 
+let appIconBase64Cache: string | null = null;
+function getAppIconBase64(): string {
+  if (appIconBase64Cache !== null) return appIconBase64Cache;
+  const candidates = [
+    path.join(HERE, 'views', 'app-icon.png'),
+    path.join(HERE, 'app-icon.png'),
+    path.join(appRoot(), 'src', 'views', 'app-icon.png'),
+    path.join(appRoot(), 'assets', 'icon.png')
+  ];
+  for (const candidate of candidates) {
+    try {
+      if (fs.existsSync(candidate)) {
+        appIconBase64Cache = fs.readFileSync(candidate).toString('base64');
+        return appIconBase64Cache;
+      }
+    } catch {}
+  }
+  appIconBase64Cache = '';
+  return '';
+}
+
 /**
  * Status surface for gateway / remote modes.
  *
@@ -851,10 +875,10 @@ const STATUS_COPY: Record<'zh' | 'en', StatusCopy> = {
  * server — the gateway owns the console, and this process is only its remote
  * workspace. A window still has to exist or the app reads as a headless zombie
  * (and macOS would refuse to focus it), so this renders the connection status as
- * a self-contained, dark/light-aware card: a tone-coded headline (connecting /
- * connected / failed / inactive), explanatory copy, the current SSH step, the
- * connection details, and the local workspace. The raw internal state is kept
- * only in a secondary technical footer.
+ * a self-contained, macOS-native status card: a tone-coded headline (connecting /
+ * connected / failed / inactive), explanatory copy, a vertical step timeline
+ * covering the 7-step deployment lifecycle, connection details, and the local
+ * workspace. The raw internal state is kept in a secondary technical footer.
  *
  * Everything is inline (no external assets or network requests) and every
  * dynamic value is escaped before it reaches the markup.
@@ -913,191 +937,836 @@ function gatewayStatusHtml(
     inactive: { title: copy.toneTitle.inactive, body: copy.toneBody.inactive(APP_NAME) }
   };
 
-  const stepIndex = step ? REMOTE_STEP_ORDER.indexOf(step.id) : -1;
-  const stepFields = step
-    ? `
-      <div class="field">
-        <span class="label">${safe(copy.labels.currentStep)}</span>
-        <span class="value">${safe(copy.steps[step.id] ?? step.id)}</span>
-        <span class="chip chip--${safe(step.status)}">${safe(copy.stepStatus[step.status] ?? step.status)}</span>
-      </div>${
-        stepIndex >= 0
+  const currentStepId = step?.id;
+  let activeStepIndex = currentStepId ? REMOTE_STEP_ORDER.indexOf(currentStepId) : -1;
+
+  if (activeStepIndex < 0 && tone === 'failed') {
+    const match = rawState.match(/failed\s*\(([^)]+)\)/);
+    if (match && REMOTE_STEP_ORDER.includes(match[1] as RemoteStep['id'])) {
+      activeStepIndex = REMOTE_STEP_ORDER.indexOf(match[1] as RemoteStep['id']);
+    } else {
+      activeStepIndex = 0;
+    }
+  } else if (activeStepIndex < 0 && tone === 'connecting') {
+    activeStepIndex = 0;
+  } else if (tone === 'connected') {
+    activeStepIndex = REMOTE_STEP_ORDER.length;
+  }
+
+  const totalSteps = REMOTE_STEP_ORDER.length;
+  const stepProgressIndex = tone === 'connected'
+    ? totalSteps
+    : Math.max(0, activeStepIndex);
+
+  const stepItemsHtml = isRemote
+    ? REMOTE_STEP_ORDER.map((stepId, idx) => {
+        let itemStatus: RemoteStep['status'];
+        if (tone === 'connected') {
+          itemStatus = 'done';
+        } else if (idx < activeStepIndex) {
+          itemStatus = 'done';
+        } else if (idx === activeStepIndex) {
+          itemStatus = tone === 'failed' ? 'failed' : (step?.status ?? 'active');
+        } else {
+          itemStatus = 'pending';
+        }
+
+        const isCurrentOrFailed = idx === activeStepIndex;
+        const detailText = isCurrentOrFailed ? (remote?.detail || step?.detail) : undefined;
+
+        const nodeGlyph = itemStatus === 'done'
+          ? '<i class="icon-check"></i>'
+          : itemStatus === 'active'
+            ? '<span class="node-pulse-dot"></span>'
+            : itemStatus === 'failed'
+              ? '<span class="icon-fail">!</span>'
+              : '<span class="node-pending-dot"></span>';
+
+        const detailHtml = detailText
           ? `
-      <div class="field">
-        <span class="label">${safe(copy.labels.progress)}</span>
-        <span class="value">${safe(copy.progressOf(stepIndex + 1, REMOTE_STEP_ORDER.length))}</span>
-      </div>`
-          : ''
-      }`
+            <div class="step-detail">
+              <div class="step-detail-head">
+                <span class="step-detail-label">${safe(copy.labels.details)}</span>
+              </div>
+              <pre class="step-detail-body">${safe(detailText)}</pre>
+            </div>`
+          : '';
+
+        return `
+        <div class="timeline-step timeline-step--${safe(itemStatus)}">
+          <div class="timeline-node-col">
+            <div class="timeline-node timeline-node--${safe(itemStatus)}" aria-hidden="true">
+              ${nodeGlyph}
+            </div>
+            <div class="timeline-line"></div>
+          </div>
+          <div class="timeline-content">
+            <div class="timeline-header">
+              <span class="timeline-title">${safe(copy.steps[stepId] ?? stepId)}</span>
+              <span class="chip chip--${safe(itemStatus)}">${safe(copy.stepStatus[itemStatus] ?? itemStatus)}</span>
+            </div>
+            ${detailHtml}
+          </div>
+        </div>`;
+      }).join('')
     : '';
 
-  const detailField = remote?.detail
+  const stepCard = isRemote
     ? `
-      <div class="field">
-        <span class="label">${safe(copy.labels.details)}</span>
-        <span class="value detail">${safe(remote.detail)}</span>
-      </div>`
-    : '';
+  <section class="card">
+    <div class="card-header">
+      <h3>${safe(copy.sections.progress)}</h3>
+      <span class="card-badge">${safe(copy.progressOf(Math.min(totalSteps, stepProgressIndex + 1), totalSteps))}</span>
+    </div>
+    <div class="timeline">
+      ${stepItemsHtml}
+    </div>
+  </section>`
+    : remote?.detail
+      ? `
+  <section class="card">
+    <div class="card-header">
+      <h3>${safe(copy.labels.details)}</h3>
+    </div>
+    <div class="step-detail" style="margin-top: 0;">
+      <pre class="step-detail-body">${safe(remote.detail)}</pre>
+    </div>
+  </section>`
+      : '';
 
   // Remote mode shows the ssh alias/workspace; gateway mode shows the endpoint
   // (there is no remote host). Local workspace is always relevant.
   const connectionFields =
     isRemote && config.remote
       ? `
-        <div class="field">
-          <span class="label">${safe(copy.labels.sshHost)}</span>
-          <span class="value"><code>${safe(config.remote.alias)}</code></span>
-        </div>
-        <div class="field">
-          <span class="label">${safe(copy.labels.remoteWorkspace)}</span>
-          <span class="value"><code>${safe(config.remote.workspace)}</code></span>
-        </div>`
+      <div class="field">
+        <span class="label">${safe(copy.labels.sshHost)}</span>
+        <span class="value"><code>${safe(config.remote.alias)}</code></span>
+      </div>
+      <div class="field">
+        <span class="label">${safe(copy.labels.remoteWorkspace)}</span>
+        <span class="value"><code>${safe(config.remote.workspace)}</code></span>
+      </div>`
       : `
-        <div class="field">
-          <span class="label">${safe(copy.labels.gateway)}</span>
-          <span class="value"><code>${safe(config.url ?? '—')}</code></span>
-        </div>`;
+      <div class="field">
+        <span class="label">${safe(copy.labels.gateway)}</span>
+        <span class="value"><code>${safe(config.url ?? '—')}</code></span>
+      </div>`;
 
-  const stepCard =
-    step || remote?.detail
-      ? `
-  <section class="card">
-    <h3>${safe(copy.sections.progress)}</h3>${stepFields}${detailField}
-  </section>`
-      : '';
+  const appIcon = getAppIconBase64();
+  const logoMarkup = appIcon
+    ? `<img class="app-icon" src="data:image/png;base64,${appIcon}" alt="${safe(APP_NAME)}" aria-hidden="true" />`
+    : `<span class="logo" aria-hidden="true">${safe(APP_NAME.slice(0, 1))}</span>`;
+
+  const heroIndicatorGlyph =
+    tone === 'connected'
+      ? '<i class="icon-check-hero"></i>'
+      : tone === 'failed'
+        ? '<span class="icon-fail-hero">!</span>'
+        : tone === 'inactive'
+          ? '<span class="icon-idle-hero"></span>'
+          : '<span class="beacon-ring"></span><span class="beacon-dot"></span>';
 
   return `<!doctype html>
 <html lang="${safe(copy.htmlLang)}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:">
 <title>${safe(copy.documentTitle(APP_NAME))}</title>
 <style>
   :root {
     color-scheme: light dark;
-    --bg: #f5f5f7; --panel: #ffffff; --text: #1d1d1f; --muted: #6e6e73;
-    --border: rgba(0, 0, 0, 0.10); --code-bg: rgba(0, 0, 0, 0.05);
-    --accent: #0a84ff; --ok: #1a9e57; --err: #c9342a; --idle: #8e8e93;
+    --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+    --font-mono: ui-monospace, "SF Mono", Monaco, Menlo, Consolas, monospace;
+
+    /* Light Theme (macOS Vibrancy Under-Window) */
+    --bg-canvas: rgba(246, 246, 248, 0.78);
+    --panel: rgba(255, 255, 255, 0.82);
+    --panel-border: rgba(0, 0, 0, 0.08);
+    --panel-border-subtle: rgba(0, 0, 0, 0.045);
+    --panel-shadow: 0 4px 24px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+
+    --text: #1d1d1f;
+    --muted: #6e6e73;
+    --subtle: #86868b;
+
+    --code-bg: rgba(0, 0, 0, 0.045);
+    --code-border: rgba(0, 0, 0, 0.07);
+    --code-text: #24292f;
+
+    --accent: #0071e3;
+    --accent-subtle: rgba(0, 113, 227, 0.12);
+    --ok: #28cd41;
+    --ok-subtle: rgba(40, 205, 65, 0.12);
+    --err: #ff3b30;
+    --err-subtle: rgba(255, 59, 48, 0.12);
+    --idle: #8e8e93;
+    --idle-subtle: rgba(142, 142, 147, 0.12);
+
+    --track-bg: rgba(0, 0, 0, 0.06);
+    --chip-bg: rgba(0, 0, 0, 0.05);
+    --app-icon-shadow: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.12)) drop-shadow(0 1.5px 3px rgba(0, 0, 0, 0.08));
   }
+
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #1c1c1e; --panel: #2c2c2e; --text: #f5f5f7; --muted: #98989d;
-      --border: rgba(255, 255, 255, 0.12); --code-bg: rgba(255, 255, 255, 0.08);
-      --accent: #0a84ff; --ok: #30d158; --err: #ff453a; --idle: #8e8e93;
+      /* Dark Theme (macOS Vibrancy Under-Window) */
+      --bg-canvas: rgba(26, 26, 30, 0.80);
+      --panel: rgba(38, 38, 44, 0.76);
+      --panel-border: rgba(255, 255, 255, 0.10);
+      --panel-border-subtle: rgba(255, 255, 255, 0.05);
+      --panel-shadow: 0 10px 36px rgba(0, 0, 0, 0.40), 0 1px 2px rgba(0, 0, 0, 0.25);
+
+      --text: #f5f5f7;
+      --muted: #98989d;
+      --subtle: #636366;
+
+      --code-bg: rgba(255, 255, 255, 0.07);
+      --code-border: rgba(255, 255, 255, 0.09);
+      --code-text: #e6edf3;
+
+      --accent: #0a84ff;
+      --accent-subtle: rgba(10, 132, 255, 0.16);
+      --ok: #30d158;
+      --ok-subtle: rgba(48, 209, 88, 0.16);
+      --err: #ff453a;
+      --err-subtle: rgba(255, 69, 58, 0.16);
+      --idle: #8e8e93;
+      --idle-subtle: rgba(142, 142, 147, 0.16);
+
+      --track-bg: rgba(255, 255, 255, 0.08);
+      --chip-bg: rgba(255, 255, 255, 0.08);
+      --app-icon-shadow: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.45)) drop-shadow(0 2px 5px rgba(0, 0, 0, 0.30));
     }
   }
+
   * { box-sizing: border-box; }
-  html, body { margin: 0; min-height: 100%; }
-  body {
-    background: var(--bg); color: var(--text);
-    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
+  body {
+    background: var(--bg-canvas);
+    color: var(--text);
+    font-size: 13.5px;
+    line-height: 1.5;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
   /* hiddenInset chrome: leave the traffic lights clear and keep the window draggable. */
-  .titlebar { position: fixed; inset: 0 0 auto 0; height: 38px; -webkit-app-region: drag; }
+  .titlebar {
+    position: fixed;
+    inset: 0 0 auto 0;
+    height: 38px;
+    -webkit-app-region: drag;
+    z-index: 100;
+  }
+
   .wrap {
-    max-width: 620px; margin: 0 auto; padding: 54px 28px 40px;
-    display: flex; flex-direction: column; gap: 18px;
+    max-width: 540px;
+    margin: 0 auto;
+    padding: 46px 20px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    position: relative;
+    z-index: 1;
   }
-  .head { display: flex; align-items: center; gap: 12px; }
+
+  /* Header */
+  .head {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 2px 2px;
+  }
+  .app-icon {
+    width: 36px;
+    height: 36px;
+    flex: none;
+    object-fit: contain;
+    filter: var(--app-icon-shadow);
+    -webkit-user-drag: none;
+    user-select: none;
+    pointer-events: none;
+  }
   .logo {
-    width: 40px; height: 40px; flex: none; border-radius: 11px;
-    display: grid; place-items: center; font-size: 20px; font-weight: 600; color: #fff;
-    background: linear-gradient(160deg, #0a84ff, #6a5cff);
+    width: 36px;
+    height: 36px;
+    flex: none;
+    border-radius: 9px;
+    display: grid;
+    place-items: center;
+    font-size: 18px;
+    font-weight: 700;
+    color: #ffffff;
+    background: linear-gradient(135deg, #0a84ff 0%, #5e5ce6 100%);
+    box-shadow: 0 3px 12px rgba(10, 132, 255, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+    user-select: none;
   }
-  .head h1 { margin: 0; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
-  .tagline { margin: 2px 0 0; font-size: 12.5px; color: var(--muted); }
-  .status {
-    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
-    padding: 18px; display: grid; grid-template-columns: auto minmax(0, 1fr);
-    gap: 12px; color: var(--idle);
+  .head-meta {
+    flex: 1;
+    min-width: 0;
   }
-  .status .dot { width: 11px; height: 11px; border-radius: 50%; margin-top: 5px; background: currentColor; }
-  .status h2 { margin: 0; font-size: 16px; font-weight: 600; }
-  .status p { margin: 4px 0 0; color: var(--muted); overflow-wrap: anywhere; }
-  .status--connecting { color: var(--accent); }
-  .status--connected { color: var(--ok); }
-  .status--failed { color: var(--err); }
-  .status--inactive { color: var(--idle); }
-  .status--connecting .dot { animation: pulse 1.4s ease-in-out infinite; }
-  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .head h1 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 650;
+    letter-spacing: -0.015em;
+    line-height: 1.2;
+    color: var(--text);
+  }
+  .mode-badge {
+    font-size: 10.5px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    padding: 1px 7px;
+    border-radius: 999px;
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    color: var(--muted);
+  }
+  .tagline {
+    margin: 2px 0 0;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  /* Status Hero Card */
+  .status-hero {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 13px;
+    padding: 14px 16px;
+    box-shadow: var(--panel-shadow);
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+  }
+  .status-hero--connecting { border-color: rgba(10, 132, 255, 0.28); }
+  .status-hero--connected { border-color: rgba(48, 209, 88, 0.28); }
+  .status-hero--failed { border-color: rgba(255, 69, 58, 0.28); }
+  .status-hero--inactive { border-color: rgba(142, 142, 147, 0.28); }
+
+  .status-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .status-indicator {
+    width: 22px;
+    height: 22px;
+    flex: none;
+    margin-top: 1px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    position: relative;
+  }
+  .status-hero--connecting .status-indicator {
+    background: var(--accent-subtle);
+    color: var(--accent);
+  }
+  .status-hero--connected .status-indicator {
+    background: var(--ok-subtle);
+    color: var(--ok);
+  }
+  .status-hero--failed .status-indicator {
+    background: var(--err-subtle);
+    color: var(--err);
+  }
+  .status-hero--inactive .status-indicator {
+    background: var(--idle-subtle);
+    color: var(--idle);
+  }
+
+  .beacon-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+    position: relative;
+    z-index: 2;
+  }
+  .beacon-ring {
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    border: 1.5px solid currentColor;
+    opacity: 0.6;
+    animation: beacon-pulse 1.8s ease-out infinite;
+  }
+  @keyframes beacon-pulse {
+    0% { transform: scale(0.65); opacity: 0.9; }
+    50% { transform: scale(1.25); opacity: 0.15; }
+    100% { transform: scale(0.65); opacity: 0.9; }
+  }
+
+  .icon-check-hero {
+    display: block;
+    width: 4px;
+    height: 9px;
+    border: solid currentColor;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    margin-top: -2px;
+  }
+  .icon-fail-hero {
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .icon-idle-hero {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  .status-content {
+    flex: 1;
+    min-width: 0;
+  }
+  .status-hero h2 {
+    margin: 0;
+    font-size: 14.5px;
+    font-weight: 650;
+    letter-spacing: -0.01em;
+    line-height: 1.3;
+  }
+  .status-hero--connecting h2 { color: var(--accent); }
+  .status-hero--connected h2 { color: var(--ok); }
+  .status-hero--failed h2 { color: var(--err); }
+  .status-hero--inactive h2 { color: var(--idle); }
+
+  .status-hero p {
+    margin: 3px 0 0;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+  }
+
+  /* Progress track */
   .track {
-    grid-column: 1 / -1; height: 4px; margin-top: 6px; border-radius: 999px;
-    background: var(--code-bg); overflow: hidden;
+    height: 3.5px;
+    border-radius: 999px;
+    background: var(--track-bg);
+    overflow: hidden;
+    position: relative;
   }
-  .track > i {
-    display: block; height: 100%; width: 38%; border-radius: 999px;
-    background: currentColor; animation: slide 1.4s ease-in-out infinite;
+  .track-fill {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: currentColor;
   }
-  @keyframes slide { 0% { transform: translateX(-110%); } 100% { transform: translateX(300%); } }
-  .status--connected .track > i,
-  .status--failed .track > i,
-  .status--inactive .track > i { width: 100%; animation: none; }
-  @media (prefers-reduced-motion: reduce) {
-    .status--connecting .dot { animation: none; }
-    .track > i { animation: none; width: 100%; opacity: 0.5; }
+  .status-hero--connecting .track-fill {
+    width: 38%;
+    background: linear-gradient(90deg, transparent, var(--accent) 50%, transparent);
+    animation: indeterminate 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   }
-  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; }
+  .status-hero--connected .track-fill {
+    width: 100%;
+    background: var(--ok);
+  }
+  .status-hero--failed .track-fill {
+    width: 100%;
+    background: var(--err);
+  }
+  .status-hero--inactive .track-fill {
+    width: 100%;
+    background: var(--idle);
+    opacity: 0.35;
+  }
+  @keyframes indeterminate {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(280%); }
+  }
+
+  /* Card */
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 13px;
+    padding: 12px 16px;
+    box-shadow: var(--panel-shadow);
+    backdrop-filter: blur(24px) saturate(180%);
+    -webkit-backdrop-filter: blur(24px) saturate(180%);
+  }
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 9px;
+  }
   .card h3 {
-    margin: 0 0 10px; font-size: 11px; font-weight: 600; text-transform: uppercase;
-    letter-spacing: 0.06em; color: var(--muted);
+    margin: 0;
+    font-size: 11px;
+    font-weight: 650;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--muted);
   }
-  .field { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; padding: 5px 0; }
-  .field + .field { border-top: 1px solid var(--border); }
-  .label { flex: none; min-width: 96px; font-size: 12.5px; color: var(--muted); }
-  .value { flex: 1 1 180px; min-width: 0; font-weight: 500; overflow-wrap: anywhere; }
+  .card-badge {
+    font-size: 11px;
+    font-weight: 550;
+    color: var(--muted);
+    background: var(--chip-bg);
+    padding: 1.5px 7px;
+    border-radius: 999px;
+  }
+
+  /* Timeline */
+  .timeline {
+    display: flex;
+    flex-direction: column;
+    padding: 1px 0;
+  }
+  .timeline-step {
+    display: flex;
+    align-items: flex-start;
+    gap: 11px;
+    position: relative;
+    padding: 4px 0;
+  }
+  .timeline-step:first-child { padding-top: 1px; }
+  .timeline-step:last-child { padding-bottom: 1px; }
+
+  .timeline-node-col {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: none;
+    width: 18px;
+  }
+  .timeline-node {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--panel);
+    border: 1.5px solid var(--panel-border);
+    position: relative;
+    z-index: 2;
+  }
+  .timeline-node--done {
+    background: var(--ok-subtle);
+    border-color: var(--ok);
+    color: var(--ok);
+  }
+  .timeline-node--active {
+    background: var(--accent-subtle);
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-subtle);
+  }
+  .timeline-node--failed {
+    background: var(--err-subtle);
+    border-color: var(--err);
+    color: var(--err);
+  }
+  .timeline-node--pending {
+    background: transparent;
+    border-color: var(--panel-border-subtle);
+  }
+
+  .icon-check {
+    display: block;
+    width: 3px;
+    height: 6.5px;
+    border: solid currentColor;
+    border-width: 0 1.5px 1.5px 0;
+    transform: rotate(45deg);
+    margin-top: -1.5px;
+  }
+  .node-pulse-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: node-pulse 1.4s ease-in-out infinite;
+  }
+  @keyframes node-pulse {
+    0%, 100% { transform: scale(0.8); opacity: 1; }
+    50% { transform: scale(1.25); opacity: 0.6; }
+  }
+  .icon-fail {
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1;
+  }
+  .node-pending-dot {
+    width: 3.5px;
+    height: 3.5px;
+    border-radius: 50%;
+    background: var(--muted);
+    opacity: 0.35;
+  }
+
+  .timeline-line {
+    position: absolute;
+    top: 16px;
+    bottom: -8px;
+    left: 7px;
+    width: 2px;
+    background: var(--panel-border);
+    z-index: 1;
+  }
+  .timeline-step--done .timeline-line {
+    background: var(--ok);
+    opacity: 0.6;
+  }
+  .timeline-step:last-child .timeline-line {
+    display: none;
+  }
+
+  .timeline-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-top: 0px;
+  }
+  .timeline-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .timeline-title {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--text);
+  }
+  .timeline-step--done .timeline-title {
+    opacity: 0.85;
+  }
+  .timeline-step--active .timeline-title {
+    font-weight: 650;
+    color: var(--text);
+  }
+  .timeline-step--failed .timeline-title {
+    font-weight: 650;
+    color: var(--err);
+  }
+  .timeline-step--pending .timeline-title {
+    color: var(--muted);
+    opacity: 0.55;
+    font-weight: 400;
+  }
+
+  /* Chips */
   .chip {
-    flex: none; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px;
-    background: var(--code-bg); color: var(--muted);
+    flex: none;
+    font-size: 10.5px;
+    font-weight: 550;
+    padding: 1px 6.5px;
+    border-radius: 999px;
+    background: var(--chip-bg);
+    color: var(--muted);
+    line-height: 1.4;
   }
-  .chip--active { color: var(--accent); }
-  .chip--done { color: var(--ok); }
-  .chip--failed { color: var(--err); }
+  .chip--active {
+    background: var(--accent-subtle);
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .chip--done {
+    background: var(--ok-subtle);
+    color: var(--ok);
+  }
+  .chip--failed {
+    background: var(--err-subtle);
+    color: var(--err);
+    font-weight: 600;
+  }
+  .chip--pending {
+    opacity: 0.55;
+  }
+
+  /* Step Detail */
+  .step-detail {
+    margin-top: 5px;
+    border-radius: 8px;
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    overflow: hidden;
+    -webkit-app-region: no-drag;
+  }
+  .step-detail-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 8px;
+    border-bottom: 1px solid var(--code-border);
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .step-detail-body {
+    margin: 0;
+    padding: 6px 8px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--code-text);
+    max-height: 7.5em;
+    overflow-y: auto;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+    -webkit-user-select: text;
+    user-select: text;
+  }
+  .step-detail-body::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .step-detail-body::-webkit-scrollbar-thumb {
+    background: var(--panel-border);
+    border-radius: 999px;
+  }
+
+  /* Fields List */
+  .fields-list {
+    display: flex;
+    flex-direction: column;
+  }
+  .field {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 5px 0;
+    gap: 10px;
+  }
+  .field + .field {
+    border-top: 1px solid var(--panel-border-subtle);
+  }
+  .label {
+    flex: none;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .value {
+    min-width: 0;
+    display: flex;
+    justify-content: flex-end;
+  }
   code {
-    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px;
-    background: var(--code-bg); padding: 2px 6px; border-radius: 6px;
-    overflow-wrap: anywhere; word-break: break-word;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    background: var(--code-bg);
+    border: 1px solid var(--code-border);
+    color: var(--code-text);
+    padding: 2px 6px;
+    border-radius: 6px;
+    overflow-wrap: anywhere;
+    word-break: break-all;
+    -webkit-user-select: text;
+    user-select: text;
   }
-  .tech { font-size: 11.5px; color: var(--muted); text-align: center; overflow-wrap: anywhere; }
-  /*
-   * A failed step's detail is raw upstream output — an ssh error, or the whole
-   * multi-line probe script echoed back by a non-zero exit. Cap it so a long
-   * message cannot push the status cards off-screen; the full text stays
-   * reachable by scrolling the block (and by selecting it).
-   */
-  .value.detail {
-    max-height: 7.5em; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-    font-size: 12px; font-weight: 400; line-height: 1.45;
-    background: var(--code-bg); border-radius: 8px; padding: 6px 8px;
-    -webkit-user-select: text; user-select: text;
+
+  /* Footer */
+  .tech {
+    font-size: 10.5px;
+    color: var(--muted);
+    text-align: center;
+    padding: 2px 0;
+    opacity: 0.85;
   }
-  .value.detail::-webkit-scrollbar { width: 8px; }
-  .value.detail::-webkit-scrollbar-thumb { background: var(--border); border-radius: 999px; }
-  /*
-   * Compact mode for short viewports (remote mode's status window is 540x600).
-   * Only the vertical rhythm and type scale shrink: the full-size layout above
-   * is untouched at >=760px height, long paths still wrap (see .value and code),
-   * and the palette / motion rules above keep applying.
-   */
+  .tech code {
+    font-size: 10.5px;
+    padding: 1px 5px;
+  }
+
+  /* Motion */
+  @media (prefers-reduced-motion: reduce) {
+    .beacon-ring, .beacon-dot, .node-pulse-dot {
+      animation: none !important;
+    }
+    .status-hero--connecting .track-fill {
+      animation: none !important;
+      width: 100%;
+      opacity: 0.5;
+    }
+  }
+
+  /* Compact Mode */
   @media (max-height: 760px) {
-    .wrap { max-width: 560px; padding: 40px 18px 14px; gap: 8px; }
-    .head { gap: 10px; }
-    .logo { width: 28px; height: 28px; border-radius: 8px; font-size: 14px; }
-    .head h1 { font-size: 15px; }
-    .tagline { margin-top: 1px; font-size: 11px; }
-    .status { padding: 11px 13px; gap: 10px; border-radius: 12px; }
-    .status h2 { font-size: 14.5px; }
-    .status p { margin-top: 3px; font-size: 12px; }
-    .track { margin-top: 4px; }
-    .card { padding: 9px 13px; border-radius: 12px; }
-    .card h3 { margin-bottom: 5px; font-size: 10.5px; }
-    .field { padding: 2px 0; gap: 2px 8px; }
-    .label { min-width: 84px; font-size: 11.5px; }
-    .value { flex-basis: 140px; font-size: 12.5px; }
-    .chip { font-size: 10.5px; padding: 1px 7px; }
-    code { font-size: 11.5px; padding: 1px 5px; }
-    .tech { font-size: 10.5px; }
+    .wrap {
+      padding: 38px 16px 16px;
+      gap: 9px;
+    }
+    .head {
+      gap: 10px;
+    }
+    .app-icon {
+      width: 30px;
+      height: 30px;
+    }
+    .logo {
+      width: 30px;
+      height: 30px;
+      font-size: 15px;
+      border-radius: 7.5px;
+    }
+    .head h1 {
+      font-size: 14.5px;
+    }
+    .tagline {
+      font-size: 11px;
+    }
+    .status-hero {
+      padding: 10px 13px;
+      gap: 8px;
+      border-radius: 11px;
+    }
+    .status-hero h2 {
+      font-size: 13.5px;
+    }
+    .status-hero p {
+      font-size: 11.5px;
+    }
+    .card {
+      padding: 9px 13px;
+      border-radius: 11px;
+    }
+    .card-header {
+      margin-bottom: 7px;
+    }
+    .timeline-step {
+      padding: 3px 0;
+    }
+    .timeline-title {
+      font-size: 12px;
+    }
+    .field {
+      padding: 3.5px 0;
+    }
+    .label {
+      font-size: 11.5px;
+    }
+    code {
+      font-size: 11px;
+    }
   }
 </style>
 </head>
@@ -1105,30 +1774,46 @@ function gatewayStatusHtml(
 <div class="titlebar" aria-hidden="true"></div>
 <main class="wrap">
   <header class="head">
-    <span class="logo" aria-hidden="true">${safe(APP_NAME.slice(0, 1))}</span>
-    <div>
-      <h1>${safe(APP_NAME)}</h1>
+    ${logoMarkup}
+    <div class="head-meta">
+      <div class="title-row">
+        <h1>${safe(APP_NAME)}</h1>
+        <span class="mode-badge">${safe(isRemote ? copy.modeBadge.remote : copy.modeBadge.gateway)}</span>
+      </div>
       <p class="tagline">${safe(isRemote ? copy.tagline.remote : copy.tagline.gateway)}</p>
     </div>
   </header>
 
-  <section class="status status--${tone}" role="status">
-    <span class="dot" aria-hidden="true"></span>
-    <div class="status-text">
-      <h2>${safe(toneText[tone].title)}</h2>
-      <p>${safe(toneText[tone].body)}</p>
+  <section class="status-hero status-hero--${tone}" role="status">
+    <div class="status-row">
+      <div class="status-indicator" aria-hidden="true">
+        ${heroIndicatorGlyph}
+      </div>
+      <div class="status-content">
+        <h2>${safe(toneText[tone].title)}</h2>
+        <p>${safe(toneText[tone].body)}</p>
+      </div>
     </div>
-    <div class="track" aria-hidden="true"><i></i></div>
+    <div class="track" aria-hidden="true"><span class="track-fill"></span></div>
   </section>
 ${stepCard}
   <section class="card">
-    <h3>${safe(copy.sections.connection)}</h3>${connectionFields}
+    <div class="card-header">
+      <h3>${safe(copy.sections.connection)}</h3>
+    </div>
+    <div class="fields-list">
+      ${connectionFields}
+    </div>
   </section>
 
   <section class="card">
-    <h3>${safe(copy.sections.localWorkspace)}</h3>
-    <div class="field">
-      <span class="value"><code>${safe(config.workspaceRoot)}</code></span>
+    <div class="card-header">
+      <h3>${safe(copy.sections.localWorkspace)}</h3>
+    </div>
+    <div class="fields-list">
+      <div class="field">
+        <span class="value"><code>${safe(config.workspaceRoot)}</code></span>
+      </div>
     </div>
   </section>
 
