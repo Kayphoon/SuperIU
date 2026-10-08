@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.21 (2026-10-08)
+
+### 中文
+
+- 桌面端与无头服务端升级均支持**增量（差分）下载**：常规更新只传输变化的部分，不再每次拉取整个安装包。
+- 桌面端（macOS）发布时在 zip 旁同时上传 `<zip>.blockmap`（64 KiB 固定分块 + 每块 sha256）；客户端把上一次下载的 zip 缓存为临时目录下的 `superiu-base.zip`，按块哈希比对后用 HTTP `Range` 只拉取缺失块并在本地拼装，随后仍走既有的 `ditto -x -k` 解压与 `replaceBundle` 原子换装，代码签名与 Gatekeeper 校验完全不变。映射缺失、缓存缺失、服务端不支持 `Range`（返回 200 而非 206）或拼装后 sha256 校验失败都会自动回退为全量下载。
+- 无头服务端发布时在二进制旁同时上传 `<binary>.patch`（内容定义分块 + COPY/INSERT 指令，gzip 压缩，78 字节明文头部）；`superiu-server update` 与空闲自动更新会先以 78 字节 `Range` 请求读取补丁头部，只有本机二进制的 sha256 与补丁记录的源一致时才下载补丁并在本地重建，重建结果再经既有的二进制 `version` 自检与版本比较。来源不匹配、补丁损坏或任何其他失败都回退为全量下载。
+- 增量下载是纯流量优化：任一环节不可用时，行为与升级前完全一致。
+
+### English
+
+- Both the desktop and the headless server can now upgrade **differentially**: a routine update transfers only what changed instead of the whole package.
+- The macOS release publishes a `<zip>.blockmap` beside the zip (fixed 64 KiB chunks, one sha256 per chunk). The client caches the previously downloaded zip as `superiu-base.zip` in its temp directory, matches chunks by hash, fetches only the missing byte ranges with HTTP `Range`, and stitches them into the new archive locally — after which the existing `ditto -x -k` unpack and `replaceBundle` atomic swap run unchanged, so code signing and Gatekeeper verification are unaffected. A missing map, a missing cache, a server that ignores `Range` (200 instead of 206), or a failed post-assembly sha256 check all fall back to the full download.
+- The server release publishes a `<binary>.patch` beside the binary (content-defined chunking with COPY/INSERT commands, gzip-compressed, 78-byte plaintext header). `superiu-server update` and the idle auto-update first read that header with a 78-byte `Range` request, download the patch only when the on-disk binary's sha256 matches the recorded source, rebuild locally, and then run the existing binary `version` self-check and version comparison. A source mismatch, a corrupt patch, or any other failure falls back to the full download.
+- Differential transfer is a pure traffic optimization: whenever any part of it is unavailable, behaviour is identical to before.
+
 ## v0.2.20 (2026-10-08)
 
 ### 中文
