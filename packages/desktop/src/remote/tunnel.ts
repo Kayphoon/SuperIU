@@ -15,6 +15,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import net from 'node:net';
+import { sshControlArgs } from './ssh_control.js';
 
 /** Lifecycle state of a tunnel. */
 export type SshTunnelState =
@@ -40,6 +41,12 @@ export interface SshTunnelOpenOptions {
   localPort: number;
   /** Port on the remote host to forward to (bound to 127.0.0.1 remotely). */
   remotePort: number;
+  /**
+   * Absolute path to a remote Unix domain socket to forward to instead of
+   * `127.0.0.1:remotePort` (OpenSSH StreamLocalForward). When set, `remotePort`
+   * is ignored.
+   */
+  remoteSocketPath?: string;
 }
 
 /** Result of {@link SshTunnelManager.open}. */
@@ -275,10 +282,19 @@ export class SshTunnelManager extends EventEmitter {
 
   /** Build the ssh argument list (excluding the target). */
   private buildArgs(options: SshTunnelOpenOptions, localPort: number): string[] {
+    // A remote Unix socket is forwarded with OpenSSH's StreamLocalForward form
+    // (`-L <localPort>:<remoteSocketPath>`); otherwise use the classic
+    // `-L <localPort>:127.0.0.1:<remotePort>`.
+    const forward = options.remoteSocketPath
+      ? `${localPort}:${options.remoteSocketPath}`
+      : `${localPort}:127.0.0.1:${options.remotePort}`;
     const args = [
+      // Reuse the authenticated ControlMaster connection opened by the
+      // bootstrap commands (and vice versa) instead of a fresh handshake.
+      ...sshControlArgs(),
       '-N',
       '-L',
-      `${localPort}:127.0.0.1:${options.remotePort}`,
+      forward,
       // When a user has other unrelated LocalForward entries in ~/.ssh/config
       // that fail to bind locally, ExitOnForwardFailure=yes would prematurely
       // abort this dedicated tunnel. Since we probe readiness ourselves via

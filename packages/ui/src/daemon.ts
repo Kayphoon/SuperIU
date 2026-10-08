@@ -44,6 +44,7 @@ Commands:
 Options:
   --port <n>        Port to bind (start). Default: $PORT or 3000; 0 = ephemeral
   --host <h>        Interface to bind (start). Default: $HOST or 127.0.0.1
+  --socket <path>   Listen on a Unix domain socket instead of --port/--host (start)
   --token <t>       Gateway token (start). Default: $SUPERIU_GATEWAY_TOKEN or random
   --workspace <dir> Workspace root owning .superiu/. Default: current directory
   -h, --help        Show this help
@@ -86,6 +87,8 @@ interface ParsedArgs {
   command: string | undefined;
   port?: number;
   host?: string;
+  /** `--socket <path>`: listen on a Unix domain socket instead of TCP. */
+  socketPath?: string;
   token?: string;
   workspace?: string;
   /** Periodically update from GitHub Releases when idle. */
@@ -178,6 +181,12 @@ function parseArgs(argv: string[]): ParsedArgs {
         const value = takeValue();
         if (!value) throw new UsageError('Missing value for --host');
         parsed.host = value;
+        break;
+      }
+      case '--socket': {
+        const value = takeValue();
+        if (!value) throw new UsageError('Missing value for --socket');
+        parsed.socketPath = value;
         break;
       }
       case '--token': {
@@ -482,6 +491,8 @@ interface DaemonState {
   port: number;
   host: string;
   url: string;
+  /** Absolute Unix domain socket path when the daemon listens on one. */
+  socketPath?: string;
   gatewayUrl?: string;
   /** Absolute workspace root owning the `.superiu/` state directory. */
   workspace: string;
@@ -713,6 +724,8 @@ function readState(workspace: string): DaemonState | null {
     port: typeof record.port === 'number' ? record.port : 0,
     host: typeof record.host === 'string' ? record.host : '127.0.0.1',
     url: typeof record.url === 'string' ? record.url : '',
+    // Absent in a state file written by a build predating socket support.
+    socketPath: typeof record.socketPath === 'string' && record.socketPath ? record.socketPath : undefined,
     gatewayUrl: typeof record.gatewayUrl === 'string' ? record.gatewayUrl : undefined,
     // Absent in a state file written by a pre-`workspace` build: default to the
     // directory the file was read from so the field is never empty.
@@ -887,8 +900,8 @@ async function commandStart(parsed: ParsedArgs): Promise<number> {
   const publicDir = await materializeEmbeddedAssets();
 
   const handle = await startServer({
-    port,
-    host,
+    // In socket mode `port`/`host` are ignored, so pass only the socket path.
+    ...(parsed.socketPath ? { socketPath: parsed.socketPath } : { port, host }),
     workspaceDir: workspace,
     gatewayToken: token,
     quiet: true,
@@ -903,6 +916,7 @@ async function commandStart(parsed: ParsedArgs): Promise<number> {
     port: handle.port,
     host: handle.host,
     url: handle.url,
+    socketPath: handle.socketPath,
     gatewayUrl: handle.gatewayUrl,
     workspace,
     token,
@@ -990,6 +1004,7 @@ async function commandStart(parsed: ParsedArgs): Promise<number> {
     port: handle.port,
     host: handle.host,
     url: handle.url,
+    socketPath: handle.socketPath,
     gatewayUrl: handle.gatewayUrl,
     token,
     version
@@ -1002,6 +1017,7 @@ async function commandStart(parsed: ParsedArgs): Promise<number> {
       port: handle.port,
       host: handle.host,
       url: handle.url,
+      socketPath: handle.socketPath,
       gatewayUrl: handle.gatewayUrl,
       token,
       version
@@ -1031,6 +1047,7 @@ function commandStatus(parsed: ParsedArgs): number {
     port: state.port,
     host: state.host,
     url: state.url,
+    socketPath: state.socketPath,
     gatewayUrl: state.gatewayUrl,
     workspace: state.workspace,
     version: state.version,
@@ -1224,8 +1241,12 @@ function restartDaemon(target: string, state: DaemonState): void {
   // that actually carry a value are passed; the daemon then falls back to its
   // own defaults for the rest.
   const args = ['start'];
-  if (state.port > 0) args.push('--port', String(state.port));
-  if (state.host) args.push('--host', state.host);
+  if (state.socketPath) {
+    args.push('--socket', state.socketPath);
+  } else {
+    if (state.port > 0) args.push('--port', String(state.port));
+    if (state.host) args.push('--host', state.host);
+  }
   if (state.token) args.push('--token', state.token);
   args.push('--workspace', state.workspace);
   // Same replay rule as the detached respawn: losing the base here would make
@@ -1296,8 +1317,12 @@ export function restartDaemonDetached(target: string, state: DaemonState, seams:
   // Same replay rules as `restartDaemon`: only flags that actually carry a value
   // are passed, so a state file from an older build cannot fail the restart.
   const args = ['start'];
-  if (state.port > 0) args.push('--port', String(state.port));
-  if (state.host) args.push('--host', state.host);
+  if (state.socketPath) {
+    args.push('--socket', state.socketPath);
+  } else {
+    if (state.port > 0) args.push('--port', String(state.port));
+    if (state.host) args.push('--host', state.host);
+  }
   if (state.token) args.push('--token', state.token);
   args.push('--workspace', state.workspace);
   // The respawned process starts with a clean argv, so the auto-update settings

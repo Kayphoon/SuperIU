@@ -7,11 +7,20 @@
  * `--no-auto-update-idle`, `undefined` must emit neither flag, and a running
  * daemon whose persisted value disagrees with an explicit request must be
  * stopped and started again with the requested flag.
+ *
+ * Also covered: the socket transport. When the remote binary advertises
+ * `--socket`, the daemon is started on a workspace-local Unix socket and the
+ * tunnel forwards to that socket instead of a TCP port; when it does not, the
+ * original `--port`/`127.0.0.1` behaviour is unchanged.
  */
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { RemoteBootstrapper, type RemoteRunner, type RemoteRunResult } from '../src/remote/bootstrap.js';
 import { RemoteConnectionManager } from '../src/remote/manager.js';
+import { sshControlArgs } from '../src/remote/ssh_control.js';
 
 const ok = (stdout = ''): RemoteRunResult => ({ stdout, stderr: '', exitCode: 0 });
 
@@ -19,22 +28,47 @@ const ok = (stdout = ''): RemoteRunResult => ({ stdout, stderr: '', exitCode: 0 
  * A recording runner that answers the commands the bootstrapper/manager issue.
  * `serverState` is the JSON the fake `server.json` reports, so a test can put a
  * daemon "in flight" with a specific persisted `autoUpdateIdle`.
+ *
+ * `socketSupport` controls the probe's `SOCKET_SUPPORT` line and, when enabled,
+ * makes `status` report a Unix socket (and no TCP port) so the manager adopts
+ * the socket transport.
  */
-function makeRecorder(serverState?: Record<string, unknown>): {
+function makeRecorder(
+  serverState?: Record<string, unknown>,
+  opts: { socketSupport?: boolean; statusRunning?: boolean } = {},
+): {
   runner: RemoteRunner;
   commands: string[];
 } {
+  const socketSupport = opts.socketSupport === true;
+  let running = opts.statusRunning !== false;
   const commands: string[] = [];
   const runner: RemoteRunner = async (_alias, cmd) => {
     commands.push(cmd);
     if (cmd.includes('printf "OS=')) {
-      return ok('OS=Linux\nARCH=x86_64\nHOME=/home/u\nINSTALLED=1\nVERSION={"version":"1.0.0"}\nRUNNING=1\n');
+      return ok(
+        'OS=Linux\nARCH=x86_64\nHOME=/home/u\nINSTALLED=1\nVERSION={"version":"1.0.0"}\n' +
+          `RUNNING=1\nSOCKET_SUPPORT=${socketSupport ? '1' : '0'}\n`,
+      );
     }
     if (cmd.includes('server.json')) {
       return ok(serverState ? `${JSON.stringify(serverState)}\n` : '');
     }
+    // The launch command embeds its own `status --workspace` probe, so the start
+    // must be matched first: a started daemon then reports running to the poll.
+    if (cmd.includes('setsid nohup') || cmd.includes('systemctl --user restart')) {
+      running = true;
+      return ok('');
+    }
     if (cmd.includes(' stop --workspace')) return ok('{"stopped":true}\n');
-    if (cmd.includes('status --workspace')) return ok('{"running":true,"port":7345}\n');
+    if (cmd.includes('status --workspace')) {
+      if (!running) return ok('{"running":false}\n');
+      return ok(
+        socketSupport
+          ? '{"running":true,"socketPath":"/w/.superiu/server.sock"}\n'
+          : '{"running":true,"port":7345}\n',
+      );
+    }
     return ok('');
   };
   return { runner, commands };
@@ -48,6 +82,33 @@ function launchArgv(commands: string[]): string {
   const start = launch!.lastIndexOf(bin) + bin.length;
   const end = launch!.indexOf(' </dev/null');
   return launch!.slice(start, end);
+}
+
+/** A manager wired to a fake tunnel/gateway, recording the tunnel's open options. */
+function makeManager(
+  serverState: Record<string, unknown> | undefined,
+  opts: { socketSupport?: boolean; statusRunning?: boolean } = {},
+): {
+  manager: RemoteConnectionManager;
+  commands: string[];
+  openCalls: Array<Record<string, unknown>>;
+} {
+  const { runner, commands } = makeRecorder(serverState, opts);
+  const bootstrapper = new RemoteBootstrapper(runner);
+  const openCalls: Array<Record<string, unknown>> = [];
+  const manager = new RemoteConnectionManager({
+    bootstrapper,
+    tunnel: {
+      open: async (o: Record<string, unknown>) => {
+        openCalls.push(o);
+        return { localPort: 51234 };
+      },
+    } as never,
+    gatewayClientFactory: () => ({ connect() {}, close() {} }) as never,
+    // Keep the readiness probe off the network in unit tests.
+    probeReadyz: async () => {},
+  });
+  return { manager, commands, openCalls };
 }
 
 describe('RemoteBootstrapper.start argv', () => {
@@ -106,17 +167,6 @@ describe('RemoteBootstrapper.start argv', () => {
 });
 
 describe('RemoteConnectionManager.ensureDaemon apply-on-change', () => {
-  function makeManager(serverState: Record<string, unknown> | undefined) {
-    const { runner, commands } = makeRecorder(serverState);
-    const bootstrapper = new RemoteBootstrapper(runner);
-    const manager = new RemoteConnectionManager({
-      bootstrapper,
-      tunnel: { open: async () => ({ localPort: 51234 }) } as never,
-      gatewayClientFactory: () => ({ connect() {}, close() {} }) as never,
-    });
-    return { manager, commands };
-  }
-
   it('stops and restarts with --no-auto-update-idle when the running daemon has it on', async () => {
     const { manager, commands } = makeManager({
       running: true,
@@ -224,6 +274,8 @@ describe('RemoteConnectionManager daemon staleness upgrade', () => {
       bootstrapper: new RemoteBootstrapper(runner),
       tunnel: { open: async () => ({ localPort: 51234 }) } as never,
       gatewayClientFactory: () => ({ connect() {}, close() {} }) as never,
+      // Keep the readiness probe off the network in unit tests.
+      probeReadyz: async () => {},
     });
     return { manager, commands };
   }
@@ -288,6 +340,8 @@ describe('RemoteConnectionManager daemon staleness upgrade', () => {
       bootstrapper: new RemoteBootstrapper(runner),
       tunnel: { open: async () => ({ localPort: 51234 }) } as never,
       gatewayClientFactory: () => ({ connect() {}, close() {} }) as never,
+      // Keep the readiness probe off the network in unit tests.
+      probeReadyz: async () => {},
     });
 
     const result = await manager.connect({
@@ -314,10 +368,144 @@ describe('RemoteConnectionManager daemon staleness upgrade', () => {
       bootstrapper: new RemoteBootstrapper(runner),
       tunnel: { open: async () => ({ localPort: 51234 }) } as never,
       gatewayClientFactory: () => ({ connect() {}, close() {} }) as never,
+      // Keep the readiness probe off the network in unit tests.
+      probeReadyz: async () => {},
     });
 
     await expect(
       manager.connect({ alias: 'host', workspace: '/w', daemonTargetVersion: '0.2.18' }),
     ).rejects.toThrow(/Install failed/);
+  });
+});
+
+describe('RemoteConnectionManager socket transport', () => {
+  it('starts with --socket and forwards to the remote socket when supported', async () => {
+    const { manager, commands, openCalls } = makeManager(undefined, {
+      socketSupport: true,
+      statusRunning: false,
+    });
+    await manager.connect({ alias: 'host', workspace: '/w' });
+
+    const argv = launchArgv(commands);
+    expect(argv).toContain('--socket');
+    expect(argv).not.toContain('--port');
+    // The path is single-quoted for the remote shell (and escaped once more by
+    // the outer `sh -c` wrapper), so assert on the path itself.
+    expect(argv).toContain('/w/.superiu/server.sock');
+
+    expect(openCalls).toHaveLength(1);
+    expect(openCalls[0].remoteSocketPath).toBe('/w/.superiu/server.sock');
+  });
+
+  it('keeps the TCP port transport when the binary does not support sockets', async () => {
+    const { manager, commands, openCalls } = makeManager(undefined, {
+      socketSupport: false,
+      statusRunning: false,
+    });
+    await manager.connect({ alias: 'host', workspace: '/w' });
+
+    const argv = launchArgv(commands);
+    expect(argv).toContain('--port');
+    expect(argv).not.toContain('--socket');
+    expect(openCalls[0].remoteSocketPath).toBeUndefined();
+  });
+
+  it('adopts a running socket-mode daemon without restarting it', async () => {
+    // Regression: a socket daemon reports `port: 0`, so a port-only liveness
+    // check skipped adoption and re-entered start(), losing the persisted token.
+    const { manager, commands, openCalls } = makeManager(
+      { running: true, socketPath: '/w/.superiu/server.sock', token: 'tok-abc', workspace: '/w' },
+      { socketSupport: true },
+    );
+    await manager.connect({ alias: 'host', workspace: '/w' });
+
+    expect(commands.some((cmd) => cmd.includes(' stop --workspace'))).toBe(false);
+    expect(commands.some((cmd) => cmd.includes('setsid nohup'))).toBe(false);
+    expect(openCalls[0].remoteSocketPath).toBe('/w/.superiu/server.sock');
+  });
+
+  it('starts an upgraded daemon on a socket after refreshing the probe', async () => {
+    // The pre-install probe sees the old, socket-less binary; the install lands
+    // the target build, so a fresh probe must report socket support or the new
+    // daemon would be started in port mode and adopted there forever.
+    const commands: string[] = [];
+    let installedVersion = '0.1.0';
+    let socketSupport = false;
+    let running = false;
+    let pendingInstall = false;
+    const runner: RemoteRunner = async (_alias, cmd) => {
+      commands.push(cmd);
+      if (cmd.includes('printf "OS=')) {
+        return ok(
+          `OS=Linux\nARCH=x86_64\nHOME=/home/u\nINSTALLED=1\nVERSION={"version":"${installedVersion}"}\n` +
+            `RUNNING=${running ? 1 : 0}\nSOCKET_SUPPORT=${socketSupport ? 1 : 0}\n`,
+        );
+      }
+      if (cmd.includes('server.json')) return ok('');
+      // The install script embeds a `stop --workspace` prelude, so match the
+      // download first or the whole install is mistaken for a bare stop.
+      if (cmd.includes('curl -fsSL')) {
+        pendingInstall = true;
+        return ok('');
+      }
+      if (cmd.includes('/superiu-server version')) {
+        if (pendingInstall) {
+          installedVersion = '0.2.20';
+          socketSupport = true;
+          pendingInstall = false;
+        }
+        return ok(`{"version":"${installedVersion}"}\n`);
+      }
+      if (cmd.includes('setsid nohup') || cmd.includes('systemctl --user restart')) {
+        running = true;
+        return ok('');
+      }
+      if (cmd.includes(' stop --workspace')) {
+        running = false;
+        return ok('{"stopped":true}\n');
+      }
+      if (cmd.includes('status --workspace')) {
+        if (!running) return ok('{"running":false}\n');
+        return ok(
+          socketSupport
+            ? '{"running":true,"socketPath":"/w/.superiu/server.sock"}\n'
+            : '{"running":true,"port":7345}\n',
+        );
+      }
+      return ok('');
+    };
+    const manager = new RemoteConnectionManager({
+      bootstrapper: new RemoteBootstrapper(runner),
+      tunnel: { open: async () => ({ localPort: 51234 }) } as never,
+      gatewayClientFactory: () => ({ connect() {}, close() {} }) as never,
+      probeReadyz: async () => {},
+    });
+
+    await manager.connect({ alias: 'host', workspace: '/w', daemonTargetVersion: '0.2.20' });
+
+    const argv = launchArgv(commands);
+    expect(argv).toContain('--socket');
+    expect(argv).not.toContain('--port');
+  });
+});
+
+describe('sshControlArgs', () => {
+  it('enables ControlMaster reuse in the configured control dir', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'superiu-ssh-'));
+    const previous = process.env.SUPERIU_SSH_CONTROL_DIR;
+    process.env.SUPERIU_SSH_CONTROL_DIR = dir;
+    try {
+      const args = sshControlArgs();
+      expect(args).toContain('ControlMaster=auto');
+      expect(args).toContain('ControlPersist=10m');
+      const controlPath = args.find((arg) => arg.startsWith('ControlPath='));
+      expect(controlPath).toBeDefined();
+      expect(controlPath).toContain(dir);
+      expect(fs.statSync(dir).isDirectory()).toBe(true);
+    } finally {
+      if (previous === undefined) delete process.env.SUPERIU_SSH_CONTROL_DIR;
+      else process.env.SUPERIU_SSH_CONTROL_DIR = previous;
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

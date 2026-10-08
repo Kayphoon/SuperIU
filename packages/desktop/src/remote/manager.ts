@@ -13,6 +13,8 @@
  */
 
 import { randomBytes } from 'node:crypto';
+import http from 'node:http';
+import path from 'node:path';
 
 import { GatewayClient, type GatewayClientOptions } from '../gateway_client.js';
 import { parseVersion, semverGt } from '../semver.js';
@@ -118,6 +120,8 @@ export interface RemoteConnectionManagerOptions {
   runRemote?: RemoteRunner;
   /** Resolves an ssh alias to concrete connection settings. */
   resolveHost?: (alias: string) => Promise<SshHostEntry | undefined>;
+  /** Probes the tunnel's local `/readyz` endpoint (injected for tests). */
+  probeReadyz?: (tunnelPort: number) => Promise<void>;
 }
 
 const DEFAULT_LOCAL_PORT = 0; // 0 => let the OS choose
@@ -130,6 +134,7 @@ export class RemoteConnectionManager {
   private readonly tunnel: SshTunnelManager;
   private readonly gatewayClientFactory: (options: GatewayClientOptions) => GatewayClient;
   private readonly resolveHost?: (alias: string) => Promise<SshHostEntry | undefined>;
+  private readonly probeReadyz: (tunnelPort: number) => Promise<void>;
 
   private client: GatewayClient | null = null;
   private lastOptions: RemoteConnectOptions | null = null;
@@ -142,6 +147,7 @@ export class RemoteConnectionManager {
     this.gatewayClientFactory =
       options.gatewayClientFactory ?? ((opts) => new GatewayClient(opts));
     this.resolveHost = options.resolveHost;
+    this.probeReadyz = options.probeReadyz ?? ((port) => waitForReadyz(port));
   }
 
   /** The active gateway client, or null when disconnected. */
@@ -259,6 +265,20 @@ export class RemoteConnectionManager {
       });
     }
 
+    // The probe above described the binary present BEFORE this step. When we
+    // installed or upgraded, re-probe so the transport decision below reflects
+    // what is actually on the remote now: a build that predates `--socket`
+    // reports no socket support, so without this refresh an upgraded daemon
+    // would be started in port mode and then adopted there forever.
+    if (needsInstall) {
+      try {
+        probe = await this.bootstrapper.probe(alias);
+      } catch {
+        // A failed refresh must not fail the connect: keep the pre-install probe
+        // and fall back to the transport it described.
+      }
+    }
+
     // 3. Workspace -------------------------------------------------------------
     this.progress(onProgress, { id: 'workspace', status: 'active' });
     try {
@@ -289,19 +309,35 @@ export class RemoteConnectionManager {
 
     // 5. Start (or reuse) ------------------------------------------------------
     this.progress(onProgress, { id: 'start', status: 'active' });
+    // The remote binary advertises `--socket` support; when it does, prefer the
+    // Unix-socket transport for this workspace.
+    const supportsSocket = probe.supportsSocket === true;
+    const socketPath = supportsSocket ? remoteSocketPathFor(workspace) : undefined;
     let daemon: RemoteDaemonState;
     try {
-      daemon = await this.ensureDaemon(alias, workspace, token, options);
+      daemon = await this.ensureDaemon(alias, workspace, token, options, socketPath);
     } catch (err) {
       this.progress(onProgress, { id: 'start', status: 'failed', detail: messageOf(err) });
       throw new RemoteConnectionError('start', `Failed to start daemon: ${messageOf(err)}`, err);
     }
-    const remotePort = daemon.port ?? (await this.failMissingPort());
-    this.progress(onProgress, {
-      id: 'start',
-      status: 'done',
-      detail: `listening on 127.0.0.1:${remotePort}`,
-    });
+    // The daemon reports the socket it actually bound (fresh start or adopted
+    // running daemon); when present the tunnel forwards to it instead of a port.
+    const effectiveSocket = daemon.socketPath;
+    let remotePort = 0;
+    if (effectiveSocket) {
+      this.progress(onProgress, {
+        id: 'start',
+        status: 'done',
+        detail: `listening on unix socket ${effectiveSocket}`,
+      });
+    } else {
+      remotePort = daemon.port ?? (await this.failMissingPort());
+      this.progress(onProgress, {
+        id: 'start',
+        status: 'done',
+        detail: `listening on 127.0.0.1:${remotePort}`,
+      });
+    }
 
     // 6. Tunnel ----------------------------------------------------------------
     this.progress(onProgress, { id: 'tunnel', status: 'active' });
@@ -316,8 +352,13 @@ export class RemoteConnectionManager {
         identityFile: host?.identityFile,
         localPort: options.localPort ?? DEFAULT_LOCAL_PORT,
         remotePort,
+        ...(effectiveSocket ? { remoteSocketPath: effectiveSocket } : {}),
       });
       tunnelPort = result.localPort;
+      // The forward being bound does not mean the daemon is accepting
+      // connections yet; confirm readiness through the tunnel before handing
+      // the URL to the gateway client.
+      await this.probeReadyz(tunnelPort);
     } catch (err) {
       this.progress(onProgress, { id: 'tunnel', status: 'failed', detail: messageOf(err) });
       throw new RemoteConnectionError('tunnel', `Tunnel failed: ${messageOf(err)}`, err);
@@ -371,23 +412,29 @@ export class RemoteConnectionManager {
     workspace: string,
     token: string,
     options: RemoteConnectOptions,
+    socketPath?: string,
   ): Promise<RemoteDaemonState> {
     let startPort = pickDaemonPort();
     let startToken = token;
 
     const status = await this.bootstrapper.status(alias, workspace);
-    if (status.running && status.port) {
+    // A socket-mode daemon reports `port: 0`, so a port check alone would miss
+    // it and fall through to a start — which, because the daemon is already
+    // running, is a no-op that then loses the persisted token. Accept either
+    // transport as evidence of a live daemon.
+    if (status.running && (status.port || status.socketPath)) {
       const existing = await this.bootstrapper.readServerState(alias, workspace);
+      const adoptedPort = existing?.port ?? status.port ?? 0;
       const running: RemoteDaemonState = existing
         ? {
             ...existing,
             running: true,
-            port: existing.port ?? status.port,
-            gatewayUrl: `ws://127.0.0.1:${existing.port ?? status.port}/ws`,
+            port: adoptedPort,
+            gatewayUrl: `ws://127.0.0.1:${adoptedPort}/ws`,
           }
         : {
             ...status,
-            gatewayUrl: `ws://127.0.0.1:${status.port}/ws`,
+            gatewayUrl: `ws://127.0.0.1:${adoptedPort}/ws`,
           };
 
       const requested = options.autoUpdateIdle;
@@ -406,7 +453,7 @@ export class RemoteConnectionManager {
       // would invalidate every already-paired client. `status.port` is narrowed
       // to a number here, and when no state file exists there is no token to
       // preserve, so the supplied one stands.
-      startPort = existing?.port ?? status.port;
+      startPort = existing?.port ?? status.port ?? startPort;
       startToken = existing?.token ?? token;
       await this.bootstrapper.stop(alias, workspace);
     }
@@ -417,6 +464,7 @@ export class RemoteConnectionManager {
       workspace,
       autoUpdateIdle: options.autoUpdateIdle,
       autoUpdateIntervalHours: options.autoUpdateIntervalHours,
+      ...(socketPath ? { socketPath } : {}),
     });
   }
 
@@ -453,12 +501,13 @@ export class RemoteConnectionManager {
     const workspace = options.workspace;
     const alias = options.alias;
 
-    // Adopt the running daemon's current state (port/token may have changed).
+    // Adopt the running daemon's current state (port/socket/token may have changed).
     const existing = await this.bootstrapper.readServerState(alias, workspace);
     const status = existing ?? (await this.bootstrapper.status(alias, workspace));
+    const socketPath = status?.socketPath;
     const remotePort = status?.port ?? this.lastTunnelPort ?? 0;
     const token = status?.token ?? options.token ?? '';
-    if (!remotePort) {
+    if (!socketPath && !remotePort) {
       throw new RemoteConnectionError(
         'start',
         'reconnect() found no running daemon; call connect() first',
@@ -472,6 +521,7 @@ export class RemoteConnectionManager {
           alias,
           localPort: options.localPort ?? DEFAULT_LOCAL_PORT,
           remotePort,
+          ...(socketPath ? { remoteSocketPath: socketPath } : {}),
         })
       ).localPort;
 
@@ -493,6 +543,77 @@ export class RemoteConnectionManager {
 /** Pick a stable-ish default remote port for a fresh daemon. */
 function pickDaemonPort(): number {
   return 7345;
+}
+
+/**
+ * Absolute path of the daemon's Unix domain socket inside a remote workspace.
+ * `workspace` is a remote POSIX absolute path, so the join is done with the
+ * POSIX implementation regardless of the local platform.
+ */
+function remoteSocketPathFor(workspace: string): string {
+  return path.posix.join(workspace, '.superiu', 'server.sock');
+}
+
+/** Interval between `/readyz` retry attempts. */
+const READYZ_RETRY_MS = 250;
+/** Per-request timeout; short so a dead endpoint fails fast into a retry. */
+const READYZ_REQUEST_TIMEOUT_MS = 1_000;
+
+/**
+ * Wait until the daemon behind the tunnel answers `GET /readyz` with 200.
+ *
+ * A non-200 status (for example 404 from an older daemon that predates the
+ * endpoint) is treated as "assume ready": we cannot prove readiness but the
+ * daemon is clearly answering HTTP, so refusing to connect would be worse than
+ * proceeding. Connection errors are retried with a short backoff until the
+ * timeout, then surfaced as a rejection.
+ */
+export async function waitForReadyz(tunnelPort: number, timeoutMs = 10_000): Promise<void> {
+  const url = `http://127.0.0.1:${tunnelPort}/readyz`;
+  const deadline = Date.now() + timeoutMs;
+  let lastError: unknown;
+  for (;;) {
+    const outcome = await probeReadyzOnce(url);
+    if (outcome === 'ready' || outcome === 'assume-ready') return;
+    lastError = outcome;
+    if (Date.now() >= deadline) break;
+    await delay(READYZ_RETRY_MS);
+  }
+  const detail = lastError instanceof Error ? `: ${lastError.message}` : '';
+  throw new Error(
+    `Daemon readiness check failed: no HTTP response from ${url} within ${timeoutMs}ms${detail}`,
+  );
+}
+
+/** Single `/readyz` attempt: `ready`, `assume-ready`, or the connection error. */
+function probeReadyzOnce(url: string): Promise<'ready' | 'assume-ready' | Error> {
+  return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result: 'ready' | 'assume-ready' | Error): void => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+    };
+    let req: http.ClientRequest;
+    try {
+      req = http.get(url, (res) => {
+        res.resume();
+        if (res.statusCode === 200) finish('ready');
+        else finish('assume-ready');
+      });
+    } catch (err) {
+      finish(err instanceof Error ? err : new Error(String(err)));
+      return;
+    }
+    req.once('error', (err) => finish(err instanceof Error ? err : new Error(String(err))));
+    req.setTimeout(READYZ_REQUEST_TIMEOUT_MS, () => {
+      req.destroy(new Error(`no response within ${READYZ_REQUEST_TIMEOUT_MS}ms`));
+    });
+  });
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function messageOf(err: unknown): string {

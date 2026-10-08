@@ -69,13 +69,21 @@ export interface StartServerOptions {
   gatewayToken?: string;
   /** Build version to report via `/api/status`. Absent in a plain `tsc` dev run. */
   version?: string;
+  /**
+   * When set, listen on this Unix domain socket instead of TCP; `port`/`host`
+   * are ignored. A stale socket file at the path is cleared before binding and
+   * the socket is created `0600`.
+   */
+  socketPath?: string;
 }
 
 export interface ServerHandle {
-  /** Resolved port — the real one when `0` was requested. */
+  /** Resolved port — the real one when `0` was requested; `0` in socket mode. */
   port: number;
   host: string;
   url: string;
+  /** Absolute path when listening on a Unix domain socket; absent in TCP mode. */
+  socketPath?: string;
   /**
    * Language resolved at boot, so the desktop shell can build its native menu
    * in the right language before the renderer has loaded.
@@ -1463,6 +1471,11 @@ async function handleApi(
     return true;
   }
 
+  if (pathname === '/readyz' && method === 'GET') {
+    sendJson(res, 200, { status: 'ready', version: serverVersion, pid: process.pid });
+    return true;
+  }
+
   if (pathname === '/api/status' && method === 'GET') {
     sendJson(res, 200, buildStatus());
     return true;
@@ -1995,6 +2008,7 @@ function handleStatic(req: http.IncomingMessage, res: http.ServerResponse, pathn
 export async function startServer(options: StartServerOptions = {}): Promise<ServerHandle> {
   const port = options.port ?? Number.parseInt(process.env.PORT ?? '3000', 10);
   const host = options.host ?? process.env.HOST ?? '127.0.0.1';
+  const socketPath = options.socketPath ? path.resolve(options.socketPath) : undefined;
   const workspaceDir = path.resolve(options.workspaceDir ?? process.cwd());
 
   PUBLIC_DIR = options.publicDir ? path.resolve(options.publicDir) : path.resolve(HERE, '..', 'public');
@@ -2036,11 +2050,32 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
 
   const listening = await new Promise<number>((resolve, reject) => {
     server.once('error', reject);
+    if (socketPath) {
+      fs.mkdirSync(path.dirname(socketPath), { recursive: true });
+      // A leftover socket file from a crashed process would make listen() fail
+      // with EADDRINUSE; clearing it is safe because nothing is bound there.
+      try {
+        fs.rmSync(socketPath, { force: true });
+      } catch {
+        // Best effort: listen() will surface a real problem.
+      }
+      server.listen(socketPath, () => resolve(0));
+      return;
+    }
     server.listen(port, host, () => {
       const address = server.address();
       resolve(typeof address === 'object' && address ? address.port : port);
     });
   });
+
+  if (socketPath) {
+    try {
+      fs.chmodSync(socketPath, 0o600);
+    } catch {
+      // A filesystem that refuses chmod still has a working socket; do not fail
+      // a boot over socket permissions.
+    }
+  }
 
   // Boot the VPS Gateway on the SAME server so `@agent/ui` serves the SPA and
   // the WebSocket endpoint from one port. `gatewayPath: null` opts out.
@@ -2062,7 +2097,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
   if (!options.quiet) {
     const workstation = runner.getWorkstation();
     console.log('=== SuperIU Web UI (@agent/ui) ===');
-    console.log(`  Listening:   http://${host}:${listening}`);
+    console.log(`  Listening:   ${socketPath ? socketPath : `http://${host}:${listening}`}`);
     console.log(`  Main model:  ${settings.modelName}`);
     console.log(`  Language:    ${settings.language}`);
     console.log(`  Theme:       ${settings.theme}`);
@@ -2092,6 +2127,13 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
       const gatewayClose = gateway ? gateway.close() : Promise.resolve();
       void gatewayClose.then(() => {
         server.close(() => {
+          if (socketPath) {
+            try {
+              fs.rmSync(socketPath, { force: true });
+            } catch {
+              // Best effort: the socket file is cleaned up on next boot anyway.
+            }
+          }
           runner.close();
           resolve();
         });
@@ -2106,11 +2148,16 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
   return {
     port: listening,
     host,
-    url: `http://${host}:${listening}`,
+    url: socketPath ? `http://unix:${socketPath}` : `http://${host}:${listening}`,
+    socketPath,
     language: settings.language,
     theme: settings.theme,
     gateway,
-    gatewayUrl: gateway ? `ws://${host}:${listening}${gateway.path}` : undefined,
+    gatewayUrl: gateway
+      ? socketPath
+        ? `ws+unix://${socketPath}${gateway.path}`
+        : `ws://${host}:${listening}${gateway.path}`
+      : undefined,
     // `runner.status` is the core's authoritative in-flight signal and already
     // gates `handleChat`; the gateway adds its own in-flight count for turns
     // started over the WebSocket, and `pendingApprovals` covers a turn parked

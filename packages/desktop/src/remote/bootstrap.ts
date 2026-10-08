@@ -13,6 +13,7 @@
 import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { REPO_SLUG } from '../constants.js';
+import { sshControlArgs } from './ssh_control.js';
 
 /** Result of running a command on the remote host. */
 export interface RemoteRunResult {
@@ -44,6 +45,8 @@ export interface RemoteProbeResult {
   version?: string;
   /** Whether the daemon is currently running (per `status`). */
   running: boolean;
+  /** Whether the remote binary advertises `--socket` (Unix domain socket listen mode). */
+  supportsSocket: boolean;
 }
 
 /** Options for {@link RemoteBootstrapper.install}. */
@@ -71,6 +74,11 @@ export interface RemoteStartOptions {
   /** Remote workspace directory. */
   workspace: string;
   /**
+   * Absolute remote Unix socket path. When set the daemon listens on a socket
+   * instead of a TCP port, and `--port`/`--host` are not emitted.
+   */
+  socketPath?: string;
+  /**
    * Idle auto-update, tri-state: `true` emits `--auto-update-idle`, `false`
    * emits `--no-auto-update-idle`, and `undefined` emits neither so the
    * daemon's persisted value stands.
@@ -89,6 +97,8 @@ export interface RemoteDaemonState {
   url?: string;
   /** Local (`127.0.0.1`) gateway URL the tunnel exposes. */
   gatewayUrl?: string;
+  /** Absolute remote Unix socket path the daemon is listening on, when in socket mode. */
+  socketPath?: string;
   token?: string;
   version?: string;
   /** Whether the running daemon was started with idle auto-update enabled. */
@@ -117,10 +127,12 @@ function shellQuotePath(value: string): string {
   return shellQuote(value);
 }
 
-/** Default runner: `ssh <alias> <command>`. */
+/** Default runner: `ssh <alias> <command>`, reusing a ControlMaster connection. */
 export const defaultRemoteRunner: RemoteRunner = (alias, remoteCommand) =>
   new Promise((resolve, reject) => {
-    const child = spawn('ssh', [alias, remoteCommand], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('ssh', [...sshControlArgs(), alias, remoteCommand], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     let stdout = '';
     let stderr = '';
     child.stdout?.on('data', (c: Buffer) => (stdout += c.toString()));
@@ -196,8 +208,14 @@ export class RemoteBootstrapper {
             `if [ -x ${REMOTE_BIN_PATH} ]; then`,
             '  printf "INSTALLED=1\\n"',
             `  printf "VERSION=%s\\n" "$(${REMOTE_BIN_PATH} version 2>/dev/null)"`,
+            `  if ${REMOTE_BIN_PATH} --help 2>&1 | grep -q -- "--socket"; then`,
+            '    printf "SOCKET_SUPPORT=1\\n"',
+            '  else',
+            '    printf "SOCKET_SUPPORT=0\\n"',
+            '  fi',
             'else',
             '  printf "INSTALLED=0\\n"',
+            '  printf "SOCKET_SUPPORT=0\\n"',
             'fi',
             `if ${REMOTE_BIN_PATH} status --workspace "\${HOME}/.superiu/workspace" >/dev/null 2>&1; then`,
             '  printf "RUNNING=1\\n"',
@@ -221,6 +239,7 @@ export class RemoteBootstrapper {
         home,
         installed: false,
         running: false,
+        supportsSocket: false,
       };
     }
 
@@ -239,6 +258,7 @@ export class RemoteBootstrapper {
       installed,
       version,
       running: fields.RUNNING === '1',
+      supportsSocket: fields.SOCKET_SUPPORT === '1',
     };
   }
 
@@ -346,12 +366,15 @@ export class RemoteBootstrapper {
   async start(alias: string, options: RemoteStartOptions): Promise<RemoteDaemonState> {
     const { port, token, workspace } = options;
 
+    // Socket mode binds a Unix domain socket instead of a loopback TCP port;
+    // the two are mutually exclusive on the daemon CLI.
+    const listenArgs = options.socketPath
+      ? ['--socket', shellQuotePath(options.socketPath)]
+      : ['--port', String(port), '--host', '127.0.0.1'];
+
     const args = [
       'start',
-      '--port',
-      String(port),
-      '--host',
-      '127.0.0.1',
+      ...listenArgs,
       '--token',
       shellQuote(token),
       '--workspace',
