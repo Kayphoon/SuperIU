@@ -618,6 +618,138 @@
         color: var(--siu-accent);
       }
 
+      /* ── 标题栏桌面更新胶囊 (Desktop Update Capsule) ─────────────────── */
+      .siu-titlebar-update {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        min-height: 28px;
+        height: 28px;
+        padding: 0 10px;
+        border: 1px solid transparent;
+        border-radius: var(--siu-radius-full);
+        font-family: var(--siu-font-sans);
+        font-size: 12px;
+        font-weight: 500;
+        line-height: 1;
+        white-space: nowrap;
+        user-select: none;
+        box-sizing: border-box;
+        cursor: pointer;
+        transition: background var(--siu-dur-base) var(--siu-ease-out),
+          border-color var(--siu-dur-base) var(--siu-ease-out),
+          color var(--siu-dur-base) var(--siu-ease-out),
+          box-shadow var(--siu-dur-base) var(--siu-ease-out),
+          transform var(--siu-dur-fast) var(--siu-ease-out),
+          filter var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-titlebar-update.hidden,
+      .siu-titlebar-update[hidden] {
+        display: none !important;
+      }
+
+      /* 正在下载更新 (downloading)：紧凑柔和 */
+      .siu-titlebar-update[data-phase='downloading'] {
+        background: rgba(10, 132, 255, 0.1);
+        border-color: rgba(10, 132, 255, 0.24);
+        color: var(--siu-accent-hover);
+        cursor: default;
+        font-variant-numeric: tabular-nums;
+      }
+      [data-color-scheme='light'] .siu-titlebar-update[data-phase='downloading'] {
+        background: rgba(10, 132, 255, 0.08);
+        border-color: rgba(10, 132, 255, 0.22);
+        color: #0284c7;
+      }
+
+      /* 下载就绪 (ready)：醒目翡翠/青色品牌强调，支持悬浮动效 */
+      .siu-titlebar-update[data-phase='ready'] {
+        background: linear-gradient(135deg, rgba(16, 185, 129, 0.16) 0%, rgba(6, 182, 212, 0.13) 100%);
+        border-color: rgba(52, 211, 153, 0.36);
+        color: #34d399;
+        font-weight: 550;
+        cursor: pointer;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), 0 0 10px rgba(52, 211, 153, 0.12);
+      }
+      .siu-titlebar-update[data-phase='ready']:hover:not(:disabled) {
+        background: linear-gradient(135deg, rgba(16, 185, 129, 0.26) 0%, rgba(6, 182, 212, 0.22) 100%);
+        border-color: rgba(52, 211, 153, 0.65);
+        color: #6ee7b7;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25), 0 0 16px rgba(52, 211, 153, 0.25);
+        transform: translateY(-0.5px);
+      }
+      .siu-titlebar-update[data-phase='ready']:active:not(:disabled) {
+        transform: translateY(0.5px);
+        filter: brightness(0.92);
+      }
+      .siu-titlebar-update[data-phase='ready']:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+        transform: none;
+        box-shadow: none;
+      }
+
+      [data-color-scheme='light'] .siu-titlebar-update[data-phase='ready'] {
+        background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(6, 182, 212, 0.08) 100%);
+        border-color: rgba(16, 185, 129, 0.32);
+        color: #047857;
+        box-shadow: 0 1px 2px rgba(16, 185, 129, 0.08);
+      }
+      [data-color-scheme='light'] .siu-titlebar-update[data-phase='ready']:hover:not(:disabled) {
+        background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(6, 182, 212, 0.16) 100%);
+        border-color: rgba(16, 185, 129, 0.55);
+        color: #065f46;
+        box-shadow: 0 2px 6px rgba(16, 185, 129, 0.16);
+      }
+
+      /* 图标与指示点 */
+      .siu-titlebar-update-icon {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+        gap: 5px;
+      }
+      .siu-titlebar-update-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #34d399;
+        box-shadow: 0 0 6px #34d399;
+        flex-shrink: 0;
+        animation: siu-pulse-dot 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+      [data-color-scheme='light'] .siu-titlebar-update-dot {
+        background: #059669;
+        box-shadow: 0 0 5px #059669;
+      }
+      @keyframes siu-pulse-dot {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.5; transform: scale(0.85); }
+      }
+      .siu-titlebar-update-spinner {
+        animation: siu-spin 1s linear infinite;
+        flex-shrink: 0;
+      }
+      @keyframes siu-spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+      .siu-titlebar-update-restart-icon {
+        transition: transform var(--siu-dur-slow) var(--siu-ease-out);
+        flex-shrink: 0;
+      }
+      .siu-titlebar-update[data-phase='ready']:hover .siu-titlebar-update-restart-icon {
+        transform: rotate(90deg);
+      }
+
+      @media (max-width: 639px) {
+        .siu-titlebar-update {
+          padding: 0 8px;
+        }
+      }
+
       .siu-workspace {
         display: flex;
         flex-direction: row;
@@ -3872,6 +4004,27 @@
           </div>
 
           <div class="siu-titlebar-actions">
+            <button
+              id="btn-titlebar-update"
+              class="siu-titlebar-update no-drag hidden"
+              type="button"
+              hidden
+            >
+              <span id="titlebar-update-icon-downloading" class="siu-titlebar-update-icon hidden" aria-hidden="true">
+                <svg class="siu-titlebar-update-spinner" viewBox="0 0 16 16" width="13" height="13" fill="none">
+                  <circle cx="8" cy="8" r="6" stroke="currentColor" stroke-opacity="0.25" stroke-width="2"></circle>
+                  <path d="M8 2a6 6 0 0 1 6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+                </svg>
+              </span>
+              <span id="titlebar-update-icon-ready" class="siu-titlebar-update-icon hidden" aria-hidden="true">
+                <span class="siu-titlebar-update-dot" aria-hidden="true"></span>
+                <svg viewBox="0 0 16 16" width="12.5" height="12.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" class="siu-titlebar-update-restart-icon">
+                  <path d="M2.5 8a5.5 5.5 0 0 1 9.39-3.89L13.5 5.75M13.5 2.5v3.25H10.25"></path>
+                  <path d="M13.5 8a5.5 5.5 0 0 1-9.39 3.89L2.5 10.25M2.5 13.5v-3.25h3.25"></path>
+                </svg>
+              </span>
+              <span id="titlebar-update-text" class="siu-titlebar-update-text hidden sm:inline"></span>
+            </button>
             <button
               id="btn-menu"
               class="siu-btn no-drag"
@@ -7656,10 +7809,73 @@
         }
       }
 
+      function renderTitlebarUpdate() {
+        const btn = $('btn-titlebar-update');
+        if (!btn) return;
+        if (!window.superiuDesktop) {
+          btn.hidden = true;
+          btn.classList.add('hidden');
+          return;
+        }
+
+        const statePayload = lastUpdatePayload;
+        if (!statePayload || !['downloading', 'ready'].includes(statePayload.phase)) {
+          btn.hidden = true;
+          btn.classList.add('hidden');
+          btn.dataset.phase = '';
+          btn.onclick = null;
+          return;
+        }
+
+        const iconDownloading = $('titlebar-update-icon-downloading');
+        const iconReady = $('titlebar-update-icon-ready');
+        const textEl = $('titlebar-update-text');
+
+        if (statePayload.phase === 'downloading') {
+          const pct = Math.max(0, Math.min(100, Math.round(Number(statePayload.percent) || 0)));
+          btn.hidden = false;
+          btn.classList.remove('hidden');
+          btn.dataset.phase = 'downloading';
+          btn.disabled = true;
+          const tooltip = tr('titlebar.update.downloading.title', { percent: pct });
+          btn.title = tooltip;
+          btn.setAttribute('aria-label', tooltip);
+          if (iconDownloading) iconDownloading.classList.remove('hidden');
+          if (iconReady) iconReady.classList.add('hidden');
+          if (textEl) {
+            textEl.textContent = tr('titlebar.update.downloading', { percent: pct });
+          }
+          btn.onclick = null;
+          return;
+        }
+
+        if (statePayload.phase === 'ready') {
+          btn.hidden = false;
+          btn.classList.remove('hidden');
+          btn.dataset.phase = 'ready';
+          btn.disabled = false;
+          const version = (statePayload.latestVersion || '').replace(/^v/, '');
+          const tooltip = tr('titlebar.update.ready.title', { version });
+          btn.title = tooltip;
+          btn.setAttribute('aria-label', tooltip);
+          if (iconDownloading) iconDownloading.classList.add('hidden');
+          if (iconReady) iconReady.classList.remove('hidden');
+          if (textEl) {
+            textEl.textContent = tr('titlebar.update.ready');
+          }
+          btn.onclick = () => {
+            btn.disabled = true;
+            void window.superiuDesktop?.installUpdate?.();
+          };
+          return;
+        }
+      }
+
       if (window.superiuDesktop?.onUpdateState) {
         window.superiuDesktop.onUpdateState((payload) => {
           lastUpdatePayload = payload;
           renderAboutUpdate();
+          renderTitlebarUpdate();
         });
       }
       if (window.superiuDesktop?.getUpdateState) {
@@ -7667,9 +7883,11 @@
           if (payload) {
             lastUpdatePayload = payload;
             renderAboutUpdate();
+            renderTitlebarUpdate();
           }
         });
       }
+      renderTitlebarUpdate();
 
       async function openSettings(targetPane) {
         void checkPairingAvailability();
@@ -9968,6 +10186,7 @@
         // re-fetch: `fillSettingsForm()` would re-seed the provider drafts and
         // throw away edits the user has not saved yet.
         if (state.settings) renderSettingsDynamic();
+        renderTitlebarUpdate();
         // The transcript is JS-built too (tool cards, badges, step labels,
         // approval buttons), so it has to be rebuilt or it keeps the language it
         // was drawn in. Skipped while a turn is streaming (the DOM holds state a

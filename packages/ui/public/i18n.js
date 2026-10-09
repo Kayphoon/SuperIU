@@ -44,6 +44,10 @@ const DICT = {
 
     'titlebar.more': '更多',
     'titlebar.more.title': '更多',
+    'titlebar.update.downloading': '更新中 {percent}%',
+    'titlebar.update.downloading.title': '正在下载更新：{percent}%',
+    'titlebar.update.ready': '重启更新',
+    'titlebar.update.ready.title': '新版本 v{version} 已就绪，点击重启安装',
     'traffic.close': '关闭窗口',
     'traffic.more': '更多',
     'traffic.fullscreen': '进入全屏',
@@ -554,6 +558,10 @@ const DICT = {
 
     'titlebar.more': 'More',
     'titlebar.more.title': 'More',
+    'titlebar.update.downloading': 'Updating {percent}%',
+    'titlebar.update.downloading.title': 'Downloading update: {percent}%',
+    'titlebar.update.ready': 'Restart to Update',
+    'titlebar.update.ready.title': 'New version v{version} is ready, click to restart and install',
     'traffic.close': 'Close window',
     'traffic.more': 'More',
     'traffic.fullscreen': 'Enter fullscreen',
