@@ -3144,10 +3144,16 @@
         display: flex;
         flex-wrap: wrap;
         align-items: center;
+        justify-content: space-between;
         gap: var(--siu-space-2);
       }
       .siu-provider-models-title {
         margin-bottom: 0;
+      }
+      .siu-provider-models-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--siu-space-1);
       }
       .siu-provider-model-add {
         display: flex;
@@ -4577,6 +4583,10 @@
                   <div class="siu-provider-models">
                     <div class="siu-provider-models-head">
                       <span class="siu-field-label siu-provider-models-title" data-i18n="settings.providers.models"></span>
+                      <div id="provider-models-actions" class="siu-provider-models-actions" hidden>
+                        <button id="provider-models-select-all" type="button" class="siu-btn text-[11px] py-0.5 px-2" data-i18n="settings.providers.selectAll"></button>
+                        <button id="provider-models-deselect-all" type="button" class="siu-btn text-[11px] py-0.5 px-2" data-i18n="settings.providers.deselectAll"></button>
+                      </div>
                     </div>
                     <input id="provider-model-search" type="search" class="siu-field" autocomplete="off" spellcheck="false" data-i18n-placeholder="settings.providers.searchModels" />
                     <div class="siu-provider-model-add">
@@ -7498,9 +7508,11 @@
       function renderProviderModels() {
         const provider = findDraftProvider(state.selectedProviderId);
         const grid = $('provider-models');
+        const actions = $('provider-models-actions');
         grid.innerHTML = '';
         if (!provider) {
           $('provider-models-empty').hidden = true;
+          if (actions) actions.hidden = true;
           return;
         }
 
@@ -7511,10 +7523,19 @@
         const search = $('provider-model-search');
         const hasModels = provider.models.length > 0;
         search.hidden = !hasModels;
+        if (actions) actions.hidden = !hasModels;
         if (!hasModels) search.value = '';
 
         const needle = search.value.trim().toLowerCase();
         const models = provider.models.filter((model) => model.toLowerCase().includes(needle));
+
+        const selectAllBtn = $('provider-models-select-all');
+        const deselectAllBtn = $('provider-models-deselect-all');
+        if (selectAllBtn && deselectAllBtn) {
+          const enabledCount = models.filter((m) => modelEnabled(m)).length;
+          selectAllBtn.disabled = models.length === 0 || enabledCount === models.length;
+          deselectAllBtn.disabled = models.length === 0 || enabledCount === 0;
+        }
         for (const model of models) {
           const item = el('div', 'siu-model-item');
           item.dataset.model = model;
@@ -8112,7 +8133,7 @@
             for (const model of result.models || []) {
               if (!provider.models.includes(model)) {
                 provider.models.push(model);
-                writeModelConfig(model, { efforts: [...FULL_EFFORT_SET] });
+                writeModelConfig(model, { enabled: false, efforts: [...FULL_EFFORT_SET] });
               }
             }
             message.dataset.tone = 'ok';
@@ -8132,6 +8153,32 @@
       });
 
       $('provider-model-search').addEventListener('input', () => renderProviderModels());
+
+      $('provider-models-select-all')?.addEventListener('click', () => {
+        const provider = findDraftProvider(state.selectedProviderId);
+        if (!provider) return;
+        const needle = ($('provider-model-search').value || '').trim().toLowerCase();
+        const models = provider.models.filter((m) => m.toLowerCase().includes(needle));
+        if (!models.length) return;
+        for (const model of models) {
+          writeModelConfig(model, { enabled: true });
+        }
+        renderProviderModels();
+        renderSettingsDirty();
+      });
+
+      $('provider-models-deselect-all')?.addEventListener('click', () => {
+        const provider = findDraftProvider(state.selectedProviderId);
+        if (!provider) return;
+        const needle = ($('provider-model-search').value || '').trim().toLowerCase();
+        const models = provider.models.filter((m) => m.toLowerCase().includes(needle));
+        if (!models.length) return;
+        for (const model of models) {
+          writeModelConfig(model, { enabled: false });
+        }
+        renderProviderModels();
+        renderSettingsDirty();
+      });
 
       $('provider-model-add').addEventListener('click', () => {
         const provider = findDraftProvider(state.selectedProviderId);
