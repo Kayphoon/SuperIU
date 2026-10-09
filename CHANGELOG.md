@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.29 (2026-10-09)
+
+### 中文
+
+- 优化服务商模型列表获取与批量选择交互体验：
+  - **默认不再全选**：在设置中点击「获取模型」从服务商拉取模型列表时，新拉取的模型默认不再全部自动勾选，避免将大量未筛选模型直接灌入输入框模型选择器中；已配置过的已有模型保持原有启用状态不变；
+  - **一键全选与取消全选**：在模型列表标题栏右侧新增「全选」与「取消全选」按钮，支持一键批量启用或停用模型；在输入关键词过滤搜索时，仅对当前筛选可见的模型生效；按钮根据当前选中状态动态禁用与激活；
+  - **多端与双语适配**：中英文界面完整本地化，通过全套代码与多语言守卫校验。
+
+### English
+
+- Improve model fetching and batch selection workflow in provider settings:
+  - **No longer auto-select all on fetch**: fetching models from a provider API now defaults newly discovered models to disabled (`enabled: false`) instead of checking all of them, preventing unwanted models from flooding the composer picker; existing configured models retain their current state.
+  - **One-click Select All and Deselect All**: added "Select all" and "Deselect all" buttons beside the Models header, allowing batch enabling or disabling with a single click; respects the current search filter when searching; dynamically reflects enabled/disabled state based on current selection.
+  - **Bilingual & localization parity**: fully localized in both Chinese and English, passing all strict dictionary and parity guards.
+
 ## v0.2.28 (2026-10-09)
 
 ### 中文
