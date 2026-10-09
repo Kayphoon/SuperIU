@@ -296,7 +296,7 @@ export interface ModelOptionConfig {
 }
 
 /**
- * Built-in provider presets, in display order. `name` here is the provider's
+ * Built-in provider templates, in display order. `name` here is the provider's
  * DEFAULT label: the renderer localizes it through its dictionary and only shows
  * a user's own rename verbatim, which is why `settingsView()` also reports
  * `presetName` — it is the value a stored name must differ from to count as a
@@ -307,79 +307,60 @@ export interface ModelOptionConfig {
  * product source and rot the moment they change it. Unmatched endpoints land in
  * the `custom` slot instead.
  *
- * `models` is the catalog this preset shipped when the app seeded a fresh
- * install with it. It is no longer written into a provider —
- * `createDefaultProviders()` seeds `models: []`, so nothing is configured until
- * the user picks a model — and survives as the fingerprint that recognizes an
- * app-written list: a stored list byte-identical to this one was written by a
- * default, not chosen by the user, and `migratePresetModels()` clears it.
- *
- * As a catalog it is a short, representative slice of what each vendor
- * currently serves — not an exhaustive one — so every entry must still be a live
- * id from that vendor's own model list. A retired id here is worse than a
- * missing one: it is offered in the model grid and cannot succeed when picked.
+ * A template is a starting point the renderer offers when the user adds a
+ * provider; it is never auto-seeded into settings, so an install with nothing
+ * configured starts with no provider rows at all.
  */
-const PROVIDER_PRESETS: ReadonlyArray<{
+export interface ProviderTemplate {
   id: string;
   name: string;
-  match: string;
   baseURL: string;
   helpUrl: string;
-  models: string[];
-  custom: boolean;
-}> = [
-  {
-    id: 'openai',
-    name: 'OpenAI',
-    match: 'api.openai.com',
-    baseURL: 'https://api.openai.com/v1',
-    helpUrl: 'https://platform.openai.com/api-keys',
-    models: ['gpt-6-astra', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-4o', 'gpt-4.1'],
-    custom: false
-  },
-  {
-    id: 'anthropic',
-    name: 'Anthropic',
-    match: 'api.anthropic.com',
-    baseURL: 'https://api.anthropic.com/v1',
-    helpUrl: 'https://console.anthropic.com/settings/keys',
-    models: ['claude-sonnet-5', 'claude-opus-5-5', 'claude-haiku-4-5'],
-    custom: false
-  },
-  {
-    id: 'gemini',
-    name: 'Google Gemini',
-    match: 'generativelanguage.googleapis.com',
-    baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/',
-    helpUrl: 'https://aistudio.google.com/app/apikey',
-    models: ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'],
-    custom: false
-  },
-  {
-    id: 'deepseek',
-    name: 'DeepSeek',
-    match: 'api.deepseek.com',
-    baseURL: 'https://api.deepseek.com/v1',
-    helpUrl: 'https://platform.deepseek.com/api_keys',
-    models: ['deepseek-flash', 'deepseek-v4-pro'],
-    custom: false
-  }
+}
+
+export const PROVIDER_TEMPLATES: ReadonlyArray<ProviderTemplate> = [
+  { id: 'openai', name: 'OpenAI', baseURL: 'https://api.openai.com/v1', helpUrl: 'https://platform.openai.com/api-keys' },
+  { id: 'deepseek', name: 'DeepSeek', baseURL: 'https://api.deepseek.com/v1', helpUrl: 'https://platform.deepseek.com/api_keys' },
+  { id: 'gemini', name: 'Google Gemini', baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/', helpUrl: 'https://aistudio.google.com/app/apikey' },
+  { id: 'anthropic', name: 'Anthropic', baseURL: 'https://api.anthropic.com/v1', helpUrl: 'https://console.anthropic.com/settings/keys' },
+  { id: 'ollama', name: 'Ollama', baseURL: 'http://localhost:11434/v1', helpUrl: 'https://ollama.com' },
+  { id: 'openrouter', name: 'OpenRouter', baseURL: 'https://openrouter.ai/api/v1', helpUrl: 'https://openrouter.ai/keys' }
 ];
 
 /** The custom slot's id; it has no preset row and is the user's to name. */
 const CUSTOM_PROVIDER_ID = 'custom';
 
 /**
+ * The model catalog each preset shipped in the CURRENT release, keyed by
+ * provider id. It is never written into a provider — a fresh install seeds no
+ * models, so nothing is configured until the user picks one — and survives as
+ * the fingerprint that recognizes an app-written list: a stored list
+ * byte-identical to this one was written by a default, not chosen by the user,
+ * and `migratePresetModels()` clears it.
+ *
+ * As a catalog it is a short, representative slice of what each vendor
+ * currently serves — not an exhaustive one — so every entry must still be a live
+ * id from that vendor's own model list. A retired id here is worse than a
+ * missing one: it is offered in the model grid and cannot succeed when picked.
+ */
+const SHIPPED_PRESET_MODELS: Readonly<Record<string, readonly string[]>> = {
+  openai: ['gpt-6-astra', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-4o', 'gpt-4.1'],
+  anthropic: ['claude-sonnet-5', 'claude-opus-5-5', 'claude-haiku-4-5'],
+  gemini: ['gemini-3.8-flash', 'gemini-2.5-flash', 'gemini-2.5-pro'],
+  deepseek: ['deepseek-flash', 'deepseek-v4-pro']
+};
+
+/**
  * Model lists each preset shipped BEFORE the current catalog, keyed by provider
  * id — the fingerprints of a settings file this app wrote itself.
  *
- * `loadSettings()` only calls `createDefaultProviders()` when a file has no
- * `providers` at all, so an existing `ui-settings.json` keeps whatever lists it
- * was written with. Those lists were never the user's: an install with nothing
- * configured still carried a full catalog of ids the user never chose, and the
- * model picker offered them as if they had. `migratePresetModels()` therefore
- * CLEARS a stored list that matches one of these (or the current catalog above)
- * byte for byte — see its comment for why the match must be exact.
+ * An existing `ui-settings.json` keeps whatever lists it was written with.
+ * Those lists were never the user's: an install with nothing configured still
+ * carried a full catalog of ids the user never chose, and the model picker
+ * offered them as if they had. `migratePresetModels()` therefore CLEARS a stored
+ * list that matches one of these (or the current catalog in
+ * `SHIPPED_PRESET_MODELS`) byte for byte — see its comment for why the match
+ * must be exact.
  *
  * Entries are removed once no shipped version can have written them (i.e. once
  * a build old enough to write this list is no longer in the wild). Do not add
@@ -410,12 +391,12 @@ const LEGACY_PRESET_MODELS: Readonly<Record<string, readonly string[][]>> = {
  * own, or merely reading settings would mutate the user's file.
  */
 function migratePresetModels(provider: ProviderConfig): { provider: ProviderConfig; cleared: boolean } {
-  // Every catalog this app shipped for this id: the current preset plus each
-  // legacy list. Empty for an id with no preset row — a hand-rolled relay's list
-  // is the user's by construction, so nothing there may be cleared.
+  // Every catalog this app shipped for this id: the current catalog plus each
+  // legacy list. Empty for an id with no catalog — a hand-rolled relay's list is
+  // the user's by construction, so nothing there may be cleared.
   const shipped: Array<readonly string[]> = [];
-  const preset = PROVIDER_PRESETS.find((candidate) => candidate.id === provider.id);
-  if (preset) shipped.push(preset.models);
+  const current = SHIPPED_PRESET_MODELS[provider.id];
+  if (current) shipped.push(current);
   for (const legacy of LEGACY_PRESET_MODELS[provider.id] ?? []) shipped.push(legacy);
 
   const isShippedList = shipped.some(
@@ -426,60 +407,9 @@ function migratePresetModels(provider: ProviderConfig): { provider: ProviderConf
   return { provider: { ...provider, models: [] }, cleared: true };
 }
 
-/** Default label of a preset, or '' when the id has no preset (e.g. `custom`). */
+/** Default label of a template, or '' when the id has no template (e.g. `custom`). */
 function presetNameFor(id: string): string {
-  return PROVIDER_PRESETS.find((preset) => preset.id === id)?.name ?? '';
-}
-
-function createDefaultProviders(currentApiKey: string, currentBaseURL: string): ProviderConfig[] {
-  const base = currentBaseURL.trim();
-  const hosts: string[] = [];
-  try {
-    if (base) hosts.push(new URL(base).host.toLowerCase());
-  } catch {
-    /* A bare host or a hand-edited value: fall back to a substring match below. */
-  }
-  const matches = (needle: string): boolean => hosts.some((host) => host.includes(needle)) || base.includes(needle);
-
-  const presetsWithState = PROVIDER_PRESETS.map((preset) => {
-    const enabled = Boolean(base) && matches(preset.match);
-    return {
-      id: preset.id,
-      name: preset.name,
-      enabled,
-      apiKey: enabled ? currentApiKey : '',
-      baseURL: preset.baseURL,
-      // Empty, not the preset's catalog: nothing is configured until the user
-      // picks it, and seeding ids here is what made an install with no model
-      // configured display — and persist — a grid full of them. The shipped ids
-      // still reach the renderer as autocomplete via `knownModels`.
-      models: [],
-      // Not shipped from the server: the renderer localizes the blurb from its
-      // dictionary, so only a user-typed description ever occupies this field.
-      description: '',
-      helpUrl: preset.helpUrl,
-      custom: preset.custom
-    };
-  });
-
-  // No preset matched: the configured endpoint is a hand-rolled one, so keep it
-  // in a dedicated custom slot instead of losing it behind a preset's URL.
-  // Deliberately nameless: a display label baked in here would be a Chinese
-  // literal leaking into an English UI, and this slot is the user's to name.
-  const matched = presetsWithState.some((preset) => preset.enabled);
-  presetsWithState.push({
-    id: CUSTOM_PROVIDER_ID,
-    name: '',
-    enabled: Boolean(base) && !matched,
-    apiKey: base && !matched ? currentApiKey : '',
-    baseURL: base && !matched ? base : '',
-    models: [],
-    description: '',
-    helpUrl: '',
-    custom: true
-  });
-
-  return presetsWithState;
+  return PROVIDER_TEMPLATES.find((candidate) => candidate.id === id)?.name ?? '';
 }
 
 /**
@@ -573,7 +503,7 @@ function loadSettings(): UiSettings {
     reasoningEffort: parseReasoningEffort(process.env.OPENAI_REASONING_EFFORT) ?? '',
     language: parseLanguage(process.env.SUPERIU_LANGUAGE) ?? DEFAULT_LANGUAGE,
     theme: DEFAULT_THEME,
-    activeProviderId: 'openai'
+    activeProviderId: ''
   };
 
   try {
@@ -622,17 +552,39 @@ function loadSettings(): UiSettings {
       return migrated.provider;
     });
 
-    if (providers.length === 0) {
-      // A file with no providers at all is app-written too: every build that
-      // persisted settings seeded these slots, so the names beside them came
-      // from the same defaults.
-      providers = createDefaultProviders(effectiveKey, effectiveBaseURL);
+    let prunedPhantomSlots = false;
+    const templateIds = new Set(PROVIDER_TEMPLATES.map((template) => template.id));
+    providers = providers.filter((provider) => {
+      const unconfigured = !provider.apiKey && provider.models.length === 0;
+      if (!unconfigured) return true;
+      const isTemplateSlot = templateIds.has(provider.id);
+      const isEmptyCustom = provider.id === CUSTOM_PROVIDER_ID && !provider.baseURL && !provider.name;
+      if (isTemplateSlot || isEmptyCustom) {
+        prunedPhantomSlots = true;
+        return false;
+      }
+      return true;
+    });
+
+    // A file with no providers at all, or one whose phantom slots were pruned,
+    // was written by an app default rather than user configuration: mark it so
+    // any shipped default model names beside it are cleared rather than kept.
+    if (providers.length === 0 || prunedPhantomSlots) {
       appWrittenFile = true;
     }
 
     const activeProviderId = typeof raw.activeProviderId === 'string' && raw.activeProviderId
-      ? raw.activeProviderId
-      : (providers.find((p) => p.enabled)?.id || providers[0]?.id || 'openai');
+      ? (providers.some((p) => p.id === raw.activeProviderId)
+          ? raw.activeProviderId
+          : (providers.find((p) => p.enabled)?.id || providers[0]?.id || ''))
+      : (providers.find((p) => p.enabled)?.id || providers[0]?.id || '');
+
+    // The `enabled` flag is a projection of the active id, not independent
+    // state: exactly the active provider is enabled, and none is when nothing is
+    // active.
+    for (const provider of providers) {
+      provider.enabled = Boolean(activeProviderId) && provider.id === activeProviderId;
+    }
 
     // Per-model answers to "does this model take `reasoning_effort`?" and "is it
     // offered at all". Bad entries are dropped rather than fatal: this file may
@@ -676,8 +628,8 @@ function loadSettings(): UiSettings {
   } catch {
     return {
       ...defaults,
-      providers: createDefaultProviders(defaults.apiKey, defaults.baseURL),
-      activeProviderId: 'openai'
+      providers: [],
+      activeProviderId: ''
     };
   }
 }
@@ -1272,10 +1224,7 @@ function redactSecrets(text: string, maxChars = 500, extraSecrets: readonly unkn
 // ---------------------------------------------------------------------------
 
 function settingsView() {
-  const providersList = (settings.providers && settings.providers.length > 0
-    ? settings.providers
-    : createDefaultProviders(settings.apiKey, settings.baseURL)
-  ).map((p) => ({
+  const providersList = (settings.providers ?? []).map((p) => ({
     id: p.id,
     name: p.name,
     /**
@@ -1344,7 +1293,10 @@ function settingsView() {
      * per-provider facts, not derivable from the id.
      */
     modelMetadata: modelMetadataView(),
-    activeProviderId: settings.activeProviderId || (providersList[0]?.id ?? 'openai'),
+    activeProviderId: (settings.activeProviderId && providersList.some((p) => p.id === settings.activeProviderId))
+      ? settings.activeProviderId
+      : (providersList.find((p) => p.enabled)?.id || ''),
+    providerTemplates: PROVIDER_TEMPLATES,
     providers: providersList
   };
 }
@@ -1402,10 +1354,6 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
     // never swaps the runner and never drops the live session.
     next.theme = parsed;
   }
-  if (typeof patch.activeProviderId === 'string' && patch.activeProviderId.trim()) {
-    next.activeProviderId = patch.activeProviderId.trim();
-  }
-
   if (patch.modelConfigs !== undefined) {
     // A full replacement, not a merge: the map is what the model grid shows, and
     // a merge would make "uncheck this model" impossible to express — an omitted
@@ -1420,7 +1368,7 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
   }
 
   if (Array.isArray(patch.providers)) {
-    const existing = next.providers || createDefaultProviders(next.apiKey, next.baseURL);
+    const existing = next.providers ?? [];
     const previousById: Record<string, ProviderConfig> = {};
     for (const provider of existing) previousById[provider.id] = provider;
 
@@ -1473,8 +1421,13 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
   // the active provider, because two sources for one credential is precisely the
   // ambiguity this surface exists to remove.
   if (patch.providers !== undefined || patch.activeProviderId !== undefined) {
-    const providers = next.providers ?? createDefaultProviders(next.apiKey, next.baseURL);
+    const providers = next.providers ?? [];
     next.providers = providers;
+    // A patch may name the id to activate. An empty string is a legitimate
+    // "nothing active"; a non-string is ignored and the stored id stands.
+    if (typeof patch.activeProviderId === 'string') {
+      next.activeProviderId = patch.activeProviderId;
+    }
     // A patch may name an id no entry carries — the user deleted the active
     // provider, or the renderer sent a stale one. Re-point at the first survivor,
     // or the id dangles: the UI highlights nothing and the runner keeps the
@@ -1482,9 +1435,14 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
     if (!providers.some((provider) => provider.id === next.activeProviderId)) {
       next.activeProviderId = providers[0]?.id ?? '';
     }
+    // `enabled` is a projection of the active id: exactly the active provider is
+    // enabled, and none is when nothing is active.
     for (const provider of providers) {
-      provider.enabled = provider.id === next.activeProviderId;
+      provider.enabled = Boolean(next.activeProviderId) && provider.id === next.activeProviderId;
     }
+    // Promote the active provider's credential to the top-level pair. When
+    // nothing is active the projection is empty, so the app is explicitly
+    // unconfigured rather than silently sending a previous provider's key.
     const activeProvider = providers.find((provider) => provider.id === next.activeProviderId);
     next.apiKey = activeProvider?.apiKey ?? '';
     next.baseURL = activeProvider?.baseURL ?? '';

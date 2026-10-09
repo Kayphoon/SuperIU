@@ -2802,9 +2802,61 @@
         padding: var(--siu-space-4);
         border-right: 1px solid var(--siu-border);
       }
+      .siu-provider-add-wrap {
+        position: relative;
+        width: 100%;
+      }
       .siu-provider-add {
         width: 100%;
         justify-content: flex-start;
+      }
+      .siu-provider-add-menu {
+        position: absolute;
+        top: calc(100% + 4px);
+        left: 0;
+        right: 0;
+        bottom: auto;
+        z-index: 50;
+        display: flex;
+        flex-direction: column;
+        width: 100%;
+        max-height: 320px;
+        overflow-y: auto;
+        padding: 5px;
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-md);
+        background: var(--siu-bg-overlay);
+        box-shadow: 0 16px 42px -10px rgba(0, 0, 0, 0.28), 0 2px 8px rgba(0, 0, 0, 0.08);
+      }
+      .siu-provider-add-menu[hidden] {
+        display: none;
+      }
+      .siu-provider-add-menu .siu-popover-row {
+        width: 100%;
+        border: none;
+        background: transparent;
+        text-align: left;
+        font: inherit;
+        color: inherit;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 2px;
+      }
+      .siu-provider-add-menu .siu-popover-name {
+        width: 100%;
+        color: var(--siu-text-primary);
+        font-family: inherit;
+        font-size: var(--siu-text-xs);
+        font-weight: 500;
+      }
+      .siu-provider-add-menu .siu-popover-meta {
+        width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 11px;
+        color: var(--siu-text-muted);
       }
       /* The list scrolls on its own, so the detail column never moves with it. */
       .siu-provider-list {
@@ -4095,9 +4147,12 @@
               <!-- Left column: filter + list. Scrolls on its own. -->
               <div class="siu-provider-column">
                 <input id="provider-search" type="search" class="siu-field" autocomplete="off" spellcheck="false" data-i18n-placeholder="settings.providers.search" />
-                <button id="provider-add" type="button" class="siu-btn siu-provider-add">
-                  <span aria-hidden="true">+</span><span data-i18n="settings.providers.add"></span>
-                </button>
+                <div class="siu-provider-add-wrap">
+                  <button id="provider-add" type="button" class="siu-btn siu-provider-add" aria-haspopup="true" aria-expanded="false">
+                    <span aria-hidden="true">+</span><span data-i18n="settings.providers.add"></span>
+                  </button>
+                  <div id="provider-add-menu" class="siu-popover siu-provider-add-menu" hidden role="menu"></div>
+                </div>
                 <div id="provider-list" class="siu-provider-list" role="listbox"></div>
                 <p id="provider-empty" class="siu-provider-empty" data-i18n="settings.providers.empty" hidden></p>
               </div>
@@ -6704,10 +6759,9 @@
 
       /** The single active provider is the only one the runner can use. */
       function setActiveProvider(id) {
-        if (!findDraftProvider(id)) return;
-        state.activeProviderId = id;
+        state.activeProviderId = id || '';
         for (const provider of state.providersDraft) {
-          provider.enabled = provider.id === id;
+          provider.enabled = Boolean(state.activeProviderId) && provider.id === state.activeProviderId;
         }
       }
 
@@ -6720,9 +6774,11 @@
         for (const section of document.querySelectorAll('.siu-prefs-pane')) {
           section.dataset.active = String(section.dataset.pane === pane);
         }
+        toggleProviderAddMenu(false);
         if (pane === 'providers') {
           renderProviderList();
           renderProviderDetail();
+          renderProviderAddMenu();
         }
         if (pane === 'remote') {
           renderRemotePane();
@@ -6765,15 +6821,30 @@
           item.appendChild(dot);
           list.appendChild(item);
         }
-        $('provider-empty').hidden = matches.length > 0;
+        if (matches.length === 0) {
+          $('provider-empty').hidden = false;
+          $('provider-empty').textContent = state.providersDraft.length === 0
+            ? tr('settings.providers.noneConfigured')
+            : tr('settings.providers.empty');
+        } else {
+          $('provider-empty').hidden = true;
+        }
       }
 
       function renderProviderDetail() {
         const provider = findDraftProvider(state.selectedProviderId);
         const form = $('provider-form');
-        $('provider-detail-empty').hidden = Boolean(provider);
-        form.hidden = !provider;
-        if (!provider) return;
+        if (!provider) {
+          $('provider-detail-empty').hidden = false;
+          $('provider-detail-empty').textContent = state.providersDraft.length === 0
+            ? tr('settings.providers.nonePrompt')
+            : tr('settings.providers.select');
+          form.hidden = true;
+          $('provider-delete').disabled = true;
+          return;
+        }
+        $('provider-detail-empty').hidden = true;
+        form.hidden = false;
 
         $('provider-name').value = provider.name;
         $('provider-custom-badge').hidden = !provider.custom;
@@ -6816,8 +6887,7 @@
         const toggle = $('provider-enabled');
         toggle.dataset.on = String(provider.enabled);
         toggle.setAttribute('aria-checked', String(provider.enabled));
-        // Deleting the last provider would leave nothing to route through.
-        $('provider-delete').disabled = state.providersDraft.length <= 1;
+        $('provider-delete').disabled = !provider;
 
         renderProviderModels();
       }
@@ -6991,9 +7061,12 @@
         // form comparing the draft against what was merely *sent*.
         state.modelConfigsDraft = modelConfigsFromView(view);
         state.savedModelConfigs = modelConfigsFromView(view);
-        state.activeProviderId = view.activeProviderId || state.providersDraft[0]?.id || '';
+        state.activeProviderId = view.activeProviderId || '';
         for (const provider of state.providersDraft) {
-          provider.enabled = provider.id === state.activeProviderId;
+          provider.enabled = Boolean(state.activeProviderId) && provider.id === state.activeProviderId;
+        }
+        for (const provider of state.savedProviders) {
+          provider.enabled = Boolean(state.activeProviderId) && provider.id === state.activeProviderId;
         }
         // Keep looking at the same provider across a refresh, unless it is gone.
         if (!findDraftProvider(state.selectedProviderId)) {
@@ -7058,6 +7131,7 @@
         renderNotifyButton();
         renderRemotePane();
         renderAboutUpdate();
+        renderProviderAddMenu();
       }
 
       let lastUpdatePayload = null;
@@ -7182,6 +7256,93 @@
       });
 
 
+      const DEFAULT_PROVIDER_TEMPLATES = [
+        { id: 'openai', name: 'OpenAI', baseURL: 'https://api.openai.com/v1', helpUrl: 'https://platform.openai.com/api-keys' },
+        { id: 'deepseek', name: 'DeepSeek', baseURL: 'https://api.deepseek.com/v1', helpUrl: 'https://platform.deepseek.com/api_keys' },
+        { id: 'gemini', name: 'Google Gemini', baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/', helpUrl: 'https://aistudio.google.com/app/apikey' },
+        { id: 'anthropic', name: 'Anthropic', baseURL: 'https://api.anthropic.com/v1', helpUrl: 'https://console.anthropic.com/settings/keys' },
+        { id: 'ollama', name: 'Ollama', baseURL: 'http://localhost:11434/v1', helpUrl: 'https://ollama.com' },
+        { id: 'openrouter', name: 'OpenRouter', baseURL: 'https://openrouter.ai/api/v1', helpUrl: 'https://openrouter.ai/keys' },
+        { id: 'custom', name: '', baseURL: '', helpUrl: '', custom: true }
+      ];
+
+      function getProviderTemplates() {
+        const fromView = state.settings?.providerTemplates;
+        if (Array.isArray(fromView) && fromView.length > 0) {
+          const list = fromView.map((tpl) => ({ ...tpl }));
+          if (!list.some((tpl) => tpl.id === 'custom' || tpl.custom)) {
+            list.push({ id: 'custom', name: '', baseURL: '', helpUrl: '', custom: true });
+          }
+          return list;
+        }
+        return DEFAULT_PROVIDER_TEMPLATES;
+      }
+
+      function toggleProviderAddMenu(force) {
+        const menu = $('provider-add-menu');
+        const btn = $('provider-add');
+        if (!menu || !btn) return;
+        const show = typeof force === 'boolean' ? force : menu.hidden;
+        menu.hidden = !show;
+        btn.setAttribute('aria-expanded', String(show));
+      }
+
+      function renderProviderAddMenu() {
+        const menu = $('provider-add-menu');
+        if (!menu) return;
+        menu.innerHTML = '';
+        const templates = getProviderTemplates();
+        for (const template of templates) {
+          const row = el('button', 'siu-popover-row');
+          row.type = 'button';
+          row.setAttribute('role', 'menuitem');
+          const nameText = template.id === 'custom' || template.custom
+            ? tr('settings.providers.template.custom')
+            : (template.name || tr('settings.providers.template.custom'));
+          row.appendChild(el('span', 'siu-popover-name', nameText));
+          if (template.baseURL) {
+            row.appendChild(el('span', 'siu-popover-meta', template.baseURL));
+          }
+          row.addEventListener('click', (event) => {
+            event.stopPropagation();
+            addProviderFromTemplate(template);
+          });
+          menu.appendChild(row);
+        }
+      }
+
+      function addProviderFromTemplate(template) {
+        const providerId = template.id === 'custom'
+          ? 'custom-' + Date.now().toString(36)
+          : (state.providersDraft.some((p) => p.id === template.id) ? template.id + '-' + Date.now().toString(36) : template.id);
+
+        const provider = providerDraftFrom({
+          id: providerId,
+          name: template.name || '',
+          presetName: template.name || '',
+          baseURL: template.baseURL || '',
+          helpUrl: template.helpUrl || '',
+          custom: Boolean(template.custom),
+          apiKey: '',
+          models: []
+        });
+
+        state.providersDraft.push(provider);
+        if (state.providersDraft.length === 1) {
+          setActiveProvider(provider.id);
+        }
+        state.selectedProviderId = provider.id;
+        toggleProviderAddMenu(false);
+        renderProviderList();
+        renderProviderDetail();
+        renderSettingsDirty();
+        if (template.baseURL) {
+          $('set-api-key')?.focus();
+        } else {
+          $('provider-name')?.focus();
+        }
+      }
+
       // -----------------------------------------------------------------------
       // Providers pane
       // -----------------------------------------------------------------------
@@ -7192,25 +7353,27 @@
 
       $('provider-search').addEventListener('input', () => renderProviderList());
 
-      $('provider-add').addEventListener('click', () => {
-        const provider = providerDraftFrom({
-          id: 'custom-' + Date.now(),
-          name: '',
-          enabled: false,
-          baseURL: '',
-          apiKeyMasked: '',
-          apiKeySet: false,
-          models: [],
-          description: '',
-          helpUrl: '',
-          custom: true
-        });
-        state.providersDraft.push(provider);
-        state.selectedProviderId = provider.id;
-        renderProviderList();
-        renderProviderDetail();
-        renderSettingsDirty();
-        $('provider-name').focus();
+      $('provider-add').addEventListener('click', (event) => {
+        event.stopPropagation();
+        const menu = $('provider-add-menu');
+        if (!menu) return;
+        const willOpen = menu.hidden;
+        if (willOpen) {
+          renderProviderAddMenu();
+        }
+        toggleProviderAddMenu(willOpen);
+      });
+
+      document.addEventListener('click', (event) => {
+        if (!event.target.closest('.siu-provider-add-wrap')) {
+          toggleProviderAddMenu(false);
+        }
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+          toggleProviderAddMenu(false);
+        }
       });
 
       $('provider-list').addEventListener('click', (event) => {
@@ -7250,10 +7413,7 @@
         const provider = findDraftProvider(state.selectedProviderId);
         if (!provider) return;
         if (provider.enabled) {
-          // Exactly one provider is active; switching the active one off hands
-          // the role to another rather than leaving the runner with none.
-          const fallback = state.providersDraft.find((candidate) => candidate.id !== provider.id);
-          if (fallback) setActiveProvider(fallback.id);
+          setActiveProvider('');
         } else {
           setActiveProvider(provider.id);
         }
@@ -7432,11 +7592,13 @@
         renderSettingsDirty();
       });
       $('provider-delete').addEventListener('click', () => {
-        if (state.providersDraft.length <= 1) return;
         const removed = state.selectedProviderId;
+        if (!removed) return;
         state.providersDraft = state.providersDraft.filter((provider) => provider.id !== removed);
-        if (state.activeProviderId === removed) setActiveProvider(state.providersDraft[0].id);
-        state.selectedProviderId = state.providersDraft[0].id;
+        if (state.activeProviderId === removed) {
+          setActiveProvider(state.providersDraft[0]?.id || '');
+        }
+        state.selectedProviderId = state.activeProviderId || state.providersDraft[0]?.id || '';
         renderProviderList();
         renderProviderDetail();
         renderSettingsDirty();

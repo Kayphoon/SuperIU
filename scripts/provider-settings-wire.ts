@@ -586,13 +586,18 @@ async function runMigrationTests() {
   await test('a file with no providers serves no model anywhere', async () => {
     const h = await boot([]);
     try {
-      assert(h.rows.length > 0, 'the preset slots were not seeded');
+      assert(h.rows.length === 0, `expected no provider rows seeded, got ${h.rows.length}`);
       for (const row of h.rows) {
         assert(
           JSON.stringify(row.models) === '[]',
           `'${String(row.id)}' was seeded with ${JSON.stringify(row.models)}`
         );
       }
+      assert(h.view.activeProviderId === '', `expected empty activeProviderId, got '${h.view.activeProviderId}'`);
+      assert(
+        Array.isArray(h.view.providerTemplates) && h.view.providerTemplates.length > 0,
+        'providerTemplates not exposed'
+      );
       assert(h.view.modelName === '', `modelName is '${String(h.view.modelName)}', expected ''`);
       assert(h.view.reviewModelName === '', `reviewModelName is '${String(h.view.reviewModelName)}'`);
       assert(JSON.stringify(h.view.modelChoices) === '[]', `modelChoices: ${JSON.stringify(h.view.modelChoices)}`);
@@ -889,7 +894,7 @@ async function runWireTests() {
 
     await test('an empty provider table clears the id instead of dangling', async () => {
       const view = await postJson(`${handle.url}/api/settings`, { providers: [] });
-      assert(view.activeProviderId === 'openai', `view fell back to '${view.activeProviderId}'`);
+      assert(view.activeProviderId === '', `expected empty id, got '${view.activeProviderId}'`);
       const persisted = await readSettingsFile();
       assert(persisted.activeProviderId === '', `persisted id is '${persisted.activeProviderId}'`);
       assert(persisted.apiKey === '', `persisted apiKey is '${persisted.apiKey}'`);
