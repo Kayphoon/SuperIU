@@ -14,6 +14,26 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.26 (2026-10-09)
+
+### 中文
+
+- 新增 Web 控制台的**配对（Pairing）认证**与弱网容错层，取代此前「控制台无认证」的状态：
+  - **自动启用**：默认 AUTO——当绑定地址非回环（如 `0.0.0.0`），或工作区 `.superiu/pairing.json` 已存在密钥/配对码时自动要求认证；回环绑定且无密钥时保持开放，`pnpm ui`、桌面端本地模式与 SSH 隧道访问行为不变。可用 `SUPERIU_WEB_AUTH=1/0` 强制开/关。
+  - **一次性配对链接**：`superiu-server pair` 生成 5 分钟有效、仅可使用一次的链接（`/auth/connect/:code`）；打开后换取长期密钥并写入 `HttpOnly` Cookie。密钥有效期**滑动**，默认最后一次使用后 30 天（`SUPERIU_PAIRING_TTL_DAYS` 可调）。
+  - **安全存储与管理**：密钥仅以 SHA-256 摘要保存在 `.superiu/pairing.json`（0600，原子写入），可用 id 列表/吊销（`superiu-server pair --list|--revoke`）；控制台设置第 8 面板提供图形化设备管理与为其他设备发码功能。
+  - **弱网容错**：SPA 新增 `api()` 重试容错层、离线横幅与状态机，网络波动时保留界面既有数据（stale-not-blank）不清空；流式生成中断优雅提示。
+  - **信任与防护**：回环对端（含 SSH 隧道）免认证，`X-Forwarded-For` 不被信任；失败尝试每 IP 每分钟 20 次后返回 429；401 仅在导航请求发送 `WWW-Authenticate`，避免 fetch 触发浏览器原生凭据弹窗。
+
+### English
+
+- Add **pairing authentication** and network resilience to the web console, replacing the previous "no authentication" state:
+  - **Automatic**: AUTO by default — auth turns on when the bind address is not loopback (e.g. `0.0.0.0`), or when a key/code already exists in the workspace's `.superiu/pairing.json`; a loopback bind with no keys stays open, so `pnpm ui`, the desktop's local mode and SSH-tunnel access are unchanged. Force it with `SUPERIU_WEB_AUTH=1/0`.
+  - **One-time links**: `superiu-server pair` prints a link that works once and expires in 5 minutes (`/auth/connect/:code`); opening it exchanges the code for a long-lived key stored in an `HttpOnly` cookie. Key expiry **slides** — 30 days after the most recent use by default (`SUPERIU_PAIRING_TTL_DAYS`).
+  - **Safe storage & management**: keys are kept SHA-256-hashed in `.superiu/pairing.json` (0600, atomic writes) and can be listed/revoked by id (`superiu-server pair --list|--revoke`); Settings panel 8 offers graphical device management and pairing code minting for other devices.
+  - **Network resilience**: added `api()` wrapper with retry/timeout, top offline banner with online/degraded/offline state machine, preserving existing data on network degradation (stale-not-blank); graceful interruption recovery for stream responses.
+  - **Trust and hardening**: loopback peers (including SSH tunnels) are exempt and `X-Forwarded-For` is never trusted; failed attempts are throttled to 429 after 20 per IP per minute; a 401 carries `WWW-Authenticate` only for navigations, so fetches never trigger the browser's native credential prompt.
+
 ## v0.2.25 (2026-10-09)
 
 ### 中文
