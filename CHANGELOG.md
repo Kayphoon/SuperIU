@@ -14,6 +14,24 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.31 (2026-10-09)
+
+### 中文
+
+- 设置面板检查更新页支持展示远程 Gateway 版本与双端协同升级：
+  - **双端节点看板**：在连接到远程 VPS Gateway 或纯 Web 控制台时，关于更新卡片自动扩展为双端状态看板，同时展示本地客户端与远端网关守护进程的当前版本与最新可用版本；
+  - **一键升级双端**：当双端均有新版本时，提供高亮的「⚡ 一键升级双端」主按钮，采用「远端增量升级先行重载 + 本地差分下载收尾重启」的平滑时序，杜绝过早断开隧道导致的盲区；亦支持单独升级远端或本地；
+  - **任务防打断与平滑重连**：远端服务升级内置空闲保护（正在执行 Agent 任务时拒绝打断），重启后前端通过长连接重试平滑过渡并自动刷新版本；
+  - **服务升级接口与守护进程调度**：服务端新增 `/api/update` GET（探活最新版本）与 POST（执行换装与热重载）鉴权接口，支持忽略回退限制强制应用最新版本；桌面端同步支持通过 SSH 管道或 API 调用远端自更新。
+
+### English
+
+- Support remote Gateway version display and dual-node one-click upgrade in Settings:
+  - **Dual-node update matrix**: when connected to a remote VPS Gateway or running in the web console, the About update card dynamically expands to display both local desktop client and remote daemon versions and update availability.
+  - **One-click upgrade both sides**: when updates are available on both sides, a prominent "⚡ Upgrade Both Sides" button coordinates sequential upgrade (remote delta patch & drain reload first, local differential download and restart last), avoiding connection loss during update; also supports upgrading remote or local individually.
+  - **Turn safety & seamless reconnect**: remote self-update respects agent turn execution (blocks restart while a turn is active); client heartbeats smoothly handle the brief daemon respawn and refresh versions automatically.
+  - **Update API & daemon orchestration**: added `/api/update` GET (release availability probe) and POST (drain & respawn) endpoints on the server with idle safety guards; desktop shell exposes direct remote upgrade fallback via SSH or API.
+
 ## v0.2.30 (2026-10-09)
 
 ### 中文
