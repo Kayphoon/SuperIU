@@ -646,8 +646,13 @@ async function acquireZip(
 
   // One adapter, shared by both paths, so progress looks identical to the UI
   // whether the bytes arrived as a diff or as the whole zip.
+  let lastReportedPercent = -1;
   const onProgress = (percent: number): void => {
-    setState({ phase: 'downloading', latestVersion: updateInfo.latestVersion, percent });
+    const intPercent = Math.min(100, Math.max(0, Math.round(percent)));
+    if (intPercent !== lastReportedPercent) {
+      lastReportedPercent = intPercent;
+      setState({ phase: 'downloading', latestVersion: updateInfo.latestVersion, percent: intPercent });
+    }
   };
 
   if (app.isPackaged && updateInfo.blockmapUrl && fs.existsSync(baseZipPath)) {
@@ -671,6 +676,7 @@ async function acquireZip(
         err instanceof Error ? err.message : err
       );
       await fsp.rm(zipPath, { force: true }).catch(() => undefined);
+      lastReportedPercent = -1;
     }
   }
 

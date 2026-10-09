@@ -7179,7 +7179,7 @@
             statusEl.textContent = tr('settings.about.checking');
             break;
           case 'downloading': {
-            const pct = Math.max(0, Math.min(100, statePayload.percent || 0));
+            const pct = Math.max(0, Math.min(100, Math.round(Number(statePayload.percent) || 0)));
             statusEl.textContent = tr('settings.about.downloading', { percent: pct });
             progressWrap.classList.remove('hidden');
             progressBar.style.width = `${pct}%`;
