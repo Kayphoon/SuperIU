@@ -20,6 +20,7 @@ import { GatewayClient, type GatewayClientOptions } from '../gateway_client.js';
 import { parseVersion, semverGt } from '../semver.js';
 import {
   RemoteBootstrapper,
+  REMOTE_BIN_PATH,
   type RemoteDaemonState,
   type RemoteRunner,
 } from './bootstrap.js';
@@ -483,6 +484,21 @@ export class RemoteConnectionManager {
     this.client?.close();
     this.client = null;
     await this.tunnel.close();
+  }
+
+  /**
+   * Run `superiu-server update` on the remote host over SSH.
+   */
+  async upgradeRemoteServer(): Promise<{ ok: boolean; stdout?: string; error?: string }> {
+    const alias = this.lastOptions?.alias;
+    if (!alias) {
+      return { ok: false, error: 'No active remote connection' };
+    }
+    const res = await this.bootstrapper.runCommand(alias, `${REMOTE_BIN_PATH} update`);
+    if (res.exitCode !== 0) {
+      return { ok: false, error: res.stderr || res.stdout };
+    }
+    return { ok: true, stdout: res.stdout };
   }
 
   /**

@@ -2159,6 +2159,12 @@ function installIpcHandlers(): void {
     const config = resolveGatewayConfig(resolveWorkspace());
     showGatewayStatus(config, 'idle');
   });
+  ipcMain.handle(INVOKE.upgradeRemote, async () => {
+    if (remoteManager) {
+      return await remoteManager.upgradeRemoteServer();
+    }
+    return { ok: false, error: 'No active remote connection' };
+  });
 
   ipcMain.handle(
     INVOKE.connectRemote,

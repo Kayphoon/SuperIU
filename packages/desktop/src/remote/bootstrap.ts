@@ -183,6 +183,11 @@ export class RemoteBootstrapper {
     this.runRemote = runRemote;
   }
 
+  /** Run a command on the remote host, returning exit code, stdout and stderr. */
+  async runCommand(alias: string, command: string): Promise<RemoteRunResult> {
+    return this.runRemote(alias, command);
+  }
+
   /** Run a command and throw when it exits non-zero. */
   private async runOrThrow(alias: string, command: string): Promise<RemoteRunResult> {
     const result = await this.runRemote(alias, command);

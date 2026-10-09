@@ -988,6 +988,42 @@ async function commandStart(parsed: ParsedArgs): Promise<number> {
     state.releaseBase = releaseBase;
   }
 
+  handle.setUpdateHooks({
+    onCheckUpdate: async () => {
+      const assetName = ARCH_ASSETS[process.arch];
+      if (!assetName) {
+        return {
+          current: version,
+          hasUpdate: false,
+          canUpdate: false,
+          error: `unsupported architecture '${process.arch}'`
+        };
+      }
+      const base = (state.releaseBase ?? process.env.SUPERIU_RELEASE_BASE ?? DEFAULT_RELEASE_BASE).replace(/\/+$/, '');
+      let latest: string | undefined;
+      try {
+        latest = await fetchLatestVersion(assetName);
+      } catch (err) {
+        return {
+          current: version,
+          hasUpdate: false,
+          canUpdate: true,
+          error: describeError(err)
+        };
+      }
+      return {
+        current: version,
+        latest,
+        hasUpdate: Boolean(latest && semverGt(latest, version)),
+        canUpdate: true
+      };
+    },
+    onApplyUpdate: async () => {
+      await runUpdateTick(handle, state, workspace, process.execPath, { ignoreBackoff: true });
+      return { updated: true, current: version };
+    }
+  });
+
   let stateFile: string | null = null;
   try {
     stateFile = writeState(workspace, state);
@@ -1612,6 +1648,8 @@ export interface UpdateTickSeams {
   restart?: (target: string, state: DaemonState) => void;
   /** Process exit after a successful swap. Overridable so tests do not kill the runner. */
   exit?: (code: number) => void;
+  /** Force-run the tick, bypassing the 24h backoff window (used by manual update requests). */
+  ignoreBackoff?: boolean;
 }
 
 export async function runUpdateTick(
@@ -1679,7 +1717,7 @@ export async function runUpdateTick(
       return;
     }
 
-    if (isBackoffBlocked(backoffState, candidate)) {
+    if (!seams.ignoreBackoff && isBackoffBlocked(backoffState, candidate)) {
       markChecked(backoffState);
       return;
     }

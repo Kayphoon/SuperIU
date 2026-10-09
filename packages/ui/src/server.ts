@@ -83,6 +83,23 @@ export interface StartServerOptions {
    * code. Exposed so tests and embedders can pin the mode.
    */
   webAuth?: boolean;
+  /** Optional lifecycle hooks to drive the `/api/update` routes. */
+  updateHooks?: UpdateHooks;
+}
+
+export interface UpdateHooks {
+  onCheckUpdate?: () => Promise<{
+    current: string;
+    latest?: string;
+    hasUpdate: boolean;
+    canUpdate?: boolean;
+    error?: string;
+  }>;
+  onApplyUpdate?: () => Promise<{
+    updated: boolean;
+    current: string;
+    latest?: string;
+  }>;
 }
 
 export interface ServerHandle {
@@ -127,6 +144,8 @@ export interface ServerHandle {
   isIdle(): boolean;
   /** Stop accepting new turns so an in-flight turn can finish before a self-update. */
   setDraining(draining: boolean): void;
+  /** Install or replace update hooks backing `/api/update`. */
+  setUpdateHooks(hooks: UpdateHooks): void;
   /** Idempotent: resolves pending approvals, closes the HTTP server and the agent runner. */
   close(): Promise<void>;
 }
@@ -906,6 +925,8 @@ let activeWorkspaceDir = process.cwd();
 let memoryDir = '';
 /** Build version reported by `buildStatus`; set by startServer from `options.version`. */
 let serverVersion = '0.0.0';
+/** Update hooks backing `/api/update`. */
+let updateHooks: UpdateHooks = {};
 
 /**
  * Whether the user has told us this model takes `reasoning_effort`.
@@ -1524,6 +1545,7 @@ const API_METHODS: Record<string, string[]> = {
   '/api/abort': ['POST'],
   '/api/approve': ['POST'],
   '/api/shutdown': ['POST'],
+  '/api/update': ['GET', 'POST'],
   '/api/chat': ['POST']
 };
 
@@ -1823,6 +1845,54 @@ async function handleApi(
     return true;
   }
 
+  if (pathname === '/api/update' && method === 'GET') {
+    if (updateHooks.onCheckUpdate) {
+      try {
+        const result = await updateHooks.onCheckUpdate();
+        sendJson(res, 200, result);
+      } catch (err) {
+        sendJson(res, 200, {
+          current: serverVersion,
+          hasUpdate: false,
+          canUpdate: true,
+          error: errorMessage(err)
+        });
+      }
+    } else {
+      sendJson(res, 200, {
+        current: serverVersion,
+        hasUpdate: false,
+        canUpdate: false
+      });
+    }
+    return true;
+  }
+
+  if (pathname === '/api/update' && method === 'POST') {
+    if (!updateHooks.onApplyUpdate) {
+      sendError(res, 400, 'Server self-update is not supported in this runtime mode.');
+      return true;
+    }
+    const isIdle =
+      runner?.status === 'idle' && pendingApprovals.size === 0 && (!gatewayRef || gatewayRef.isIdle());
+    if (!isIdle) {
+      sendJson(res, 409, {
+        error: 'busy',
+        message: 'Agent turn is in progress; please wait for completion before updating.'
+      });
+      return true;
+    }
+    sendJson(res, 200, { ok: true, status: 'applying' });
+    setTimeout(async () => {
+      try {
+        await updateHooks.onApplyUpdate!();
+      } catch (err) {
+        process.stderr.write(`superiu-server: update apply failed: ${errorMessage(err)}\n`);
+      }
+    }, 80).unref();
+    return true;
+  }
+
   if (pathname === '/api/chat' && method === 'POST') {
     await handleChat(req, res);
     return true;
@@ -2090,6 +2160,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
   settings = loadSettings();
   memoryDir = await resolveMemoryDir();
   serverVersion = options.version ?? '0.0.0';
+  updateHooks = options.updateHooks ?? {};
   runner = new AgentRunner(runnerOptions());
 
   // Pairing auth sits in front of the API. The mode is explicit when the
@@ -2263,6 +2334,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
     setDraining: (value: boolean) => {
       draining = value;
       gatewayRef?.setDraining(value);
+    },
+    setUpdateHooks: (hooks: UpdateHooks) => {
+      updateHooks = hooks;
     },
     close
   };

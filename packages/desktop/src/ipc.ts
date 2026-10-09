@@ -32,7 +32,8 @@ export const INVOKE = {
   installUpdate: 'superiu:install-update',
   getUpdateState: 'superiu:get-update-state',
   getConnectionInfo: 'superiu:get-connection-info',
-  disconnectRemote: 'superiu:disconnect-remote'
+  disconnectRemote: 'superiu:disconnect-remote',
+  upgradeRemote: 'superiu:upgrade-remote'
 } as const;
 
 export const REMOTE_PROGRESS_CHANNEL = 'superiu:remote-progress';
@@ -137,4 +138,5 @@ export interface SuperiuDesktopBridge {
   getConnectionInfo?(): Promise<ConnectionInfoPayload>;
   onConnectionStateChange?(callback: (info: ConnectionInfoPayload) => void): () => void;
   disconnectRemote?(): Promise<void>;
+  upgradeRemote?(): Promise<{ ok: boolean; error?: string }>;
 }

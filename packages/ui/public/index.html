@@ -4844,16 +4844,43 @@
                 <div class="text-primary font-medium" data-i18n="settings.about.product"></div>
                 <p class="siu-prefs-subtitle mt-0.5" data-i18n="settings.about.storage"></p>
               </div>
-              <div id="settings-about-update" class="rounded-lg border border-line bg-fill-subtle px-4 py-3 flex flex-col gap-2.5">
-                <div class="flex items-center justify-between">
-                  <div>
-                    <div id="settings-update-version" class="text-[13px] font-mono text-primary"></div>
-                    <div id="settings-update-status" class="text-[12px] text-muted mt-0.5"></div>
+              <div id="settings-about-update" class="rounded-lg border border-line bg-fill-subtle px-4 py-3 flex flex-col gap-3">
+                <!-- Local desktop client card -->
+                <div id="settings-update-local-wrap" class="flex flex-col gap-2">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <div class="flex items-center gap-2">
+                        <span id="settings-update-local-tag" class="text-[12px] font-medium text-primary hidden" data-i18n="settings.about.localClient"></span>
+                        <div id="settings-update-version" class="text-[13px] font-mono text-primary"></div>
+                      </div>
+                      <div id="settings-update-status" class="text-[12px] text-muted mt-0.5"></div>
+                    </div>
+                    <button id="settings-update-action" type="button" class="siu-btn text-[12px] py-1 px-3 hidden"></button>
                   </div>
-                  <button id="settings-update-action" type="button" class="siu-btn text-[12px] py-1 px-3 hidden"></button>
+                  <div id="settings-update-progress-wrap" class="w-full bg-border rounded-full h-1.5 overflow-hidden hidden">
+                    <div id="settings-update-progress-bar" class="bg-primary h-full w-0 transition-all duration-200"></div>
+                  </div>
                 </div>
-                <div id="settings-update-progress-wrap" class="w-full bg-border rounded-full h-1.5 overflow-hidden hidden">
-                  <div id="settings-update-progress-bar" class="bg-primary h-full w-0 transition-all duration-200"></div>
+
+                <!-- Remote VPS / Gateway card -->
+                <div id="settings-update-remote-wrap" class="pt-2.5 border-t border-line flex flex-col gap-2 hidden">
+                  <div class="flex items-center justify-between">
+                    <div>
+                      <div class="flex items-center gap-2">
+                        <span class="text-[12px] font-medium text-primary" data-i18n="settings.about.remoteGateway"></span>
+                        <span id="settings-update-remote-host" class="text-[11px] font-mono text-muted"></span>
+                        <div id="settings-update-remote-version" class="text-[13px] font-mono text-primary"></div>
+                      </div>
+                      <div id="settings-update-remote-status" class="text-[12px] text-muted mt-0.5"></div>
+                    </div>
+                    <button id="settings-update-remote-action" type="button" class="siu-btn text-[12px] py-1 px-3 hidden"></button>
+                  </div>
+                </div>
+
+                <!-- Dual master action -->
+                <div id="settings-update-dual-wrap" class="pt-2.5 border-t border-line flex flex-col sm:flex-row sm:items-center justify-between gap-2 hidden">
+                  <span id="settings-update-dual-hint" class="text-[11px] text-muted leading-tight" data-i18n="settings.about.upgradeBothHint"></span>
+                  <button id="settings-update-dual-btn" type="button" class="siu-btn siu-btn--primary text-[12px] py-1 px-3 shrink-0" data-i18n="settings.about.upgradeBoth"></button>
                 </div>
               </div>
             </div>
@@ -7775,89 +7802,271 @@
       }
 
       let lastUpdatePayload = null;
+      let remoteUpdateInfo = null;
+      let remoteUpdateChecking = false;
+
+      async function checkRemoteUpdate() {
+        if (remoteUpdateChecking) return;
+        remoteUpdateChecking = true;
+        if (!remoteUpdateInfo) remoteUpdateInfo = {};
+        remoteUpdateInfo.phase = 'checking';
+        renderAboutUpdate();
+        try {
+          const res = await api('/api/update');
+          remoteUpdateInfo = {
+            current: res.current || '',
+            latest: res.latest || '',
+            hasUpdate: Boolean(res.hasUpdate),
+            canUpdate: res.canUpdate !== false,
+            phase: res.hasUpdate ? 'available' : 'idle',
+            error: res.error || null
+          };
+        } catch (err) {
+          remoteUpdateInfo = {
+            current: remoteUpdateInfo?.current || '',
+            latest: '',
+            hasUpdate: false,
+            canUpdate: false,
+            phase: 'error',
+            error: err.message
+          };
+        } finally {
+          remoteUpdateChecking = false;
+          renderAboutUpdate();
+        }
+      }
+
+      async function applyRemoteUpdate() {
+        if (!remoteUpdateInfo || remoteUpdateInfo.phase === 'upgrading' || remoteUpdateInfo.phase === 'restarting') return;
+        remoteUpdateInfo.phase = 'upgrading';
+        renderAboutUpdate();
+        try {
+          const res = await api('/api/update', { method: 'POST' });
+          if (res?.error === 'busy') {
+            remoteUpdateInfo.phase = 'error';
+            remoteUpdateInfo.error = tr('settings.about.remoteBusy');
+            renderAboutUpdate();
+            return;
+          }
+          remoteUpdateInfo.phase = 'restarting';
+          renderAboutUpdate();
+        } catch (err) {
+          remoteUpdateInfo.phase = 'error';
+          remoteUpdateInfo.error = err.message;
+          renderAboutUpdate();
+        }
+      }
 
       function renderAboutUpdate() {
         const card = $('settings-about-update');
         if (!card) return;
-        if (!window.superiuDesktop) {
-          card.classList.add('hidden');
-          return;
-        }
-        card.classList.remove('hidden');
 
+        const isDesktop = Boolean(window.superiuDesktop);
+        const isRemote = Boolean(
+          activeConnectionInfo &&
+            (activeConnectionInfo.mode === 'remote' || activeConnectionInfo.mode === 'gateway')
+        );
+
+        const localWrap = $('settings-update-local-wrap');
+        const localTag = $('settings-update-local-tag');
         const versionEl = $('settings-update-version');
         const statusEl = $('settings-update-status');
         const actionBtn = $('settings-update-action');
         const progressWrap = $('settings-update-progress-wrap');
         const progressBar = $('settings-update-progress-bar');
-        if (!lastUpdatePayload) {
-          versionEl.textContent = '';
-          statusEl.textContent = '';
-          actionBtn.classList.remove('hidden');
-          actionBtn.textContent = tr('settings.about.checkUpdate');
-          actionBtn.onclick = () => {
-            actionBtn.disabled = true;
-            void window.superiuDesktop?.checkForUpdate?.().finally(() => {
-              actionBtn.disabled = false;
-            });
-          };
-          return;
+
+        const remoteWrap = $('settings-update-remote-wrap');
+        const remoteHost = $('settings-update-remote-host');
+        const remoteVersion = $('settings-update-remote-version');
+        const remoteStatus = $('settings-update-remote-status');
+        const remoteActionBtn = $('settings-update-remote-action');
+
+        const dualWrap = $('settings-update-dual-wrap');
+        const dualBtn = $('settings-update-dual-btn');
+
+        // 1. Render Local Section
+        if (isDesktop && localWrap) {
+          localWrap.classList.remove('hidden');
+          if (isRemote && localTag) {
+            localTag.classList.remove('hidden');
+          } else if (localTag) {
+            localTag.classList.add('hidden');
+          }
+
+          if (!lastUpdatePayload) {
+            versionEl.textContent = '';
+            statusEl.textContent = '';
+            actionBtn.classList.remove('hidden');
+            actionBtn.className = 'siu-btn text-[12px] py-1 px-3';
+            actionBtn.textContent = tr('settings.about.checkUpdate');
+            actionBtn.onclick = () => {
+              actionBtn.disabled = true;
+              void window.superiuDesktop?.checkForUpdate?.().finally(() => {
+                actionBtn.disabled = false;
+              });
+            };
+          } else {
+            const statePayload = lastUpdatePayload;
+            versionEl.textContent = statePayload.currentVersion
+              ? tr('settings.about.version', { version: statePayload.currentVersion })
+              : '';
+            actionBtn.classList.add('hidden');
+            actionBtn.className = 'siu-btn text-[12px] py-1 px-3';
+            progressWrap.classList.add('hidden');
+            progressBar.style.width = '0%';
+
+            switch (statePayload.phase) {
+              case 'checking':
+                statusEl.textContent = tr('settings.about.checking');
+                break;
+              case 'downloading': {
+                const pct = Math.max(0, Math.min(100, Math.round(Number(statePayload.percent) || 0)));
+                statusEl.textContent = tr('settings.about.downloading', { percent: pct });
+                progressWrap.classList.remove('hidden');
+                progressBar.style.width = `${pct}%`;
+                break;
+              }
+              case 'ready':
+                statusEl.textContent = tr('settings.about.downloadReady', { version: statePayload.latestVersion });
+                actionBtn.textContent = tr('settings.about.restartNow');
+                actionBtn.classList.remove('hidden');
+                actionBtn.classList.add('siu-btn--primary');
+                actionBtn.onclick = () => {
+                  actionBtn.disabled = true;
+                  void window.superiuDesktop?.installUpdate?.();
+                };
+                break;
+              case 'error':
+                statusEl.textContent = `${tr('settings.about.updateError')}: ${statePayload.error || ''}`;
+                actionBtn.textContent = tr('settings.about.checkUpdate');
+                actionBtn.classList.remove('hidden');
+                actionBtn.onclick = () => {
+                  actionBtn.disabled = true;
+                  void window.superiuDesktop?.checkForUpdate?.().finally(() => {
+                    actionBtn.disabled = false;
+                  });
+                };
+                break;
+              case 'idle':
+              default:
+                statusEl.textContent = tr('settings.about.upToDate');
+                actionBtn.textContent = tr('settings.about.checkUpdate');
+                actionBtn.classList.remove('hidden');
+                actionBtn.onclick = () => {
+                  actionBtn.disabled = true;
+                  void window.superiuDesktop?.checkForUpdate?.().finally(() => {
+                    actionBtn.disabled = false;
+                  });
+                };
+                break;
+            }
+          }
+        } else if (localWrap) {
+          localWrap.classList.add('hidden');
         }
 
-        const statePayload = lastUpdatePayload;
-        versionEl.textContent = statePayload.currentVersion
-          ? tr('settings.about.version', { version: statePayload.currentVersion })
-          : '';
-        // Reset visibility
-        actionBtn.classList.add('hidden');
-        actionBtn.className = 'siu-btn text-[12px] py-1 px-3';
-        progressWrap.classList.add('hidden');
-        progressBar.style.width = '0%';
-
-        switch (statePayload.phase) {
-          case 'checking':
-            statusEl.textContent = tr('settings.about.checking');
-            break;
-          case 'downloading': {
-            const pct = Math.max(0, Math.min(100, Math.round(Number(statePayload.percent) || 0)));
-            statusEl.textContent = tr('settings.about.downloading', { percent: pct });
-            progressWrap.classList.remove('hidden');
-            progressBar.style.width = `${pct}%`;
-            break;
+        // 2. Render Remote Section (when remote or pure web mode)
+        const showRemote = isRemote || !isDesktop;
+        if (showRemote && remoteWrap) {
+          remoteWrap.classList.remove('hidden');
+          if (activeConnectionInfo?.alias && remoteHost) {
+            remoteHost.textContent = `[${activeConnectionInfo.alias}]`;
+          } else if (remoteHost) {
+            remoteHost.textContent = '';
           }
-          case 'ready':
-            statusEl.textContent = tr('settings.about.downloadReady', { version: statePayload.latestVersion });
-            actionBtn.textContent = tr('settings.about.restartNow');
-            actionBtn.classList.remove('hidden');
-            actionBtn.classList.add('siu-btn--primary');
-            actionBtn.onclick = () => {
-              actionBtn.disabled = true;
+
+          if (!remoteUpdateInfo) {
+            remoteVersion.textContent = '';
+            remoteStatus.textContent = '';
+            remoteActionBtn.classList.remove('hidden');
+            remoteActionBtn.textContent = tr('settings.about.checkUpdate');
+            remoteActionBtn.onclick = () => {
+              void checkRemoteUpdate();
+            };
+          } else {
+            const cur = remoteUpdateInfo.current || '';
+            remoteVersion.textContent = cur ? tr('settings.about.remoteVersion', { version: cur }) : '';
+            remoteActionBtn.classList.add('hidden');
+            remoteActionBtn.className = 'siu-btn text-[12px] py-1 px-3';
+
+            switch (remoteUpdateInfo.phase) {
+              case 'checking':
+                remoteStatus.textContent = tr('settings.about.checking');
+                break;
+              case 'available':
+                remoteStatus.textContent = tr('settings.about.remoteNewVersion', { version: remoteUpdateInfo.latest });
+                if (remoteUpdateInfo.canUpdate) {
+                  remoteActionBtn.textContent = isRemote ? tr('settings.about.upgradeRemote') : tr('settings.about.checkUpdate');
+                  remoteActionBtn.classList.remove('hidden');
+                  remoteActionBtn.classList.add('siu-btn--primary');
+                  remoteActionBtn.onclick = () => {
+                    void applyRemoteUpdate();
+                  };
+                }
+                break;
+              case 'upgrading':
+                remoteStatus.textContent = tr('settings.about.remoteUpgrading');
+                break;
+              case 'restarting':
+                remoteStatus.textContent = tr('settings.about.remoteRestarting');
+                break;
+              case 'done':
+                remoteStatus.textContent = tr('settings.about.remoteUpgraded');
+                break;
+              case 'error':
+                remoteStatus.textContent = `${tr('settings.about.updateError')}: ${remoteUpdateInfo.error || ''}`;
+                remoteActionBtn.textContent = tr('settings.about.checkUpdate');
+                remoteActionBtn.classList.remove('hidden');
+                remoteActionBtn.onclick = () => {
+                  void checkRemoteUpdate();
+                };
+                break;
+              case 'idle':
+              default:
+                remoteStatus.textContent = tr('settings.about.upToDate');
+                remoteActionBtn.textContent = tr('settings.about.checkUpdate');
+                remoteActionBtn.classList.remove('hidden');
+                remoteActionBtn.onclick = () => {
+                  void checkRemoteUpdate();
+                };
+                break;
+            }
+          }
+        } else if (remoteWrap) {
+          remoteWrap.classList.add('hidden');
+        }
+
+        // 3. Render Dual Master Action
+        const localHasUpdate = lastUpdatePayload && ['downloading', 'ready'].includes(lastUpdatePayload.phase);
+        const remoteHasUpdate = remoteUpdateInfo && remoteUpdateInfo.hasUpdate && remoteUpdateInfo.canUpdate;
+        const bothCanUpgrade = isDesktop && isRemote && (localHasUpdate || remoteHasUpdate);
+
+        if (bothCanUpgrade && dualWrap && dualBtn) {
+          dualWrap.classList.remove('hidden');
+          if (remoteUpdateInfo?.phase === 'upgrading' || remoteUpdateInfo?.phase === 'restarting') {
+            dualBtn.disabled = true;
+            dualBtn.textContent = tr('settings.about.remoteUpgrading');
+          } else if (remoteUpdateInfo?.phase === 'done' && lastUpdatePayload?.phase === 'ready') {
+            dualBtn.disabled = false;
+            dualBtn.textContent = tr('settings.about.restartNow');
+            dualBtn.onclick = () => {
+              dualBtn.disabled = true;
               void window.superiuDesktop?.installUpdate?.();
             };
-            break;
-          case 'error':
-            statusEl.textContent = `${tr('settings.about.updateError')}: ${statePayload.error || ''}`;
-            actionBtn.textContent = tr('settings.about.checkUpdate');
-            actionBtn.classList.remove('hidden');
-            actionBtn.onclick = () => {
-              actionBtn.disabled = true;
-              void window.superiuDesktop?.checkForUpdate?.().finally(() => {
-                actionBtn.disabled = false;
-              });
+          } else {
+            dualBtn.disabled = false;
+            dualBtn.textContent = tr('settings.about.upgradeBoth');
+            dualBtn.onclick = () => {
+              void (async () => {
+                if (window.superiuDesktop?.checkForUpdate) {
+                  void window.superiuDesktop.checkForUpdate();
+                }
+                await applyRemoteUpdate();
+              })();
             };
-            break;
-          case 'idle':
-          default:
-            statusEl.textContent = tr('settings.about.upToDate');
-            actionBtn.textContent = tr('settings.about.checkUpdate');
-            actionBtn.classList.remove('hidden');
-            actionBtn.onclick = () => {
-              actionBtn.disabled = true;
-              void window.superiuDesktop?.checkForUpdate?.().finally(() => {
-                actionBtn.disabled = false;
-              });
-            };
-            break;
+          }
+        } else if (dualWrap) {
+          dualWrap.classList.add('hidden');
         }
       }
 
@@ -8456,7 +8665,13 @@
           badge.hidden = true;
         }
 
+        if (info.state === 'connected' && remoteUpdateInfo?.phase === 'restarting') {
+          remoteUpdateInfo.phase = 'done';
+          void checkRemoteUpdate();
+        }
+
         renderRemotePane();
+        renderAboutUpdate();
       }
 
       function renderRemotePane() {
