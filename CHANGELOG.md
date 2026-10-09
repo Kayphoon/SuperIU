@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.30 (2026-10-09)
+
+### 中文
+
+- 修复 Desktop 桌面端在 SSH Remote 模式下被误锁入 Web 控制台配对卡片的问题：
+  - **Unix 域套接字信任豁免**：Desktop 远程连接默认通过 SSH 隧道转发至远端 VPS 的 Unix 域套接字 (`AF_UNIX`)。Node.js 原生将此类本地连接的 `remoteAddress` 置为 `undefined`，修复了鉴权中间件将其误判为外网连接而返回 401 Unauthorized 的漏洞，完全信任 SSH 隧道本地 IPC 对端；
+  - **Desktop 配对屏防死锁与退出通道**：在桌面端环境中，配对界面不再隐藏应用主界面（`.siu-app`），右上角提供关闭按钮，支持按 `Esc` 键或点击毛玻璃背景直接关闭；
+  - **SSH Remote 与本地模式快捷切换**：配对卡片底部新增「使用 SSH 远程连接」（直达 SSH 远程设置面板）及「返回本地单机模式」快捷按钮，确保桌面端永远可以自由返回常规 SSH 远程或本地流程。
+
+### English
+
+- Fix Desktop client being locked out by the Web Console pairing screen in SSH Remote mode:
+  - **Unix domain socket loopback trust exemption**: Desktop remote mode forwards over SSH tunnels to a Unix domain socket (`AF_UNIX`) on the VPS by default. Node.js natively reports `req.socket.remoteAddress` as `undefined` for local socket connections; resolved the regression where the auth middleware mistook it for an external peer and returned 401 Unauthorized, ensuring SSH-tunneled local IPC is fully trusted.
+  - **Desktop anti-deadlock & dismissibility**: on Desktop, the pairing screen no longer hides the main application layout (`.siu-app`), adds a close button in the top right, and can be dismissed via `Esc` key or clicking the backdrop.
+  - **Quick exit to SSH Remote & Local mode**: added "Use SSH Remote" (navigates directly to SSH remote settings) and "Return to local mode" action buttons on the pairing card, ensuring desktop users always have an unobstructed exit to standard SSH remote or local modes.
+
 ## v0.2.29 (2026-10-09)
 
 ### 中文
