@@ -14,6 +14,24 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.24 (2026-10-09)
+
+### 中文
+
+- 彻底移除服务商（Provider）的硬编码预置与强制默认启用：
+  - **零预置与默认未激活**：新安装或未配置时，`providers` 初始为空列表（`[]`），`activeProviderId` 初始为空（`''`），不再默认塞入 5 个预置服务商槽位，也不再无条件亮绿灯默认激活 OpenAI。未配置服务商时界面如实显示「未配置服务商」。
+  - **预设退化为新建模板**：点击「添加服务商」提供快速模板菜单（包括 OpenAI、DeepSeek、Google Gemini、Anthropic、Ollama、OpenRouter 及自定义服务商），一键带入 Base URL 与申请链接，不再预先污染配置文件。
+  - **自由管理服务商**：允许关闭生效的服务商（支持 0 个服务商处于激活状态）；解除至少保留 1 个服务商的限制，支持删除至空列表，并在列表为空时提供友好的空状态界面。
+  - **清理旧版本遗留槽位**：自动识别并清理历史版本写入的无 Key、无模型的空预设槽位，避免旧配置持续默认激活 OpenAI。
+
+### English
+
+- Completely remove hardcoded preset providers and mandatory default enablement:
+  - **Zero presets and default unactivated**: on fresh installs or unconfigured states, `providers` starts as an empty array (`[]`) and `activeProviderId` starts empty (`''`). The app no longer injects 5 dummy provider slots or forces OpenAI to appear enabled with a green dot. Unconfigured states honestly display "No providers configured".
+  - **Presets demoted to creation templates**: clicking "Add provider" presents a quick template menu (including OpenAI, DeepSeek, Google Gemini, Anthropic, Ollama, OpenRouter, and Custom) to easily pre-fill Base URLs and help links, without polluting user config files upfront.
+  - **Full provider management**: allows toggling off the active provider (supporting 0 active providers); removes the constraint requiring at least 1 provider, allowing deletion down to an empty list with clear empty-state messaging.
+  - **Clean up legacy phantom slots**: automatically identifies and prunes unused preset slots (no API key, no models) seeded by older builds, preventing them from default-activating OpenAI.
+
 ## v0.2.23 (2026-10-08)
 
 ### 中文
