@@ -366,6 +366,31 @@ describe('AuthLayer over HTTP', () => {
     expect(res.status).toBe(200);
   });
 
+  it('exempts a Unix domain socket peer (desktop remote SSH tunnel mode)', async () => {
+    const socketPath = path.join(tempDir(), 'test-daemon.sock');
+    const handle = await startServer({
+      socketPath,
+      workspaceDir: tempDir(),
+      settingsFile: path.join(tempDir(), 'ui-settings.json'),
+      quiet: true,
+      gatewayPath: null,
+      webAuth: true
+    });
+    servers.push(handle);
+
+    const res = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = http.get({ socketPath, path: '/api/status' }, (res) => {
+        let body = '';
+        res.on('data', (c) => (body += c));
+        res.on('end', () => resolve({ status: res.statusCode ?? 0, body }));
+      });
+      req.on('error', reject);
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toContain('"status"');
+  });
+
   it('reports the resolved pairing flag on the handle', async () => {
     const handle = await startAuthServer('127.0.0.1', false);
     expect(handle.pairingEnabled).toBe(false);

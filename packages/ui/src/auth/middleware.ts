@@ -87,6 +87,21 @@ export function isLoopbackAddress(address: string | undefined): boolean {
   return value === '127.0.0.1' || value === '::1' || value === '::ffff:127.0.0.1';
 }
 
+/**
+ * Whether the peer on a request is local to this host.
+ *
+ * This includes canonical loopback IP addresses (`127.0.0.1`, `::1`,
+ * `::ffff:127.0.0.1`) AND Unix domain sockets (`req.socket.remoteAddress ===
+ * undefined`). By POSIX definition, AF_UNIX is strictly local inter-process
+ * communication on the same host. Desktop remote mode forwards over SSH to a
+ * Unix domain socket.
+ */
+export function isLoopbackPeer(req: http.IncomingMessage): boolean {
+  const addr = req.socket.remoteAddress;
+  if (addr === undefined) return true;
+  return isLoopbackAddress(addr);
+}
+
 /** Resolve enablement from mode, host, and stored credentials. */
 export function resolveAuthEnabled(
   host: string,
@@ -132,7 +147,7 @@ function extractCredential(req: http.IncomingMessage): string | undefined {
 }
 
 function peerAddress(req: http.IncomingMessage): string {
-  return req.socket.remoteAddress ?? 'unknown';
+  return req.socket.remoteAddress ?? 'unix';
 }
 
 /**
@@ -208,7 +223,7 @@ export class AuthLayer {
     if (!pathname.startsWith('/api/')) return false;
 
     // A loopback peer is trusted (desktop remote mode over an SSH tunnel).
-    if (isLoopbackAddress(peerAddress(req))) return false;
+    if (isLoopbackPeer(req)) return false;
 
     const who = this.authenticate(req, res);
     return who === null;
@@ -223,7 +238,7 @@ export class AuthLayer {
     req: http.IncomingMessage,
     res: http.ServerResponse
   ): AuthenticatedKey | null {
-    if (isLoopbackAddress(peerAddress(req))) {
+    if (isLoopbackPeer(req)) {
       return { id: '', label: 'local', raw: '' };
     }
 
