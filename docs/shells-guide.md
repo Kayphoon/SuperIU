@@ -149,7 +149,7 @@ Starts a local HTTP server and prints its binding:
 
 Open the printed URL. Bind address and port come from `HOST` and `PORT` (defaults `127.0.0.1:3000`).
 
-> The console has **no authentication** and can run shell commands through the agent. Keep it on loopback unless you understand the exposure.
+> The console can run shell commands through the agent, so it is protected by **pairing** whenever it is reachable beyond loopback. A loopback bind with no pairing keys stays open (`pnpm ui`, desktop local mode, SSH-tunnel access); a non-loopback bind — or any workspace that already holds a pairing key — requires a credential. Run `superiu-server pair` on the host to print a one-time connect link (works once, expires in 5 minutes), or force the behavior with `SUPERIU_WEB_AUTH=1/0`. Paired keys slide: they stay valid for `SUPERIU_PAIRING_TTL_DAYS` (default 30) after their most recent use. See the README's "Securing the web console" for details.
 
 The console covers the same ground as the CLI: streaming turns, the approval card, session switching, prompt history, and a Settings dialog (⌘,) for credentials, models, the interface language, and the appearance. Settings are persisted to `.superiu/ui-settings.json`, seeded from the environment on first run; the file wins once written. The dialog is a preferences window with three submenus: **General** (interface language, appearance, reasoning effort, AutoReview, notifications), **Model Configuration** (providers and models), and **About** (product information and a local-storage note).
 
@@ -444,6 +444,6 @@ The renderer never touches `ipcRenderer` directly. A sandboxed preload (`src/pre
 | Prompt history | `/history [query]` | Secondary menu (⌘J) | Same as the web console |
 | Model switching | Edit `.env`, restart | Settings dialog, secondary menu, or `POST /api/model` at runtime | Same as the web console |
 | Keyboard-driven | Yes | Partly (⌘J menu, ⌘K palette, ⌘, settings) | Yes — ⌘J, ⌘K and ⌘. in the SPA, plus ⌘Q / ⌘, / ⌘N in the native menu |
-| Remote access | SSH into the host | HTTP — loopback by default, no auth | Local only — no remote access |
+| Remote access | SSH into the host | HTTP — loopback by default; pairing auth beyond loopback | Local only — no remote access |
 
 Rule of thumb: **terminal for speed and scripting, web console for anything you want to look at.** Both drive the same engine, the same session format, and the same approval policy, so switching between them mid-project is safe — sessions are shared per workspace.

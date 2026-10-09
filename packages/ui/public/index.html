@@ -3598,10 +3598,218 @@
           background: var(--siu-bg-active);
         }
       }
+
+      /* =====================================================================
+         Connect Screen (Login / Pairing)
+         ===================================================================== */
+      .siu-connect-screen {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--siu-space-4);
+        background: var(--siu-bg-app);
+        overflow-y: auto;
+      }
+      .siu-connect-backdrop {
+        position: fixed;
+        inset: 0;
+        background: radial-gradient(circle at 50% 35%, rgba(10, 132, 255, 0.08), transparent 70%);
+        pointer-events: none;
+      }
+      .siu-connect-card {
+        position: relative;
+        width: 100%;
+        max-width: 420px;
+        padding: 32px;
+        border-radius: var(--siu-radius-xl);
+        background: var(--siu-bg-panel);
+        border: 1px solid var(--siu-border);
+        box-shadow: 0 20px 48px -12px rgba(0, 0, 0, 0.5);
+      }
+      .siu-connect-header {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+        margin-bottom: 24px;
+      }
+      .siu-connect-badge {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 48px;
+        height: 48px;
+        border-radius: var(--siu-radius-lg);
+        background: var(--siu-accent-weak);
+        border: 1px solid var(--siu-accent-border);
+        color: var(--siu-accent);
+        margin-bottom: 16px;
+      }
+      .siu-connect-title {
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--siu-text-primary);
+        letter-spacing: -0.015em;
+      }
+      .siu-connect-subtitle {
+        font-size: 13px;
+        color: var(--siu-text-muted);
+        margin-top: 6px;
+        line-height: 1.5;
+      }
+      .siu-connect-form {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      .siu-connect-field-wrap {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+      }
+      .siu-connect-footer {
+        margin-top: 24px;
+        padding-top: 16px;
+        border-top: 1px solid var(--siu-border-subtle);
+        text-align: center;
+      }
+      .siu-connect-hint {
+        font-size: 12px;
+        color: var(--siu-text-muted);
+        line-height: 1.5;
+      }
+
+      /* =====================================================================
+         Bad-Network Resilience Layer & Banner
+         ===================================================================== */
+      .siu-net-banner {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 60;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 28px;
+        padding: 4px 16px;
+        font-size: 11.5px;
+        font-family: var(--siu-font-sans);
+        border-bottom: 1px solid var(--siu-border);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+        transition: transform var(--siu-dur-base) var(--siu-ease-out), opacity var(--siu-dur-base);
+      }
+      .siu-net-banner[data-state='offline'] {
+        background: #2a1114;
+        border-bottom-color: rgba(255, 69, 58, 0.4);
+        color: #ff9898;
+      }
+      .siu-net-banner[data-state='degraded'] {
+        background: #281d0f;
+        border-bottom-color: rgba(255, 159, 10, 0.4);
+        color: #ffd080;
+      }
+      .siu-net-banner[data-state='online'] {
+        background: #0f2818;
+        border-bottom-color: rgba(48, 209, 88, 0.4);
+        color: #8ce9a0;
+      }
+      .siu-net-banner-inner {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .siu-net-banner-btn {
+        margin-left: 6px;
+        padding: 2px 8px;
+        font-size: 11px;
+        font-weight: 500;
+        border-radius: var(--siu-radius-sm);
+        background: rgba(255, 255, 255, 0.12);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        color: inherit;
+        cursor: pointer;
+        transition: background var(--siu-dur-fast);
+      }
+      .siu-net-banner-btn:hover {
+        background: rgba(255, 255, 255, 0.22);
+      }
+      .siu-stale-badge {
+        display: inline-flex;
+        align-items: center;
+        font-size: 10px;
+        font-weight: 500;
+        padding: 1px 6px;
+        margin-left: 6px;
+        border-radius: var(--siu-radius-sm);
+        background: rgba(255, 159, 10, 0.15);
+        border: 1px solid rgba(255, 159, 10, 0.3);
+        color: #ffb340;
+      }
     </style>
   </head>
   <body>
+    <!-- Connect / Pairing Screen (auth-gated) -->
+    <div id="connect-screen" class="siu-connect-screen" hidden>
+      <div class="siu-connect-backdrop"></div>
+      <div class="siu-connect-card siu-pop" role="dialog" aria-modal="true" aria-labelledby="connect-card-title">
+        <div class="siu-connect-header">
+          <div class="siu-connect-badge">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8">
+              <rect x="3" y="11" width="18" height="11" rx="2" />
+              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+            </svg>
+          </div>
+          <h1 id="connect-card-title" class="siu-connect-title" data-i18n="pair.connect.title">SuperIU · 控制台配对</h1>
+          <p class="siu-connect-subtitle" data-i18n="pair.connect.subtitle">请输入配对链接或密钥以连接此 SuperIU 实例</p>
+        </div>
+
+        <form id="connect-form" class="siu-connect-form">
+          <div class="siu-connect-field-wrap">
+            <label class="siu-field-label" for="connect-input" data-i18n="pair.connect.inputLabel">配对凭证（链接或密钥）</label>
+            <input
+              id="connect-input"
+              type="text"
+              class="siu-field font-mono text-[13px] h-10 w-full"
+              placeholder=""
+              data-i18n-placeholder="pair.connect.inputPlaceholder"
+              autocomplete="off"
+              spellcheck="false"
+              required
+            />
+          </div>
+
+          <div id="connect-error" class="siu-banner siu-banner-danger text-[12px] flex items-center gap-2" role="alert" aria-live="polite" hidden>
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" class="shrink-0">
+              <circle cx="8" cy="8" r="6" />
+              <path d="M8 5v3.5M8 11.5v.5" stroke-linecap="round" />
+            </svg>
+            <span id="connect-error-text"></span>
+          </div>
+
+          <button id="btn-connect-submit" type="submit" class="siu-btn siu-btn--primary h-10 w-full text-[13px]">
+            <span id="connect-btn-text" data-i18n="pair.connect.submit">连接并登录</span>
+          </button>
+        </form>
+
+        <div class="siu-connect-footer">
+          <p class="siu-connect-hint" data-i18n="pair.connect.serverHint">在服务器终端运行 superiu-server pair 即可生成配对链接</p>
+        </div>
+      </div>
+    </div>
+
     <div class="siu-app">
+      <!-- Network resilience banner (overlay, zero layout shift) -->
+      <div id="network-banner" class="siu-net-banner" data-state="online" aria-live="polite" hidden>
+        <div class="siu-net-banner-inner">
+          <span class="siu-status-dot" id="net-banner-dot" data-status="running"></span>
+          <span id="net-banner-text"></span>
+          <button id="btn-net-retry" type="button" class="siu-net-banner-btn" data-i18n="net.banner.retry" hidden>立即重试</button>
+        </div>
+      </div>
       <!-- Mobile-only: while the session drawer is open this transparent cover
            intercepts every pointer event, so a tap outside the sidebar panel
            always reaches this one inert node (and closes the drawer) instead of
@@ -3660,6 +3868,7 @@
               <span class="siu-divider"></span>
             </div>
             <span id="title-status" class="font-mono text-[11px] text-muted" data-i18n="status.idle">空闲</span>
+            <span id="stale-indicator" class="siu-stale-badge" data-i18n="net.stale" hidden>数据可能滞后</span>
           </div>
 
           <div class="siu-titlebar-actions">
@@ -4056,6 +4265,7 @@
             <button type="button" class="siu-nav-item" role="tab" data-pane="providers" aria-controls="settings-pane-providers" aria-selected="false" data-i18n="settings.nav.providers"></button>
             <button type="button" class="siu-nav-item" role="tab" data-pane="models" aria-controls="settings-pane-models" aria-selected="false" data-i18n="settings.nav.models"></button>
             <button type="button" class="siu-nav-item" role="tab" data-pane="remote" aria-controls="settings-pane-remote" aria-selected="false" data-i18n="settings.nav.remote"></button>
+            <button id="nav-item-pairing" type="button" class="siu-nav-item" role="tab" data-pane="pairing" aria-controls="settings-pane-pairing" aria-selected="false" data-i18n="settings.nav.pairing" hidden></button>
             <button type="button" class="siu-nav-item" role="tab" data-pane="about" aria-controls="settings-pane-about" aria-selected="false" data-i18n="settings.nav.about"></button>
           </nav>
           <!-- ================= Pane: General ================= -->
@@ -4382,6 +4592,59 @@
             </div>
           </section>
 
+          <!-- ================= Pane: Pairing ================= -->
+          <section id="settings-pane-pairing" class="siu-prefs-pane" role="tabpanel" data-pane="pairing" data-active="false">
+            <header class="siu-prefs-head">
+              <h3 class="siu-prefs-title" data-i18n="settings.pairing.title"></h3>
+              <p class="siu-prefs-subtitle" data-i18n="settings.pairing.subtitle"></p>
+            </header>
+            <div class="siu-prefs-pane-body">
+              <div id="pairing-policy-banner" class="siu-banner siu-banner-info">
+                <p id="pairing-policy-text" data-i18n="settings.pairing.policy"></p>
+              </div>
+
+              <div class="flex items-center justify-between pt-1">
+                <button id="btn-mint-pair-code" type="button" class="siu-btn siu-btn--primary text-[12px]">
+                  <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M8 3v10M3 8h10" stroke-linecap="round" />
+                  </svg>
+                  <span data-i18n="settings.pairing.mintButton"></span>
+                </button>
+                <button id="btn-revoke-other-keys" type="button" class="siu-btn siu-btn--danger text-[11px] py-1 px-2.5" data-i18n="settings.pairing.revokeOthers" hidden></button>
+              </div>
+
+              <!-- Inline one-time pairing link card -->
+              <div id="pairing-minted-card" class="siu-banner flex flex-col gap-2.5 border border-line" hidden>
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <span class="siu-status-dot" data-status="running"></span>
+                    <strong class="text-[12.5px]" data-i18n="settings.pairing.oneTimeTitle"></strong>
+                  </div>
+                  <span id="pairing-timer" class="font-mono text-[12px] text-accent font-semibold">05:00</span>
+                </div>
+                <p class="text-[11.5px] text-muted leading-relaxed" data-i18n="settings.pairing.oneTimeWarning"></p>
+                <div class="flex items-center gap-2">
+                  <input id="pairing-code-url" type="text" class="siu-field font-mono text-[11.5px] flex-1 select-all" readonly />
+                  <button id="btn-copy-pairing-url" type="button" class="siu-btn text-[12px]" data-i18n="settings.pairing.copyLink"></button>
+                </div>
+                <div class="flex items-center justify-end gap-2 pt-1 border-t border-line">
+                  <button id="btn-regen-pairing-code" type="button" class="siu-btn text-[11px]" data-i18n="settings.pairing.regenCode"></button>
+                  <button id="btn-dismiss-pairing-code" type="button" class="siu-btn text-[11px]" data-i18n="settings.pairing.dismissCode"></button>
+                </div>
+              </div>
+
+              <!-- Keys list -->
+              <div class="flex flex-col gap-2 mt-2">
+                <div class="flex items-center justify-between">
+                  <h4 class="text-[12.5px] font-medium text-secondary" data-i18n="settings.pairing.keyListTitle"></h4>
+                  <span id="pairing-key-count" class="text-[11px] font-mono text-muted"></span>
+                </div>
+                <div id="pairing-key-list" class="flex flex-col gap-2"></div>
+                <div id="pairing-empty-notice" class="siu-banner text-[12px] text-center text-muted py-4" data-i18n="settings.pairing.empty" hidden></div>
+              </div>
+            </div>
+          </section>
+
           <!-- ================= Pane: About ================= -->
           <section id="settings-pane-about" class="siu-prefs-pane" role="tabpanel" data-pane="about" data-active="false">
             <header class="siu-prefs-head">
@@ -4625,7 +4888,18 @@
         // Appearance preference: 'system' | 'dark' | 'light'. Seeded from
         // localStorage below (before the settings file answers) so the select
         // and the painted scheme agree from the first frame.
-        theme: 'system'
+        theme: 'system',
+        unauthorized: false,
+        pairingSupported: false,
+        pairingTtlDays: 30
+      };
+
+      const netState = {
+        status: 'online',
+        consecutiveFailures: 0,
+        lastSuccessAt: Date.now(),
+        reconnectTimer: null,
+        reconnectDelay: 2000
       };
 
       const $ = (id) => document.getElementById(id);
@@ -4758,18 +5032,149 @@
         syncScrollEdges();
       }
 
-      async function api(path, options) {
-        const response = await fetch(path, options);
-        const payload = await response.json().catch(() => ({}));
-        if (!response.ok) {
-          // The server's `error` is already a human sentence; a bare status line
-          // is not, so it goes to the console for developers and the user sees
-          // localized copy instead of "500 Internal Server Error".
-          if (payload.error) throw new Error(payload.error);
-          console.error(`[api] ${path} failed: ${response.status} ${response.statusText}`);
-          throw new Error(tr('toast.requestFailed'));
+      function handleUnauthorized() {
+        showConnectScreen();
+      }
+
+      function setConnectionState(next) {
+        if (state.unauthorized) return;
+        const prev = netState.status;
+        netState.status = next;
+        renderNetworkBanner();
+        const stale = $('stale-indicator');
+        if (next === 'online') {
+          if (stale) stale.hidden = true;
+          if (prev !== 'online') {
+            void refreshStatus({ background: true });
+            void refreshSessions({ background: true });
+          }
+        } else if (stale) {
+          stale.hidden = false;
         }
-        return payload;
+      }
+
+      function onNetworkSuccess() {
+        netState.consecutiveFailures = 0;
+        netState.lastSuccessAt = Date.now();
+        if (netState.reconnectTimer) {
+          clearTimeout(netState.reconnectTimer);
+          netState.reconnectTimer = null;
+        }
+        netState.reconnectDelay = 2000;
+        if (netState.status !== 'online') {
+          setConnectionState('online');
+        }
+      }
+
+      function onNetworkFailure() {
+        netState.consecutiveFailures += 1;
+        const nextState = !navigator.onLine || netState.consecutiveFailures >= 2 ? 'offline' : 'degraded';
+        setConnectionState(nextState);
+        scheduleReconnectProbe();
+      }
+
+      function scheduleReconnectProbe() {
+        if (netState.reconnectTimer || state.unauthorized) return;
+        netState.reconnectTimer = setTimeout(async () => {
+          netState.reconnectTimer = null;
+          try {
+            const probe = await fetch('/api/status', { method: 'GET', cache: 'no-store' });
+            if (probe.ok) {
+              onNetworkSuccess();
+            } else if (probe.status === 401) {
+              handleUnauthorized();
+            } else {
+              netState.reconnectDelay = Math.min(30000, Math.floor(netState.reconnectDelay * 1.5));
+              scheduleReconnectProbe();
+            }
+          } catch {
+            netState.reconnectDelay = Math.min(30000, Math.floor(netState.reconnectDelay * 1.5));
+            scheduleReconnectProbe();
+          }
+        }, netState.reconnectDelay);
+      }
+
+      async function api(path, options = {}) {
+        const method = (options.method || 'GET').toUpperCase();
+        const isGet = method === 'GET';
+        const isPair = path === '/api/pair';
+        const maxAttempts = isGet || isPair ? 3 : 1;
+        const timeoutMs = typeof options.timeout === 'number' ? options.timeout : 10000;
+
+        let attempt = 0;
+        let lastErr = null;
+
+        while (attempt < maxAttempts) {
+          attempt += 1;
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+          let removeCallerListener = null;
+          if (options.signal) {
+            if (options.signal.aborted) {
+              clearTimeout(timer);
+              throw new DOMException('Aborted', 'AbortError');
+            }
+            const onCallerAbort = () => controller.abort();
+            options.signal.addEventListener('abort', onCallerAbort, { once: true });
+            removeCallerListener = () => options.signal.removeEventListener('abort', onCallerAbort);
+          }
+
+          try {
+            const fetchOpts = {
+              ...options,
+              signal: controller.signal
+            };
+            const response = await fetch(path, fetchOpts);
+            clearTimeout(timer);
+            if (removeCallerListener) removeCallerListener();
+
+            if (response.status === 401) {
+              const payload = await response.json().catch(() => ({}));
+              if (payload.error === 'unauthorized') {
+                handleUnauthorized();
+                throw new Error(payload.error);
+              }
+              if (payload.error) throw new Error(payload.error);
+              throw new Error(tr('toast.requestFailed'));
+            }
+
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+              if (payload.error) throw new Error(payload.error);
+              console.error(`[api] ${path} failed: ${response.status} ${response.statusText}`);
+              throw new Error(tr('toast.requestFailed'));
+            }
+
+            onNetworkSuccess();
+            return payload;
+          } catch (err) {
+            clearTimeout(timer);
+            if (removeCallerListener) removeCallerListener();
+
+            if (err.name === 'AbortError' && options.signal?.aborted) {
+              throw err;
+            }
+
+            if (
+              err.message === 'unauthorized' ||
+              err.message === 'invalid_code_or_key' ||
+              err.message === 'too_many_requests' ||
+              err.message === 'missing_code_or_key'
+            ) {
+              throw err;
+            }
+
+            lastErr = err;
+            if (attempt < maxAttempts) {
+              const delay = Math.floor(attempt * 600 + Math.random() * 300);
+              await new Promise((resolve) => setTimeout(resolve, delay));
+            }
+          }
+        }
+
+        onNetworkFailure();
+        throw lastErr;
       }
 
       const postJson = (path, body) =>
@@ -5758,11 +6163,15 @@
         select.value = current || '';
       }
 
-      async function refreshStatus() {
+      async function refreshStatus(options = {}) {
+        if (state.unauthorized) return;
         try {
           renderStatus(await api('/api/status'));
         } catch (err) {
-          toast(tr('toast.statusUnavailable', { message: err.message }), 'error');
+          if (state.unauthorized) return;
+          if (!options.background && netState.status === 'online') {
+            toast(tr('toast.statusUnavailable', { message: err.message }), 'error');
+          }
         }
       }
 
@@ -5788,14 +6197,18 @@
         return session.title || tr('session.untitled');
       }
 
-      async function refreshSessions() {
+      async function refreshSessions(options = {}) {
+        if (state.unauthorized) return [];
         try {
           state.sessions = await api('/api/sessions');
           renderSessions(state.sessions);
           return state.sessions;
         } catch (err) {
-          toast(tr('toast.sessionsUnavailable', { message: err.message }), 'error');
-          return [];
+          if (state.unauthorized) return [];
+          if (!options.background && netState.status === 'online') {
+            toast(tr('toast.sessionsUnavailable', { message: err.message }), 'error');
+          }
+          return state.sessions || [];
         }
       }
 
@@ -5950,6 +6363,7 @@
         const openApprovals = [];
         let phase = 'main';
         let lastTextBubble = null;
+        let contentReceived = false;
 
         const openStep = (step, stepPhase) => {
           // A new step ends the previous one. Without this the old bubble keeps
@@ -6046,6 +6460,7 @@
             }
 
             case 'reasoning': {
+              contentReceived = true;
               if (!group) openStep(1, phase);
               if (!thinking) thinking = thinkingBlock();
               if (!thinking.details.parentElement) group.body.appendChild(thinking.details);
@@ -6056,6 +6471,7 @@
             }
 
             case 'chunk': {
+              contentReceived = true;
               if (!group) openStep(1, phase);
               closeThinking();
               const bubble = ensureBubble();
@@ -6068,6 +6484,7 @@
             }
 
             case 'tool_call': {
+              contentReceived = true;
               if (!group) openStep(1, phase);
               closeThinking();
               closeBubble();
@@ -6234,8 +6651,23 @@
           }
         } catch (err) {
           if (err.name !== 'AbortError') {
-            turn.appendChild(systemNote('✕ ' + err.message, 'error'));
-            toast(err.message, 'error');
+            if (contentReceived) {
+              turn.appendChild(systemNote(tr('net.streamInterrupted'), 'error'));
+            } else {
+              const noteRow = el('div', 'siu-msg-row ' + enterClass());
+              noteRow.style.justifyContent = 'center';
+              const noteBox = el('div', 'siu-note siu-note--error flex items-center gap-2');
+              noteBox.appendChild(el('span', '', tr('net.streamFailed')));
+              const retryBtn = el('button', 'siu-btn text-[11px] py-0 px-2 h-5', tr('net.retry'));
+              retryBtn.type = 'button';
+              retryBtn.addEventListener('click', () => {
+                noteRow.remove();
+                void sendPrompt(text);
+              });
+              noteBox.appendChild(retryBtn);
+              noteRow.appendChild(noteBox);
+              turn.appendChild(noteRow);
+            }
           } else {
             turn.appendChild(systemNote(tr('transcript.aborted')));
           }
@@ -6569,7 +7001,7 @@
       // Settings modal
       // =======================================================================
       /** The panes the nav can switch between, in the order the markup lists them. */
-      const SETTINGS_PANES = ['general', 'autoreview', 'notifications', 'providers', 'models', 'remote', 'about'];
+      const SETTINGS_PANES = ['general', 'autoreview', 'notifications', 'providers', 'models', 'remote', 'pairing', 'about'];
       /**
        * One provider, shaped for editing. The stored credential is deliberately
        * NOT copied in: the view only ever carries a mask, and seeding the input
@@ -6782,6 +7214,9 @@
         }
         if (pane === 'remote') {
           renderRemotePane();
+        }
+        if (pane === 'pairing') {
+          void renderPairingPane();
         }
         if (pane === 'about') {
           renderAboutUpdate();
@@ -7237,6 +7672,7 @@
       }
 
       async function openSettings(targetPane) {
+        void checkPairingAvailability();
         try {
           fillSettingsForm(await api('/api/settings'));
         } catch (err) {
@@ -8064,6 +8500,365 @@
           if (info) updateConnectionUI(info);
         }).catch(() => {});
       }
+
+      // =======================================================================
+      // Pairing & Connect Screen & Network Banner
+      // =======================================================================
+      function renderConnectScreen(errorMessage) {
+        const screen = $('connect-screen');
+        if (screen) screen.hidden = false;
+        const app = document.querySelector('.siu-app');
+        if (app) app.hidden = true;
+
+        const errBox = $('connect-error');
+        const errText = $('connect-error-text');
+        if (errorMessage) {
+          if (errBox) errBox.hidden = false;
+          if (errText) errText.textContent = errorMessage;
+        } else if (errBox) {
+          errBox.hidden = true;
+        }
+        const input = $('connect-input');
+        if (input) input.focus();
+      }
+
+      function showConnectScreen(errorMessage) {
+        state.unauthorized = true;
+        renderConnectScreen(errorMessage);
+      }
+
+      function renderNetworkBanner() {
+        const banner = $('network-banner');
+        const dot = $('net-banner-dot');
+        const msg = $('net-banner-text');
+        const btnRetry = $('btn-net-retry');
+        if (!banner || !msg) return;
+
+        banner.dataset.state = netState.status;
+        if (netState.status === 'offline') {
+          banner.hidden = false;
+          if (dot) dot.dataset.status = 'error';
+          const timeStr = shortTime(new Date(netState.lastSuccessAt).toISOString());
+          msg.textContent = tr('net.banner.offline', { time: timeStr });
+          if (btnRetry) btnRetry.hidden = false;
+        } else if (netState.status === 'degraded') {
+          banner.hidden = false;
+          if (dot) dot.dataset.status = 'thinking';
+          msg.textContent = tr('net.banner.reconnecting');
+          if (btnRetry) btnRetry.hidden = false;
+        } else if (netState.status === 'online') {
+          if (dot) dot.dataset.status = 'completed';
+          msg.textContent = tr('net.banner.online');
+          if (btnRetry) btnRetry.hidden = true;
+          setTimeout(() => {
+            if (netState.status === 'online') {
+              banner.hidden = true;
+            }
+          }, 2000);
+        }
+      }
+
+      let pairingTimerInterval = null;
+
+      function renderPairingCodeModal(minted) {
+        const card = $('pairing-minted-card');
+        const urlInput = $('pairing-code-url');
+        const timer = $('pairing-timer');
+        const copyBtn = $('btn-copy-pairing-url');
+        if (!card || !urlInput || !timer) return;
+
+        if (!minted) {
+          card.hidden = true;
+          if (pairingTimerInterval) {
+            clearInterval(pairingTimerInterval);
+            pairingTimerInterval = null;
+          }
+          return;
+        }
+
+        card.hidden = false;
+        urlInput.value = minted.url || '';
+        if (copyBtn) copyBtn.textContent = tr('settings.pairing.copyLink');
+
+        if (pairingTimerInterval) {
+          clearInterval(pairingTimerInterval);
+          pairingTimerInterval = null;
+        }
+
+        const expiresAtMs = new Date(minted.expiresAt).getTime();
+        const updateTimer = () => {
+          const remainingSec = Math.max(0, Math.floor((expiresAtMs - Date.now()) / 1000));
+          const mins = String(Math.floor(remainingSec / 60)).padStart(2, '0');
+          const secs = String(remainingSec % 60).padStart(2, '0');
+          timer.textContent = mins + ':' + secs;
+          if (remainingSec === 0) {
+            clearInterval(pairingTimerInterval);
+            pairingTimerInterval = null;
+            timer.textContent = tr('settings.pairing.expired');
+            if (copyBtn) copyBtn.disabled = true;
+          } else if (copyBtn) {
+            copyBtn.disabled = false;
+          }
+        };
+
+        updateTimer();
+        pairingTimerInterval = setInterval(updateTimer, 1000);
+      }
+
+      function formatRelativeTime(iso) {
+        if (!iso) return tr('pair.time.never');
+        const delta = Math.max(0, Date.now() - new Date(iso).getTime());
+        const mins = Math.floor(delta / 60000);
+        if (mins < 1) return tr('pair.time.justNow');
+        if (mins < 60) return tr('pair.time.minutesAgo', { n: mins });
+        const hours = Math.floor(mins / 60);
+        if (hours < 24) return tr('pair.time.hoursAgo', { n: hours });
+        const days = Math.floor(hours / 24);
+        return tr('pair.time.daysAgo', { n: days });
+      }
+
+      async function renderPairingPane() {
+        const list = $('pairing-key-list');
+        const count = $('pairing-key-count');
+        const emptyNotice = $('pairing-empty-notice');
+        const policyText = $('pairing-policy-text');
+        const btnRevokeOthers = $('btn-revoke-other-keys');
+        if (!list) return;
+
+        let data;
+        try {
+          data = await api('/api/pairing');
+        } catch (err) {
+          toast(tr('settings.pairing.loadFailed', { message: err.message }), 'error');
+          return;
+        }
+
+        const ttlDays = typeof data.ttlDays === 'number' ? data.ttlDays : 30;
+        if (policyText) {
+          policyText.textContent = tr('settings.pairing.policy', { days: ttlDays });
+        }
+
+        const keys = Array.isArray(data.keys) ? data.keys : [];
+        if (count) count.textContent = String(keys.length);
+
+        if (keys.length === 0) {
+          list.innerHTML = '';
+          if (emptyNotice) emptyNotice.hidden = false;
+          if (btnRevokeOthers) btnRevokeOthers.hidden = true;
+          return;
+        }
+
+        if (emptyNotice) emptyNotice.hidden = true;
+        const currentId = localStorage.getItem('superiu.pairId') || '';
+        if (btnRevokeOthers) {
+          btnRevokeOthers.hidden = keys.length <= 1;
+        }
+
+        list.innerHTML = '';
+        for (const item of keys) {
+          const isCurrent = Boolean(currentId && item.id === currentId);
+          const row = el('div', 'p-3 rounded-lg border border-line bg-fill-subtle flex flex-col gap-2');
+
+          const head = el('div', 'flex items-center justify-between');
+          const headLeft = el('div', 'flex items-center gap-2 min-w-0');
+          headLeft.appendChild(el('strong', 'text-[13px] text-primary truncate', item.label || item.id));
+          if (isCurrent) {
+            const badge = el('span', 'siu-badge', tr('settings.pairing.currentDevice'));
+            badge.dataset.state = 'done';
+            headLeft.appendChild(badge);
+          }
+          head.appendChild(headLeft);
+
+          const revokeBtn = el('button', 'siu-btn siu-btn--danger text-[11px] py-0.5 px-2', tr('settings.pairing.revoke'));
+          revokeBtn.type = 'button';
+          revokeBtn.addEventListener('click', async () => {
+            if (!confirm(tr('settings.pairing.confirmRevoke'))) return;
+            try {
+              await api('/api/pairing/' + encodeURIComponent(item.id), { method: 'DELETE' });
+              toast(tr('settings.pairing.revoked'));
+              void renderPairingPane();
+            } catch (err) {
+              toast(err.message, 'error');
+            }
+          });
+          head.appendChild(revokeBtn);
+          row.appendChild(head);
+
+          const meta = el('div', 'grid grid-cols-2 gap-x-4 gap-y-1 text-[11.5px] text-muted');
+          const createdStr = item.createdAt ? item.createdAt.slice(0, 10) : '—';
+          meta.appendChild(el('div', 'truncate', tr('settings.pairing.createdAt', { date: createdStr })));
+
+          const lastUsedStr = formatRelativeTime(item.lastUsedAt);
+          meta.appendChild(el('div', 'truncate', tr('settings.pairing.lastUsed', { time: lastUsedStr })));
+
+          if (item.expiresAt) {
+            const expiresStr = item.expiresAt.slice(0, 10);
+            meta.appendChild(el('div', 'col-span-2 truncate text-[11px]', tr('settings.pairing.expiresAt', { date: expiresStr })));
+          }
+          row.appendChild(meta);
+
+          list.appendChild(row);
+        }
+      }
+
+      function parsePairInput(raw) {
+        const text = (raw || '').trim();
+        if (!text) return null;
+        const match = text.match(/\/auth\/connect\/([a-zA-Z0-9_-]+)/);
+        if (match) {
+          return { code: match[1] };
+        }
+        if (/^[0-9a-fA-F]{64}$/.test(text)) {
+          return { key: text.toLowerCase() };
+        }
+        return { code: text };
+      }
+
+      async function checkPairingAvailability() {
+        try {
+          const res = await api('/api/pairing');
+          if (res && Array.isArray(res.keys)) {
+            state.pairingSupported = true;
+            state.pairingTtlDays = res.ttlDays;
+            const nav = $('nav-item-pairing');
+            if (nav) nav.hidden = false;
+          }
+        } catch {
+          state.pairingSupported = false;
+          const nav = $('nav-item-pairing');
+          if (nav) nav.hidden = true;
+        }
+      }
+
+      $('connect-form')?.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const input = $('connect-input');
+        const raw = input?.value || '';
+        const parsed = parsePairInput(raw);
+        if (!parsed) {
+          renderConnectScreen(tr('pair.error.required'));
+          return;
+        }
+
+        const btn = $('btn-connect-submit');
+        const btnText = $('connect-btn-text');
+        if (btn) btn.disabled = true;
+        if (btnText) btnText.textContent = tr('pair.connect.submitting');
+        renderConnectScreen('');
+
+        try {
+          const res = await fetch('/api/pair', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...parsed, label: 'web' })
+          });
+          const payload = await res.json().catch(() => ({}));
+          if (res.status === 200 && payload.ok) {
+            if (payload.id) {
+              try {
+                localStorage.setItem('superiu.pairId', payload.id);
+              } catch {
+                /* ignore storage failure */
+              }
+            }
+            if (btnText) btnText.textContent = tr('pair.connect.success');
+            setTimeout(() => {
+              window.location.reload();
+            }, 60);
+            return;
+          }
+
+          if (res.status === 429) {
+            renderConnectScreen(tr('pair.error.throttled'));
+          } else {
+            renderConnectScreen(tr('pair.error.invalid'));
+          }
+        } catch {
+          renderConnectScreen(tr('pair.error.network'));
+        } finally {
+          if (btn) btn.disabled = false;
+          if (btnText) btnText.textContent = tr('pair.connect.submit');
+        }
+      });
+
+      $('btn-mint-pair-code')?.addEventListener('click', async () => {
+        const btn = $('btn-mint-pair-code');
+        btn.disabled = true;
+        try {
+          const minted = await api('/api/pairing/code', { method: 'POST' });
+          renderPairingCodeModal(minted);
+        } catch (err) {
+          toast(err.message, 'error');
+        } finally {
+          btn.disabled = false;
+        }
+      });
+
+      $('btn-regen-pairing-code')?.addEventListener('click', async () => {
+        try {
+          const minted = await api('/api/pairing/code', { method: 'POST' });
+          renderPairingCodeModal(minted);
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      });
+
+      $('btn-dismiss-pairing-code')?.addEventListener('click', () => {
+        renderPairingCodeModal(null);
+      });
+
+      $('btn-copy-pairing-url')?.addEventListener('click', async () => {
+        const url = $('pairing-code-url')?.value;
+        if (!url) return;
+        try {
+          await navigator.clipboard.writeText(url);
+          const btn = $('btn-copy-pairing-url');
+          if (btn) {
+            btn.textContent = tr('settings.pairing.copied');
+            setTimeout(() => {
+              btn.textContent = tr('settings.pairing.copyLink');
+            }, 1500);
+          }
+        } catch {
+          toast(tr('toast.clipboard'), 'error');
+        }
+      });
+
+      $('btn-revoke-other-keys')?.addEventListener('click', async () => {
+        if (!confirm(tr('settings.pairing.confirmRevokeOthers'))) return;
+        try {
+          await api('/api/pairing', { method: 'DELETE' });
+          toast(tr('settings.pairing.revoked'));
+          void renderPairingPane();
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      });
+
+      $('btn-net-retry')?.addEventListener('click', () => {
+        void refreshStatus();
+        void refreshSessions();
+      });
+
+      window.addEventListener('online', () => {
+        if (!state.unauthorized) {
+          void refreshStatus({ background: true });
+          void refreshSessions({ background: true });
+        }
+      });
+
+      window.addEventListener('offline', () => {
+        if (!state.unauthorized) {
+          setConnectionState('offline');
+        }
+      });
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && !state.unauthorized && netState.status !== 'online') {
+          void refreshStatus({ background: true });
+          void refreshSessions({ background: true });
+        }
+      });
 
       // =======================================================================
       // Command palette
@@ -9190,6 +9985,8 @@
         // not account for, and nothing will ever clear it — leave it alone.
         if (state.transcriptDirty) return;
         renderMessages(state.messages);
+        if (state.settingsPane === 'pairing') void renderPairingPane();
+        if (netState.status !== 'online') renderNetworkBanner();
       }
 
       // A switch from anywhere — this select, or a future caller — refreshes the
@@ -9247,13 +10044,28 @@
         // "not expanded", independent of the stored desktop preference.
         syncMobileSidebarControls();
         if (mobileSidebarQuery.matches) setMobileSidebarOpen(false);
+
+        // Check if redirected from a failed one-time link (?pair_error=invalid)
+        const bootParams = new URLSearchParams(window.location.search);
+        const bootPairError = bootParams.get('pair_error');
+        if (bootPairError) {
+          const clean = new URL(window.location.href);
+          clean.searchParams.delete('pair_error');
+          window.history.replaceState({}, '', clean.pathname + (clean.search ? clean.search : '') + clean.hash);
+          showConnectScreen(tr('pair.error.linkInvalid'));
+          return;
+        }
+
         try {
           renderStatus(await api('/api/status'));
           renderMessages(await api('/api/messages'));
         } catch (err) {
+          if (state.unauthorized) return;
           toast(tr('toast.bootFailed', { message: err.message }), 'error');
           renderEmptyState();
         }
+        if (state.unauthorized) return;
+
         await refreshSessions();
         await refreshHistory();
         try {
@@ -9278,9 +10090,11 @@
         state.notifyEnabled = Boolean(Notifications) && Notifications.permissionState?.() === 'granted';
         renderNotifyButton();
 
+        void checkPairingAvailability();
+
         // Emotion decays toward baseline while idle — keep the meters honest.
         setInterval(() => {
-          if (!state.running) void refreshStatus();
+          if (!state.running && !state.unauthorized) void refreshStatus({ background: true });
         }, 20000);
       })();
     </script>

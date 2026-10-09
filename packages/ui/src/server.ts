@@ -25,6 +25,7 @@ import {
   type ToolCallItem
 } from '@agent/core';
 import type { ReviewResult } from '@agent/core';
+import { AuthLayer, authModeFromEnv } from './auth/middleware.js';
 import { GatewayServer, DeviceRegistry, EventHub } from './gateway/index.js';
 import type { GatewayRunner } from './gateway/index.js';
 
@@ -75,6 +76,13 @@ export interface StartServerOptions {
    * the socket is created `0600`.
    */
   socketPath?: string;
+  /**
+   * Force pairing authentication on (`true`) or off (`false`). When omitted,
+   * `SUPERIU_WEB_AUTH` decides, falling back to AUTO: on when the bind host is
+   * not loopback, or when the workspace's `.superiu/pairing.json` holds a key or
+   * code. Exposed so tests and embedders can pin the mode.
+   */
+  webAuth?: boolean;
 }
 
 export interface ServerHandle {
@@ -104,6 +112,17 @@ export interface ServerHandle {
   gateway?: GatewayServer;
   /** WebSocket URL clients should connect to, when a gateway was booted. */
   gatewayUrl?: string;
+  /**
+   * Whether pairing authentication is enforced. Reflects the resolved mode at
+   * boot; AUTO can still flip on later if a key or code is minted offline.
+   */
+  pairingEnabled: boolean;
+  /**
+   * Mint a one-time pairing code for programmatic use (the `superiu-server pair`
+   * command). `advertiseUrl` is the public origin to build the connect URL from;
+   * when omitted the URL is a relative path.
+   */
+  mintConnectCode(advertiseUrl?: string): { code: string; url: string; expiresAt: string };
   /** True when no turn is running and none is waiting on a human approval. */
   isIdle(): boolean;
   /** Stop accepting new turns so an in-flight turn can finish before a self-update. */
@@ -821,6 +840,7 @@ function runnerOptions(sessionReference?: string, historyDbPath?: string, newSes
     }
   }
   return {
+    workspaceDir: activeWorkspaceDir,
     apiKey: settings.apiKey || undefined,
     baseURL: settings.baseURL || undefined,
     modelName: settings.modelName || undefined,
@@ -882,6 +902,7 @@ let gatewayRef: GatewayServer | undefined;
 // Created by startServer: importing this module must have no side effects.
 let settings: UiSettings = loadSettings();
 let runner: AgentRunner = null as unknown as AgentRunner;
+let activeWorkspaceDir = process.cwd();
 let memoryDir = '';
 /** Build version reported by `buildStatus`; set by startServer from `options.version`. */
 let serverVersion = '0.0.0';
@@ -2064,11 +2085,23 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
   SETTINGS_FILE = options.settingsFile
     ? path.resolve(options.settingsFile)
     : path.join(workspaceDir, '.superiu', 'ui-settings.json');
+  activeWorkspaceDir = workspaceDir;
 
   settings = loadSettings();
   memoryDir = await resolveMemoryDir();
   serverVersion = options.version ?? '0.0.0';
   runner = new AgentRunner(runnerOptions());
+
+  // Pairing auth sits in front of the API. The mode is explicit when the
+  // embedder pinned it, otherwise derived from `SUPERIU_WEB_AUTH` and the AUTO
+  // rule (non-loopback bind, or a stored key/code).
+  const authMode =
+    options.webAuth === true
+      ? 'on'
+      : options.webAuth === false
+        ? 'off'
+        : authModeFromEnv(process.env.SUPERIU_WEB_AUTH);
+  const auth = new AuthLayer({ workspaceDir, host, mode: authMode });
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
@@ -2076,6 +2109,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
 
     void (async () => {
       try {
+        if (await auth.handle(req, res, url)) return;
         if (await handleApi(req, res, pathname)) return;
         if (req.method === 'GET' || req.method === 'HEAD') {
           handleStatic(req, res, pathname);
@@ -2173,6 +2207,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
     console.log(`  Settings:    ${SETTINGS_FILE}`);
     console.log(`  Workspace:   ${workstation.cwd}`);
     console.log(`  Assets:      ${PUBLIC_DIR}`);
+    console.log(`  Pairing:     ${auth.isEnabled() ? 'required' : 'off (loopback / no keys)'}`);
     if (gateway) console.log(`  Gateway:     ws://${host}:${listening}${gateway.path}`);
     console.log('');
   }
@@ -2218,6 +2253,8 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
         ? `ws+unix://${socketPath}${gateway.path}`
         : `ws://${host}:${listening}${gateway.path}`
       : undefined,
+    pairingEnabled: auth.isEnabled(),
+    mintConnectCode: (advertiseUrl?: string) => auth.mintConnectCode(advertiseUrl),
     // `runner.status` is the core's authoritative in-flight signal and already
     // gates `handleChat`; the gateway adds its own in-flight count for turns
     // started over the WebSocket, and `pendingApprovals` covers a turn parked

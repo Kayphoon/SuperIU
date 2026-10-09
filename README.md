@@ -113,6 +113,8 @@ All configuration is environment-driven. Copy `.env.example` to `.env` and set:
 | `SUPERIU_AUTO_REVIEW_MODE` | `lenient` | `lenient` or `strict`. Anything other than `strict` resolves to `lenient`. |
 | `PORT` | `3000` | Port for the web console (`@agent/ui` only). |
 | `HOST` | `127.0.0.1` | Bind address for the web console (`@agent/ui` only). |
+| `SUPERIU_WEB_AUTH` | AUTO | Pairing authentication for the web console. `1` always requires a pairing key, `0` always disables it. Unset = on when the bind address is not loopback or a pairing key/code exists. |
+| `SUPERIU_PAIRING_TTL_DAYS` | `30` | Sliding pairing-key lifetime in days, refreshed on use. Invalid values fall back to 30. |
 | `SUPERIU_LANGUAGE` | `zh` | Interface language: `zh` or `en`. Seeds the default only — a `language` in the settings file wins over it. An unsupported value is ignored, falling back to the file and then to `zh`. |
 
 The web console additionally persists the same settings to `.superiu/ui-settings.json` so they can be edited from the Settings dialog (⌘,) without touching `.env`. Environment variables seed the defaults; the settings file wins once written. The interface language and the **appearance** (System / Dark / Light) are among those settings and can both be switched at runtime from the same dialog — see [Interface language](docs/shells-guide.md#interface-language) and [Appearance](docs/shells-guide.md#appearance).
@@ -120,6 +122,21 @@ The web console additionally persists the same settings to `.superiu/ui-settings
 That dialog's **Model Configuration** pane manages providers rather than bare credential fields: each provider carries its own name, API key, Base URL, and model list, and exactly one is active — its key and Base URL are what the runner uses. Each provider keeps its own credential, so switching to one with no key of its own leaves the app unconfigured instead of sending the previous provider's key to a different endpoint. **Fetch models** probes the endpoint's live `GET /models` listing (`POST /api/models/fetch`), which resolves a stored key by endpoint, so no provider's credential is ever sent to another provider's host. A stored key is never sent back to the browser — leaving the field blank keeps it. Credentials remain in the same 0600 settings file.
 
 Each model row additionally carries two per-model controls, stored under `modelConfigs` in the settings file. The **enable switch** decides whether the model is offered in the composer's model picker at all — fetching a gateway's listing must not flood the picker with models nobody intends to run, and a disabled model simply does not appear (it stays selectable from Settings, and the model currently in force is always shown). The **reasoning-level select** answers "does this model take `reasoning_effort`?" for models the built-in allowlist does not know: `Auto` defers to that allowlist, `All levels` / `Low only` / `Medium only` / `High only` declare which levels the model accepts, and `No reasoning parameter` declares that it refuses the parameter even though the allowlist would allow it. A declared level set is authoritative — the app then sends an explicit per-role level (the stored preference when it is in the list, otherwise the strongest allowed one), which is what lets a model outside the allowlist reason and what stops a level being sent to a model that rejects it. Both controls live behind the dialog's Save, like the rest of the provider form.
+
+### Securing the web console
+
+The console can run shell commands through the agent, so it is protected by **pairing** whenever it is reachable beyond loopback. Auth is automatic: a loopback bind with no keys stays open — `pnpm ui`, the desktop's local mode and SSH-tunnel access are unchanged — while a non-loopback bind, or any workspace that already holds a pairing key or code, requires a credential. Force it on with `SUPERIU_WEB_AUTH=1` or off with `=0`.
+
+Mint a one-time link on the host:
+
+```sh
+superiu-server pair                    # works once, expires in 5 minutes
+superiu-server pair --url https://host:3000
+superiu-server pair --list             # active keys: id, label, created/used/expiry
+superiu-server pair --revoke <id>
+```
+
+Opening the link exchanges the code for a long-lived key kept in an `HttpOnly` cookie. The key's expiry **slides**: it stays valid for `SUPERIU_PAIRING_TTL_DAYS` (default 30) after its most recent request, so an active browser never has to re-pair. A loopback peer (including an SSH tunnel) is trusted and needs no credential, and `X-Forwarded-For` is never trusted. Keys are stored SHA-256-hashed in `<workspace>/.superiu/pairing.json` (mode `0600`), can be managed from the console through `GET /api/pairing`, `POST /api/pairing/code` and `DELETE /api/pairing/:id`, and are revoked by id.
 
 ## Architecture at a glance
 

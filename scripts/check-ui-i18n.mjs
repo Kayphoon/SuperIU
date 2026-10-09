@@ -276,6 +276,14 @@ const CHROME_FUNCTIONS = [
   'popoverGroupHead'
 ];
 
+/** Functions that render the pairing management pane, connect screen, and network banner. */
+const PAIRING_FUNCTIONS = [
+  'renderConnectScreen',
+  'renderPairingPane',
+  'renderPairingCodeModal',
+  'renderNetworkBanner'
+];
+
 /** Extract a function body by walking braces, not by guessing at delimiters. */
 function extractFunction(source, name) {
   const match = new RegExp(`(?:async\\s+)?function\\s+${name}\\s*\\(`).exec(source);
@@ -400,9 +408,9 @@ const ARIA_ROLE_NAMES = new Set([
  */
 const ENUM_TOKENS = new Set([
   'aborted', 'about', 'approval_request', 'approved', 'assistant', 'auto', 'badge', 'baseline', 'chunk',
-  'clear', 'complete', 'completed', 'content', 'critical', 'custom', 'danger', 'dark', 'denied', 'details',
+  'clear', 'complete', 'completed', 'content', 'critical', 'custom', 'danger', 'dark', 'degraded', 'denied', 'details',
   'done', 'en', 'error', 'focus', 'general', 'granted', 'high', 'idle', 'info', 'light', 'low', 'main',
-  'medium', 'message', 'more', 'new', 'notify', 'off', 'ok', 'on', 'palette', 'pending', 'prompt',
+  'medium', 'message', 'more', 'new', 'notify', 'off', 'offline', 'ok', 'on', 'online', 'pairing', 'palette', 'pending', 'prompt',
   'providers', 'quit', 'reasoning', 'rejected', 'review', 'role', 'running', 'sessions', 'settings',
   'stale', 'status', 'step', 'streaming', 'summary', 'system', 'thinking', 'toast', 'tool', 'tool_call',
   'tool_calling', 'tool_result', 'transcript', 'unset', 'user', 'warn', 'zh'
@@ -825,7 +833,8 @@ const REGIONS = [
   { label: 'composer toolbar', names: COMPOSER_FUNCTIONS, minLines: 260 },
   { label: 'session/status renderers', names: SESSION_FUNCTIONS, minLines: 160 },
   { label: 'transcript/approval renderers', names: TRANSCRIPT_FUNCTIONS, minLines: 500 },
-  { label: 'chrome/palette/history renderers', names: CHROME_FUNCTIONS, minLines: 150 }
+  { label: 'chrome/palette/history renderers', names: CHROME_FUNCTIONS, minLines: 150 },
+  { label: 'pairing/network renderers', names: PAIRING_FUNCTIONS, minLines: 100 }
 ];
 
 /**
@@ -870,9 +879,9 @@ const scanned = REGIONS.map((region) => {
 });
 
 const totalLines = scanned.reduce((sum, s) => sum + s.lines, 0);
-// The floor follows the region count: with five regions the smallest honest
-// total is the sum of the per-region floors (150+260+160+500+150 = 1220).
-check('extraction captured the full guarded region', totalLines > 1220, `${totalLines} lines across ${scanned.length} regions`);
+// The floor follows the region count: with six regions the smallest honest
+// total is the sum of the per-region floors (150+260+160+500+150+100 = 1320).
+check('extraction captured the full guarded region', totalLines > 1320, `${totalLines} lines across ${scanned.length} regions`);
 
 const settingsCode = scanned[0].code;
 const code = scanned.map((s) => s.code).join('\n');

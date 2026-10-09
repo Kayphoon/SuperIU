@@ -23,6 +23,7 @@ import { pipeline } from 'node:stream/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { applyDelta, DELTA_HEADER_SIZE, parseDeltaHeader, sha256File, type DeltaHeader } from './delta.js';
+import { PairingStore } from './auth/store.js';
 import { startServer, type ServerHandle } from './server.js';
 
 /**
@@ -40,6 +41,7 @@ Commands:
   stop     Ask a running daemon to shut down
   update   Upgrade the installed binary from GitHub Releases
   token    Print a fresh 64-hex-character gateway token
+  pair     Mint a one-time web-console pairing link (or --list / --revoke)
   version  Print the package version
 
 Options:
@@ -48,6 +50,9 @@ Options:
   --socket <path>   Listen on a Unix domain socket instead of --port/--host (start)
   --token <t>       Gateway token (start). Default: $SUPERIU_GATEWAY_TOKEN or random
   --workspace <dir> Workspace root owning .superiu/. Default: current directory
+  --url <base>      Advertised origin for 'pair' (e.g. https://host:3000)
+  --list            'pair': list active pairing keys instead of minting
+  --revoke <id>     'pair': revoke the key with this id
   -h, --help        Show this help
 
 Auto-update options:
@@ -112,6 +117,12 @@ interface ParsedArgs {
   releaseBase?: string;
   /** `update --target <path>`: binary to replace instead of `process.execPath`. */
   target?: string;
+  /** `pair --list`: list active keys instead of minting a code. */
+  list: boolean;
+  /** `pair --revoke <id>`: revoke the key with this id. */
+  revoke?: string;
+  /** `pair --url <base>`: advertised origin for the connect URL. */
+  advertiseUrl?: string;
   help: boolean;
 }
 
@@ -138,6 +149,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     autoUpdateIntervalHours,
     check: false,
     force: false,
+    list: false,
     help: false
   };
   let index = 0;
@@ -226,6 +238,22 @@ function parseArgs(argv: string[]): ParsedArgs {
         const value = takeValue();
         if (!value) throw new UsageError('Missing value for --target');
         parsed.target = value;
+        break;
+      }
+      case '--list': {
+        parsed.list = true;
+        break;
+      }
+      case '--revoke': {
+        const value = takeValue();
+        if (!value) throw new UsageError('Missing value for --revoke');
+        parsed.revoke = value;
+        break;
+      }
+      case '--url': {
+        const value = takeValue();
+        if (!value) throw new UsageError('Missing value for --url');
+        parsed.advertiseUrl = value;
         break;
       }
       case '--auto-update-idle': {
@@ -413,6 +441,11 @@ function stateDir(workspace: string): string {
 
 function statePath(workspace: string): string {
   return path.join(stateDir(workspace), STATE_FILE_NAME);
+}
+
+/** Pairing credential store written under `<workspace>/.superiu/`. */
+function pairingPath(workspace: string): string {
+  return path.join(stateDir(workspace), 'pairing.json');
 }
 
 /** Name of the JSON update state file written under `<workspace>/.superiu/`. */
@@ -1088,6 +1121,75 @@ async function commandStop(parsed: ParsedArgs): Promise<number> {
 
 function commandToken(): number {
   printJson({ token: generateToken() });
+  return 0;
+}
+
+/**
+ * Resolve the origin to embed in a connect URL.
+ *
+ * `--url` wins. Otherwise the running daemon's own URL is used, but a wildcard
+ * bind (`0.0.0.0` / `::`) is not a browsable address, so it is replaced with
+ * `127.0.0.1`. A Unix-socket daemon has no TCP URL, so the operator should pass
+ * `--url`; the fallback keeps the command useful for the common TCP case.
+ */
+function advertiseBase(parsed: ParsedArgs, state: DaemonState | null): string {
+  if (parsed.advertiseUrl) return parsed.advertiseUrl.replace(/\/+$/, '');
+  const envHost =
+    process.env.HOST && !['0.0.0.0', '::'].includes(process.env.HOST) ? process.env.HOST : '127.0.0.1';
+  if (state && !state.socketPath && state.host && !['0.0.0.0', '::'].includes(state.host)) {
+    return `http://${state.host}:${state.port}`;
+  }
+  const port = state?.port || Number.parseInt(process.env.PORT ?? '3000', 10);
+  return `http://${envHost}:${port}`;
+}
+
+/**
+ * `pair`: mint a one-time pairing link, or manage existing keys.
+ *
+ * The code is written straight into the workspace store. The running daemon
+ * re-reads that file when its mtime changes, so an offline mint is picked up
+ * without a restart or a control channel.
+ */
+function commandPair(parsed: ParsedArgs): number {
+  const workspace = resolveWorkspace(parsed.workspace);
+  const store = new PairingStore(pairingPath(workspace));
+  const state = readState(workspace);
+  const running = Boolean(state && isAlive(state.pid));
+
+  if (parsed.list) {
+    const keys = store.list();
+    if (keys.length === 0) {
+      process.stdout.write('No pairing keys.\n');
+    } else {
+      for (const key of keys) {
+        process.stdout.write(
+          `${key.id}  ${key.label}  created ${key.createdAt}  last used ${key.lastUsedAt}  expires ${key.expiresAt}\n`
+        );
+      }
+    }
+    printJson({ keys, running });
+    return 0;
+  }
+
+  if (parsed.revoke) {
+    const revoked = store.revoke(parsed.revoke);
+    printJson({ revoked, id: parsed.revoke });
+    return revoked ? 0 : 1;
+  }
+
+  const base = advertiseBase(parsed, state);
+  const minted = store.mintCode();
+  const url = `${base}/auth/connect/${minted.raw}`;
+  process.stdout.write(`Pairing link: ${url}\n`);
+  process.stdout.write('This link works once and expires in 5 minutes.\n');
+  if (running) {
+    process.stdout.write('The running daemon serves this link immediately.\n');
+  } else {
+    process.stdout.write(
+      'Start the daemon (superiu-server start), then open the link; it picks the code up automatically.\n'
+    );
+  }
+  printJson({ code: minted.raw, url, expiresAt: minted.expiresAt });
   return 0;
 }
 
@@ -1840,6 +1942,9 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<void
         return;
       case 'token':
         process.exitCode = commandToken();
+        return;
+      case 'pair':
+        process.exitCode = commandPair(parsed);
         return;
       case 'version':
         process.exitCode = commandVersion();
