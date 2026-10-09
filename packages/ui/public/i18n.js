@@ -528,6 +528,7 @@ const DICT = {
     'pair.error.linkInvalid': '链接无效或已过期，请在服务器重新生成配对链接',
     'pair.error.network': '网络连接失败，请检查服务器网络与服务状态',
     'pair.error.required': '请输入配对链接或密钥',
+    'pair.error.desktopUnauthorized': '远端服务连接未授权，请检查 SSH 远程连接与服务端配置',
 
     'pair.time.justNow': '刚刚',
     'pair.time.minutesAgo': '{n} 分钟前',
@@ -1052,6 +1053,7 @@ const DICT = {
     'pair.error.linkInvalid': 'Link is invalid or expired. Please regenerate a pairing link on the server.',
     'pair.error.network': 'Network connection failed. Please check server network and service status.',
     'pair.error.required': 'Please enter a pairing link or key',
+    'pair.error.desktopUnauthorized': 'Remote service unauthorized. Please check SSH remote connection and server configuration.',
 
     'pair.time.justNow': 'Just now',
     'pair.time.minutesAgo': '{n}m ago',

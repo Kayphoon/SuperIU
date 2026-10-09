@@ -14,6 +14,20 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.32 (2026-10-09)
+
+### 中文
+
+- 彻底禁止桌面端启动时触发 Web 配对全屏卡片：
+  - **环境物理隔离**：明确 Web 控制台配对卡片仅服务于无头独立浏览器环境；在 SuperIU Desktop 桌面端环境（`window.superiuDesktop`）中，全面禁止弹出 `#connect-screen` 全屏遮罩；
+  - **优雅降级与通道保持**：桌面端遇到远端 401 鉴权异常时，通过常规 Toast 提示用户检查 SSH 远程连接，绝不拦截并隐藏主界面（`.siu-app`），确保桌面端启动后永远保持可用，随时可访问设置或切换模式。
+
+### English
+
+- Completely forbid Desktop client from triggering the full-screen Web pairing screen on startup:
+  - **Environment boundary enforcement**: clarified that the Web Console pairing screen is strictly for headless standalone web browser environments; on SuperIU Desktop (`window.superiuDesktop`), `#connect-screen` is permanently prohibited from popping up.
+  - **Graceful degradation without hijacking**: when the desktop client encounters a 401 unauthorized status from a remote daemon, it reports a standard error toast directing the user to verify SSH remote settings, without hiding the primary app chrome (`.siu-app`), ensuring the desktop shell is always interactive and functional upon launch.
+
 ## v0.2.31 (2026-10-09)
 
 ### 中文

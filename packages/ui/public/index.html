@@ -5248,6 +5248,10 @@
       }
 
       function handleUnauthorized() {
+        if (window.superiuDesktop) {
+          toast(tr('pair.error.desktopUnauthorized'), 'error');
+          return;
+        }
         showConnectScreen();
       }
 
@@ -9016,20 +9020,11 @@
       // Pairing & Connect Screen & Network Banner
       // =======================================================================
       function renderConnectScreen(errorMessage) {
+        if (window.superiuDesktop) return;
         const screen = $('connect-screen');
-        const isDesktop = Boolean(window.superiuDesktop);
-        if (screen) {
-          screen.hidden = false;
-          if (isDesktop) screen.dataset.desktop = 'true';
-          else delete screen.dataset.desktop;
-        }
+        if (screen) screen.hidden = false;
         const app = document.querySelector('.siu-app');
-        if (app && !isDesktop) app.hidden = true;
-
-        const desktopActions = $('connect-desktop-actions');
-        if (desktopActions) desktopActions.hidden = !isDesktop;
-        const closeBtn = $('btn-connect-close');
-        if (closeBtn) closeBtn.hidden = !isDesktop;
+        if (app) app.hidden = true;
 
         const errBox = $('connect-error');
         const errText = $('connect-error-text');
@@ -9052,6 +9047,7 @@
       }
 
       function showConnectScreen(errorMessage) {
+        if (window.superiuDesktop) return;
         state.unauthorized = true;
         renderConnectScreen(errorMessage);
       }
