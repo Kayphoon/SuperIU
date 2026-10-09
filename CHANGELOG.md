@@ -14,6 +14,24 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.28 (2026-10-09)
+
+### 中文
+
+- 在桌面端主界面右上角标题栏新增更新提示胶囊与主动重启按钮（参考 OpenCode Desktop）：
+  - **位置与布局**：位于标题栏右侧操作区（`siu-titlebar-actions`），紧邻「更多」按钮左侧，携带 `no-drag` 属性可穿透 macOS 窗口拖拽直接点击；
+  - **下载中胶囊态**：在后台下载更新时展示低干扰的紧凑蓝色胶囊态，配有旋转环形进度指示器及整数字符串百分比（如 `更新中 2%`），悬浮展示下载进度详情；
+  - **就绪态主动重启**：在差分或全量更新下载校验完成（`ready`）后，亮起翡翠绿/青色微光高亮胶囊按钮「重启更新」，带状态绿点与刷新图标；点击后可直接触发换装并平滑重启客户端；
+  - **多端与双语适配**：仅在 Electron 桌面端展示，纯网页环境自动隐藏；小屏下自动折叠为紧凑图标；完全覆盖中英双语国际化词条并通过所有代码守卫校验。
+
+### English
+
+- Add titlebar update capsule and proactive restart button for the desktop app (referencing OpenCode Desktop):
+  - **Placement**: located in the titlebar actions area (`siu-titlebar-actions`) immediately to the left of the "More" button, with `no-drag` to enable click interaction through the macOS draggable window region.
+  - **Downloading state**: displays a gentle, low-distraction blue pill during background download, featuring a spinning ring progress indicator and integer percentage (e.g. `Updating 2%`), with detailed progress tooltip on hover.
+  - **Ready state restart action**: glows into an emerald/cyan accent pill button labeled "Restart to Update" with a green status dot and refresh icon once the update is staged and verified (`ready`); clicking proactively triggers bundle swap and restarts the client.
+  - **Responsive & bilingual**: active only in the Electron desktop shell (hidden in plain web browsers); collapses text gracefully on narrow windows; fully localized in both Chinese and English with all guards passing.
+
 ## v0.2.27 (2026-10-09)
 
 ### 中文
