@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.25 (2026-10-09)
+
+### 中文
+
+- 修复桌面端自动更新下载进度百分比出现过多小数位的问题：
+  - 增量差分更新（BlockMap）组装时直接向回调传入 `(written / filesize) * 100` 浮点数，导致界面显示如 `正在下载更新: 2.1558355398268527%` 等冗长小数位；
+  - 在桌面端更新调度器适配层（`acquireZip.onProgress`）中将进度取整为整数百分比，并在整数步进变化时才分发状态，避免无谓的 IPC 广播与界面重绘；
+  - 在界面设置「关于」更新状态渲染器中增加百分比取整与边界收拢保护，双重防御确保进度显示简洁规整。
+
+### English
+
+- Fix desktop update download progress displaying excessive decimal places:
+  - Differential blockmap assembly previously forwarded raw `(written / filesize) * 100` floats to `onProgress`, rendering unwieldy fractions in the UI (e.g. `Downloading update: 2.1558355398268527%`).
+  - Rounded progress percentages to whole integers in the desktop updater adapter (`acquireZip.onProgress`) and deduplicated state notifications across integer percentage steps to eliminate redundant IPC traffic and re-renders.
+  - Added integer rounding and boundary clamping in the UI settings "About" update status renderer as defense-in-depth, guaranteeing clean whole-number progress display.
+
 ## v0.2.24 (2026-10-09)
 
 ### 中文
