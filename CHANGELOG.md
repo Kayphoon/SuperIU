@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.27 (2026-10-09)
+
+### 中文
+
+- 修复设置弹窗中「设备配对」菜单项在本地/桌面端运行环境下未展示的问题：
+  - 此前配对管理端点 `/api/pairing` 仅在 `isEnabled()` 为真时开放，导致本地回环模式（`127.0.0.1` 且尚未生成密钥时）返回 404，前端探查判定不支持而将该菜单项隐藏；
+  - 放开本地回环对端对 `/api/pairing` 的常驻管理能力，允许桌面端或本地 Web 随时进入设置查看授权设备列表并为手机等其他设备生成配对链接；
+  - 移除设置导航项初始的 `hidden` 属性，确保「设备配对」作为常规设置面板稳定展现。
+
+### English
+
+- Fix the "Pairing" menu item in the Settings dialog not displaying under local/desktop environments:
+  - Previously, `/api/pairing` management was guarded behind `isEnabled()`, causing it to return 404 in local loopback mode when no keys had yet been minted, which led the frontend capability probe to hide the tab.
+  - Enabled pairing management for trusted loopback peers regardless of initial key presence, allowing local desktop and web users to always view authorized devices and mint pairing links for other clients.
+  - Removed the initial `hidden` attribute from the settings navigation item to guarantee the Pairing panel renders reliably alongside standard settings panes.
+
 ## v0.2.26 (2026-10-09)
 
 ### 中文
