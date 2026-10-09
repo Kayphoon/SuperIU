@@ -371,6 +371,29 @@ describe('AuthLayer over HTTP', () => {
     expect(handle.pairingEnabled).toBe(false);
   });
 
+  it('allows a loopback peer to manage pairing even in auto mode with no keys', async () => {
+    const handle = await startServer({
+      port: 0,
+      host: '127.0.0.1',
+      workspaceDir: tempDir(),
+      settingsFile: path.join(tempDir(), 'ui-settings.json'),
+      quiet: true,
+      gatewayPath: null
+    });
+    servers.push(handle);
+
+    const res = await fetch(`http://127.0.0.1:${handle.port}/api/pairing`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { keys: unknown[]; ttlDays: number };
+    expect(body.ttlDays).toBe(30);
+    expect(body.keys).toEqual([]);
+
+    const mintRes = await fetch(`http://127.0.0.1:${handle.port}/api/pairing/code`, { method: 'POST' });
+    expect(mintRes.status).toBe(200);
+    const mintBody = (await mintRes.json()) as { code: string; url: string };
+    expect(mintBody.url).toContain('/auth/connect/');
+  });
+
   const lanIp = nonLoopbackIPv4();
   const enforced = lanIp ? it : it.skip;
 

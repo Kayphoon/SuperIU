@@ -181,7 +181,7 @@ export class AuthLayer {
     const method = req.method ?? 'GET';
     const pathname = url.pathname;
 
-    if (this.isEnabled()) {
+    if (this.mode !== 'off') {
       // Public pairing endpoints: reachable without a credential, because the
       // code/key they carry *is* the credential being established.
       if (pathname === '/api/pair' && method === 'POST') {
@@ -193,7 +193,7 @@ export class AuthLayer {
         return true;
       }
 
-      // Pairing management requires a credential.
+      // Pairing management requires a credential (loopback is always trusted).
       if (pathname === '/api/pairing' || pathname.startsWith('/api/pairing/')) {
         const who = this.authenticate(req, res);
         if (!who) return true;
