@@ -284,7 +284,11 @@ export class PairingStore {
    * raw key and its id, or `null` when the code is unknown, already used, or
    * expired. The two mutations land in a single disk write.
    */
-  consumeCode(raw: string, label = 'web'): { raw: string; id: string; label: string } | null {
+  consumeCode(
+    raw: string,
+    explicitLabel?: string,
+    fallbackLabel = 'web'
+  ): { raw: string; id: string; label: string } | null {
     if (!raw) return null;
     this.refresh();
     const hash = sha256Hex(raw);
@@ -303,14 +307,20 @@ export class PairingStore {
     const keyHash = sha256Hex(keyRaw);
     const id = keyHash.slice(0, 12);
     const at = now.toISOString();
-    const callerCustomLabel =
-      typeof label === 'string' && label.trim() && label.trim() !== 'web'
-        ? label.trim().slice(0, 64)
+    const cleanExplicit =
+      typeof explicitLabel === 'string' && explicitLabel.trim() && explicitLabel.trim() !== 'web'
+        ? explicitLabel.trim().slice(0, 64)
         : undefined;
-    const finalLabel =
-      callerCustomLabel ??
-      code?.label ??
-      (typeof label === 'string' && label.trim() ? label.trim().slice(0, 64) : 'web');
+    const cleanFallback =
+      typeof fallbackLabel === 'string' && fallbackLabel.trim()
+        ? fallbackLabel.trim().slice(0, 64)
+        : 'web';
+    // Priority:
+    // 1. Explicit consumer-provided label (custom query param ?label=... or explicit input at login)
+    // 2. Explicit label minted with code (e.g. administrator set "iPhone Air")
+    // 3. Heuristic fallback (from User-Agent parsed name, e.g. "iPhone", "Mac")
+    // 4. Default fallback ("web")
+    const finalLabel = cleanExplicit ?? code?.label ?? cleanFallback;
     this.keys.push({ id, hash: keyHash, label: finalLabel, createdAt: at, lastUsedAt: at });
     this.prune(now.getTime());
     this.persist();

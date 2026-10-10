@@ -214,6 +214,11 @@ describe('PairingStore', () => {
     const key1 = store.consumeCode(code1.raw);
     expect(key1?.label).toBe('iPad');
 
+    // User-Agent heuristic (e.g. Mac/iPhone) must NEVER overwrite minted code label
+    const codeUa = store.mintCode('iPhone Air');
+    const keyUa = store.consumeCode(codeUa.raw, undefined, 'Mac');
+    expect(keyUa?.label).toBe('iPhone Air');
+
     const code2 = store.mintCode('Tablet');
     const key2 = store.consumeCode(code2.raw, 'Custom Name');
     expect(key2?.label).toBe('Custom Name');

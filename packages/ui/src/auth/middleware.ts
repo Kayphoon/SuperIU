@@ -296,7 +296,8 @@ export class AuthLayer {
   ): { code: string; url: string; expiresAt: string; label?: string } {
     const minted = this.store.mintCode(label);
     const base = (advertiseUrl || this.advertiseUrl || '').replace(/\/+$/, '');
-    const suffix = `/auth/connect/${minted.raw}`;
+    const query = minted.label ? `?label=${encodeURIComponent(minted.label)}` : '';
+    const suffix = `/auth/connect/${minted.raw}${query}`;
     return {
       code: minted.raw,
       url: base ? `${base}${suffix}` : suffix,

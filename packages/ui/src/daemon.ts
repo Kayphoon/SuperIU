@@ -1253,7 +1253,8 @@ function commandPair(parsed: ParsedArgs): number {
 
   const base = advertiseBase(parsed, state);
   const minted = store.mintCode(parsed.label);
-  const url = `${base}/auth/connect/${minted.raw}`;
+  const query = minted.label ? `?label=${encodeURIComponent(minted.label)}` : '';
+  const url = `${base}/auth/connect/${minted.raw}${query}`;
   const labelSuffix = minted.label ? ` (device: "${minted.label}")` : '';
   process.stdout.write(`Pairing link${labelSuffix}: ${url}\n`);
   process.stdout.write('This link works once and expires in 5 minutes.\n');

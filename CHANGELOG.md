@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.48 (2026-10-10)
+
+### 中文
+
+- 修复配对时预设设备名称/备注被客户端 User-Agent 强行覆盖的问题：
+  - **修正配对凭证消费时的设备名称优先级判定**：解决在 `store.consumeCode` 与 `handleConnectCode` 中因客户端自动嗅探的 User-Agent 字符串（如 `Mac`、`iPhone`）非 `web` 而被错误当作显式自定义名称、进而粗暴覆盖管理员在生成配对码时显式指定的备注名称（如 `iPhone Air`）的严重缺陷；确立「显式覆盖参数 > 配对码预设备注名称 > UA 启发式名称 > web 回落」的绝对优先级；
+  - **增强配对链接 URL 显式参数传递**：在 `mintConnectCode` 及 CLI `superiu-server pair` 生成的配对链接中同步附带 `?label=...` 查询参数，确保异构浏览器在打开链接时双重保障设备名称不丢失；
+  - **优化配对面板交互文案提示**：将「目标设备名称 / 备注」调整为「新设备名称 / 备注」，并完善字段解释文案，消除已存在设备用户对预备注输入框用途的困惑，同时明确现有已授权设备可随时点击卡片右侧「重命名」进行修改。
+
+### English
+
+- Fix pre-assigned device name/remark being overwritten by client User-Agent heuristics during pairing:
+  - **Correct device label priority during code consumption**: fixed a critical bug in `store.consumeCode` and `handleConnectCode` where an auto-detected User-Agent header (e.g. `Mac`, `iPhone`) was incorrectly treated as an explicit consumer-provided label, completely overriding the administrator's pre-assigned device remark (e.g. `iPhone Air`); established strict precedence: explicit override parameter > code pre-assigned remark > UA heuristic > fallback;
+  - **Propagate label query in minted pairing URLs**: include `?label=...` query parameters in links produced by `mintConnectCode` and `superiu-server pair` for dual-layer label preservation across heterogeneous browsers;
+  - **Refine pairing settings copy and hints**: updated field copy to "New Device Name / Label" with clear guidance, clarifying that the field pre-assigns the name for new pairing codes and reminding users that existing devices can be renamed directly via the "Rename" action.
+
 ## v0.2.47 (2026-10-10)
 
 ### 中文

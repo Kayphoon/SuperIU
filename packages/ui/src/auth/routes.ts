@@ -91,17 +91,18 @@ export function handleConnectCode(
 
   const queryLabel = (url.searchParams.get('label') || url.searchParams.get('name') || '').trim();
   const uaLabel = parseUserAgentLabel(req.headers['user-agent']);
-  const defaultLabel = queryLabel ? queryLabel.slice(0, 64) : (uaLabel || 'web');
+  const explicitLabel = queryLabel ? queryLabel.slice(0, 64) : undefined;
+  const fallbackLabel = uaLabel || 'web';
 
-  let issued = raw ? layer.store.consumeCode(raw, defaultLabel) : null;
+  let issued = raw ? layer.store.consumeCode(raw, explicitLabel, fallbackLabel) : null;
   if (!issued && raw && /^[0-9a-fA-F]{64}$/.test(raw)) {
     const verified = layer.store.verify(raw);
     if (verified) {
-      if (queryLabel) {
-        layer.store.updateLabel(verified.id, queryLabel);
+      if (explicitLabel) {
+        layer.store.updateLabel(verified.id, explicitLabel);
       }
       layer.store.markUsed(raw);
-      issued = { raw, id: verified.id, label: queryLabel || verified.label };
+      issued = { raw, id: verified.id, label: explicitLabel || verified.label };
     }
   }
   if (!issued) {
@@ -128,12 +129,13 @@ export async function handlePair(
 
   const rawLabel = typeof body.label === 'string' ? body.label.trim() : '';
   const uaLabel = parseUserAgentLabel(req.headers['user-agent']);
-  const defaultLabel = rawLabel ? rawLabel.slice(0, 64) : (uaLabel || 'web');
+  const explicitLabel = rawLabel ? rawLabel.slice(0, 64) : undefined;
+  const fallbackLabel = uaLabel || 'web';
   const code = typeof body.code === 'string' ? body.code.trim() : '';
   const key = typeof body.key === 'string' ? body.key.trim() : '';
 
   if (code) {
-    const issued = layer.store.consumeCode(code, defaultLabel);
+    const issued = layer.store.consumeCode(code, explicitLabel, fallbackLabel);
     if (!issued) {
       layer.rejectPair(req, res);
       return;
@@ -150,9 +152,9 @@ export async function handlePair(
       return;
     }
     let finalLabel = record.label;
-    if (rawLabel) {
-      layer.store.updateLabel(record.id, rawLabel);
-      finalLabel = rawLabel.slice(0, 64);
+    if (explicitLabel) {
+      layer.store.updateLabel(record.id, explicitLabel);
+      finalLabel = explicitLabel;
     }
     layer.store.markUsed(key);
     layer.issueCookie(res, req, key);
