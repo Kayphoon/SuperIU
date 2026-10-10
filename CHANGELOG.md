@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.39 (2026-10-10)
+
+### 中文
+
+- 网关更新软打断排空、接力便签机制与双端 1 小时周期轮询对齐：
+  - **网关优雅排空换装与接力便签机制（Soft Drain & Resume Marker）**：当远程网关收到升级请求且当前正在执行会话任务时，废除原有的硬性 409 拒绝，转为优雅排空状态（`status: 'draining'`）；在当前轮次完成、完整响应已发给客户端且数据落盘后，原子写入 `.superiu/pending_resume.json` 交接便签，毫秒级重启换装并在开机时自动重新加载该会话，保障零数据丢失；
+  - **网关自动更新轮询周期对齐至 1 小时**：将远程网关守护进程的默认空闲自动更新轮询周期从 6 小时调整为 1 小时（`DEFAULT_AUTO_UPDATE_INTERVAL_HOURS = 1`），与桌面端 1 小时轮询对齐；
+  - **桌面端全局 1 小时后台轮询与开机静默延迟探查**：桌面端跨所有连接模式（本地、SSH 远程、网关、自定义地址）统一启用 30 秒冷启动延迟探测与 1 小时周期后台静默轮询，检测到新版本后自动后台增量下载并暂存，等待用户手动确认重启。
+
+### English
+
+- Gateway graceful drain update, session resume marker, and 1-hour polling alignment:
+  - **Gateway graceful drain update with pending resume marker**: replaced hard 409 busy rejection with graceful drain mode (`status: 'draining'`) when an update request arrives mid-turn; upon turn completion with full response dispatched and messages persisted, atomically writes `.superiu/pending_resume.json` marker, performs millisecond restart, and automatically reloads the session upon startup for zero data loss;
+  - **Align gateway update polling interval to 1 hour**: adjusted the gateway daemon's default idle auto-update polling interval from 6 hours to 1 hour (`DEFAULT_AUTO_UPDATE_INTERVAL_HOURS = 1`), matching desktop;
+  - **Desktop global 1-hour periodic polling and silent startup probe**: enabled 30-second startup delay check and 1-hour silent periodic polling across all desktop connection modes, automatically staging differential downloads in the background and awaiting user restart confirmation.
+
 ## v0.2.38 (2026-10-10)
 
 ### 中文
