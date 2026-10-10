@@ -8435,6 +8435,7 @@
                 actionBtn.textContent = tr('settings.about.restartNow');
                 actionBtn.classList.remove('hidden');
                 actionBtn.classList.add('siu-btn--primary');
+                actionBtn.hidden = false;
                 actionBtn.disabled = false;
                 actionBtn.onclick = () => {
                   actionBtn.disabled = true;
@@ -8446,6 +8447,7 @@
                 setDotTone(localDot, 'error');
                 actionBtn.textContent = tr('settings.about.checkUpdate');
                 actionBtn.classList.remove('hidden');
+                actionBtn.hidden = false;
                 actionBtn.disabled = false;
                 actionBtn.onclick = () => {
                   actionBtn.disabled = true;
@@ -8459,6 +8461,7 @@
                 statusEl.textContent = tr('settings.about.upToDate');
                 setDotTone(localDot, 'ok');
                 actionBtn.classList.add('hidden');
+                actionBtn.hidden = true;
                 break;
             }
           }
@@ -8485,6 +8488,7 @@
             remoteStatus.textContent = '';
             setDotTone(remoteDot, 'idle');
             remoteActionBtn.classList.add('hidden');
+            remoteActionBtn.hidden = true;
           } else {
             const cur = remoteUpdateInfo.current || '';
             setVersionBadge(remoteVersion, cur);
@@ -8504,6 +8508,7 @@
                   remoteActionBtn.textContent = tr('settings.about.upgradeRemote');
                   remoteActionBtn.classList.remove('hidden');
                   remoteActionBtn.classList.add('siu-btn--primary');
+                  remoteActionBtn.hidden = false;
                   remoteActionBtn.disabled = false;
                   remoteActionBtn.onclick = () => {
                     void applyRemoteUpdate();
@@ -8524,6 +8529,7 @@
                 setDotTone(remoteDot, 'busy');
                 remoteActionBtn.textContent = statusText;
                 remoteActionBtn.classList.remove('hidden');
+                remoteActionBtn.hidden = false;
                 remoteActionBtn.disabled = true;
                 break;
               }
@@ -8531,12 +8537,14 @@
                 remoteStatus.textContent = tr('settings.about.remoteUpgraded');
                 setDotTone(remoteDot, 'ok');
                 remoteActionBtn.classList.add('hidden');
+                remoteActionBtn.hidden = true;
                 break;
               case 'error':
-                remoteStatus.textContent = `${tr('settings.about.updateError')}: ${remoteUpdateInfo.error || ''}`;
+                remoteStatus.textContent = `${tr('settings.about.updateError')}: ${remoteUpdateInfo.error || ''}` ;
                 setDotTone(remoteDot, 'error');
                 remoteActionBtn.textContent = tr('settings.about.checkUpdate');
                 remoteActionBtn.classList.remove('hidden');
+                remoteActionBtn.hidden = false;
                 remoteActionBtn.disabled = false;
                 remoteActionBtn.onclick = () => {
                   void checkRemoteUpdate();
@@ -8547,6 +8555,7 @@
                 remoteStatus.textContent = tr('settings.about.upToDate');
                 setDotTone(remoteDot, 'ok');
                 remoteActionBtn.classList.add('hidden');
+                remoteActionBtn.hidden = true;
                 break;
             }
           }
@@ -8609,6 +8618,28 @@
                 }
                 await applyRemoteUpdate();
               })();
+            };
+          } else if (remoteHasUpdate) {
+            dualWrap.classList.remove('hidden');
+            dualHint.textContent = tr('settings.about.upgradeBothHint');
+            dualBtn.disabled = false;
+            dualBtn.className = 'siu-btn siu-btn--primary text-[12px] py-1 px-3 shrink-0';
+            dualBtn.textContent = tr('settings.about.upgradeRemote');
+            dualBtn.onclick = () => {
+              dualBtn.disabled = true;
+              void applyRemoteUpdate().finally(() => {
+                dualBtn.disabled = false;
+              });
+            };
+          } else if (localHasUpdate && localIsReady) {
+            dualWrap.classList.remove('hidden');
+            dualHint.textContent = tr('settings.about.upgradeBothHint');
+            dualBtn.disabled = false;
+            dualBtn.className = 'siu-btn siu-btn--primary text-[12px] py-1 px-3 shrink-0';
+            dualBtn.textContent = tr('settings.about.restartNow');
+            dualBtn.onclick = () => {
+              dualBtn.disabled = true;
+              void window.superiuDesktop?.installUpdate?.();
             };
           } else {
             dualWrap.classList.add('hidden');
