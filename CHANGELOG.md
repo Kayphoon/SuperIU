@@ -14,6 +14,24 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.41 (2026-10-10)
+
+### 中文
+
+- 移动端 iOS / Safari / PWA 视口修复与暗色自适应透明图标优化：
+  - **移动端视口高度与底部黑条修复**：修复 iOS Safari / PWA 在未弹起软键盘时被 `visualViewport` 误扣减安全区高度导致页面截断留黑的问题；仅在真正聚焦输入框时动态伸缩，并为 `html, body` 兜底应用全屏主题底色；
+  - **顶部状态栏模糊消除与桌面按钮隐藏**：废除 iOS 会强制产生顶部磨砂模糊条的 `black-translucent` 属性，切换为与主题色无缝契合的 `default` 模式；在 `<=640px` 移动端自适应隐藏 macOS 桌面专用红黄绿窗口控制按钮；
+  - **欢迎界面光晕与滚动遮罩精准定位**：收敛移动端背景光晕尺寸并正中锚定于头像之后，避免在暗色模式下溢出为顶部暗斑；为滚动遮罩添加滚动性条件校验，避免初始空状态误触发顶部淡出；
+  - **透明底头像与暗色自适应圆角底板**：消除应用图标 PNG 外围硬编码白底并做抗锯齿除边，升级为纯净透明底；头像外框卡片由 CSS 驱动自适应主题——浅色下为温润白卡片，暗色下自动换装为深色微渐变卡片并伴随发丝微光边缘，完美融入暗夜模式。
+
+### English
+
+- Mobile iOS / Safari / PWA viewport fixes and dark-mode adaptive transparent icon:
+  - **Mobile viewport height & bottom black chunk fix**: fixed an issue on iOS Safari / PWA where `visualViewport` subtracted safe area insets while idle and cropped the app height, leaving a dead black block at the bottom; now dynamically tracks the viewport only when the soft keyboard is actively focused, with full-bleed background coverage on `html, body`;
+  - **Top status bar blur elimination & desktop traffic light suppression**: replaced `black-translucent` with `default` status bar styling aligned to `#0a0c11` dark theme-color, removing the artificial frosted blur band across the top; hid macOS window traffic light buttons on mobile screens (`<=640px`);
+  - **Refined ambient aura & scroll mask guarding**: centered and scaled the ambient glow aura directly behind the avatar to eliminate smudge artifacts on small screens, and guarded transcript scroll edge fading so the top mask is never falsely triggered on non-scrolled empty states;
+  - **Transparent avatar icon & theme-adaptive squircle card**: defringed and converted the avatar PNG to a 100% transparent-background image, and shifted the squircle card styling to CSS so it dynamically adapts to dark mode (sleek dark gradient squircle with rim lighting) and light mode (crisp white card).
+
 ## v0.2.40 (2026-10-10)
 
 ### 中文
