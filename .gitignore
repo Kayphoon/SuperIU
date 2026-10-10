@@ -25,3 +25,5 @@ scripts/*.d.ts
 scripts/*.d.ts.map
 coverage/
 *.tsbuildinfo
+.slim/deepwork/
+

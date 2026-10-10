@@ -845,13 +845,11 @@ export async function checkForUpdate(interactive: boolean): Promise<void> {
     percent: 0
   });
 
-  try {
-    await prepareUpdate(result);
-  } catch (err) {
+  void prepareUpdate(result).catch((err) => {
     const message = describeUpdateFailure(err);
     console.error('[superiu] update failed:', message);
     setState({ phase: 'error', error: message, percent: undefined });
-  }
+  });
 }
 
 /**

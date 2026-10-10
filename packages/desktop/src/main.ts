@@ -330,58 +330,27 @@ function mirrorUpdateProgress(state: UpdateState): void {
 /**
  * Tell the user an update is staged, once per version.
  *
- * A native notification reaches a backgrounded app; the dialog is the durable
- * surface with the actual choice. The version is recorded by the caller BEFORE
- * this runs, so a second `ready` state for the same version cannot double-show.
+ * Uses a non-blocking native notification without interrupting the user with a modal dialog.
+ * The titlebar update badge / About pane provides the explicit restart action.
  */
-async function announceUpdateReady(version: string, releaseNotes?: string): Promise<void> {
+async function announceUpdateReady(version: string, _releaseNotes?: string): Promise<void> {
   if (Notification.isSupported()) {
     new Notification({
       title: '更新已就绪',
-      body: `SuperIU ${version} 已在后台下载完成，重启即可安装。`
+      body: `SuperIU ${version} 已在后台下载完成，点击右上角重启按钮即可安装。`
     }).show();
-  }
-
-  const options = {
-    type: 'info' as const,
-    buttons: ['立即重启并安装', '稍后'],
-    defaultId: 0,
-    cancelId: 1,
-    noLink: true,
-    title: '更新已就绪',
-    message: `SuperIU ${version} 已下载完成`,
-    detail: releaseNotes?.trim()
-      ? releaseNotes.slice(0, 2000)
-      : '更新已在后台下载并校验完成，重启应用即可安装。'
-  };
-  const { response } =
-    mainWindow && !mainWindow.isDestroyed()
-      ? await dialog.showMessageBox(mainWindow, options)
-      : await dialog.showMessageBox(options);
-
-  if (response === 0) {
-    // Failures publish an 'error' state, which the listener below reports; this
-    // catch only keeps a rejected promise from going unhandled.
-    void installPreparedUpdate().catch((err) => {
-      console.error('[superiu] failed to install update:', err);
-    });
   }
 }
 
-/** Report a failed download once per distinct message. */
+/** Report a failed download once per distinct message via non-blocking notification. */
 async function announceUpdateFailure(message: string): Promise<void> {
-  const options = {
-    type: 'error' as const,
-    buttons: ['好'],
-    defaultId: 0,
-    noLink: true,
-    title: '更新失败',
-    message
-  };
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    await dialog.showMessageBox(mainWindow, options);
-  } else {
-    await dialog.showMessageBox(options);
+  if (shownUpdateError === message) return;
+  shownUpdateError = message;
+  if (Notification.isSupported()) {
+    new Notification({
+      title: '更新失败',
+      body: message
+    }).show();
   }
 }
 
