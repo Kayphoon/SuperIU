@@ -37,6 +37,10 @@ export const INVOKE = {
   connectCustomUrl: 'superiu:connect-custom-url'
 } as const;
 
+export interface CheckForUpdateOptions {
+  interactive?: boolean;
+}
+
 export const REMOTE_PROGRESS_CHANNEL = 'superiu:remote-progress';
 export const UPDATE_STATE_CHANNEL = 'superiu:update-state';
 export const CONNECTION_STATE_CHANNEL = 'superiu:connection-state';
@@ -140,7 +144,7 @@ export interface SuperiuDesktopBridge {
    * `onboardingCompleted` on its own).
    */
   completeOnboarding(options: { mode: 'local' }): Promise<void>;
-  checkForUpdate?(): Promise<void>;
+  checkForUpdate?(options?: CheckForUpdateOptions): Promise<void>;
   installUpdate?(): Promise<void>;
   getUpdateState?(): Promise<UpdatePayload>;
   onUpdateState?(callback: (state: UpdatePayload) => void): () => void;

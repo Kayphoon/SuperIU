@@ -933,6 +933,41 @@ let memoryDir = '';
 let serverVersion = '0.0.0';
 /** Update hooks backing `/api/update`. */
 let updateHooks: UpdateHooks = {};
+let pendingDrainUpdate: (() => Promise<void>) | null = null;
+
+export interface PendingResumeMarker {
+  sessionId: string;
+  leafId?: string;
+  timestamp: number;
+  reason: 'server_update';
+}
+
+export function pendingResumeFilePath(workspaceDir: string): string {
+  return path.join(workspaceDir, '.superiu', 'pending_resume.json');
+}
+
+export function writePendingResumeMarker(workspaceDir: string, marker: PendingResumeMarker): void {
+  const file = pendingResumeFilePath(workspaceDir);
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(marker, null, 2) + '\n', { encoding: 'utf-8', mode: 0o600 });
+  } catch (err) {
+    process.stderr.write(`superiu-server: could not write pending resume marker: ${errorMessage(err)}\n`);
+  }
+}
+
+export function checkAndConsumePendingResume(workspaceDir: string): PendingResumeMarker | null {
+  const file = pendingResumeFilePath(workspaceDir);
+  if (!fs.existsSync(file)) return null;
+  try {
+    const raw = fs.readFileSync(file, 'utf-8');
+    fs.unlinkSync(file);
+    return JSON.parse(raw) as PendingResumeMarker;
+  } catch (err) {
+    process.stderr.write(`superiu-server: could not read pending resume marker: ${errorMessage(err)}\n`);
+    return null;
+  }
+}
 
 /**
  * Whether the user has told us this model takes `reasoning_effort`.
@@ -1889,9 +1924,30 @@ async function handleApi(
     const isIdle =
       runner?.status === 'idle' && pendingApprovals.size === 0 && (!gatewayRef || gatewayRef.isIdle());
     if (!isIdle) {
-      sendJson(res, 409, {
-        error: 'busy',
-        message: 'Agent turn is in progress; please wait for completion before updating.'
+      draining = true;
+      pendingDrainUpdate = async () => {
+        try {
+          if (runner?.getSessionId()) {
+            writePendingResumeMarker(activeWorkspaceDir, {
+              sessionId: runner.getSessionId(),
+              leafId: runner.getLeafId(),
+              timestamp: Date.now(),
+              reason: 'server_update'
+            });
+          }
+        } catch (err) {
+          process.stderr.write(`superiu-server: failed to write resume marker: ${errorMessage(err)}\n`);
+        }
+        try {
+          await updateHooks.onApplyUpdate!();
+        } catch (err) {
+          process.stderr.write(`superiu-server: update apply failed: ${errorMessage(err)}\n`);
+        }
+      };
+      sendJson(res, 200, {
+        ok: true,
+        status: 'draining',
+        message: 'Update scheduled: waiting for active turn completion.'
       });
       return true;
     }
@@ -2083,6 +2139,17 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
     resolvePendingApprovals(false);
     clearInterval(heartbeat);
     if (!closed) res.end();
+    if (pendingDrainUpdate) {
+      const drain = pendingDrainUpdate;
+      pendingDrainUpdate = null;
+      setTimeout(async () => {
+        try {
+          await drain();
+        } catch (err) {
+          process.stderr.write(`superiu-server: drain update failed: ${errorMessage(err)}\n`);
+        }
+      }, 80).unref();
+    }
   }
 }
 
@@ -2210,6 +2277,18 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
   serverVersion = options.version ?? '0.0.0';
   updateHooks = options.updateHooks ?? {};
   runner = new AgentRunner(runnerOptions());
+
+  const resumeMarker = checkAndConsumePendingResume(activeWorkspaceDir);
+  if (resumeMarker?.sessionId) {
+    try {
+      runner.loadSession(resumeMarker.sessionId);
+      console.log(`[superiu] resumed session ${resumeMarker.sessionId} from pending update marker`);
+    } catch (err) {
+      process.stderr.write(
+        `superiu-server: failed to restore resumed session ${resumeMarker.sessionId}: ${errorMessage(err)}\n`
+      );
+    }
+  }
 
   // Pairing auth sits in front of the API. The mode is explicit when the
   // embedder pinned it, otherwise derived from `SUPERIU_WEB_AUTH` and the AUTO

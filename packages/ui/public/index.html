@@ -7775,12 +7775,18 @@
           void renderPairingPane();
         }
         if (pane === 'about') {
+          const isDesktop = Boolean(window.superiuDesktop);
           const isRemote = Boolean(
             activeConnectionInfo &&
               (activeConnectionInfo.mode === 'remote' || activeConnectionInfo.mode === 'gateway')
           );
-          if (isRemote && !remoteUpdateInfo && !remoteUpdateChecking) {
+          const isDualMode = isDesktop && isRemote;
+          if (isDualMode) {
+            void checkBothUpdates({ interactive: false });
+          } else if (isRemote) {
             void checkRemoteUpdate();
+          } else if (isDesktop) {
+            void window.superiuDesktop?.checkForUpdate?.({ interactive: false });
           }
           renderAboutUpdate();
         }
@@ -8148,14 +8154,14 @@
       let remoteUpdateChecking = false;
       let dualChecking = false;
 
-      async function checkBothUpdates() {
+      async function checkBothUpdates(opts = {}) {
         if (dualChecking) return;
         dualChecking = true;
         renderAboutUpdate();
         try {
           const promises = [];
           if (window.superiuDesktop?.checkForUpdate) {
-            promises.push(window.superiuDesktop.checkForUpdate());
+            promises.push(window.superiuDesktop.checkForUpdate(opts));
           }
           promises.push(checkRemoteUpdate());
           await Promise.allSettled(promises);
@@ -8197,11 +8203,22 @@
       }
 
       async function applyRemoteUpdate() {
-        if (!remoteUpdateInfo || remoteUpdateInfo.phase === 'upgrading' || remoteUpdateInfo.phase === 'restarting') return;
+        if (
+          !remoteUpdateInfo ||
+          remoteUpdateInfo.phase === 'upgrading' ||
+          remoteUpdateInfo.phase === 'restarting' ||
+          remoteUpdateInfo.phase === 'draining'
+        )
+          return;
         remoteUpdateInfo.phase = 'upgrading';
         renderAboutUpdate();
         try {
           const res = await api('/api/update', { method: 'POST' });
+          if (res?.status === 'draining') {
+            remoteUpdateInfo.phase = 'draining';
+            renderAboutUpdate();
+            return;
+          }
           if (res?.error === 'busy') {
             remoteUpdateInfo.phase = 'error';
             remoteUpdateInfo.error = tr('settings.about.remoteBusy');
@@ -8228,13 +8245,14 @@
         );
         const isDualMode = isDesktop && isRemote;
 
-        if (
-          state.settingsPane === 'about' &&
-          isRemote &&
-          !remoteUpdateInfo &&
-          !remoteUpdateChecking
-        ) {
-          void checkRemoteUpdate();
+        if (state.settingsPane === 'about') {
+          if (isDualMode && !remoteUpdateInfo && !remoteUpdateChecking && !dualChecking) {
+            void checkBothUpdates({ interactive: false });
+          } else if (isRemote && !remoteUpdateInfo && !remoteUpdateChecking) {
+            void checkRemoteUpdate();
+          } else if (isDesktop && !lastUpdatePayload && window.superiuDesktop?.checkForUpdate) {
+            void window.superiuDesktop.checkForUpdate({ interactive: false });
+          }
         }
 
         const localWrap = $('settings-update-local-wrap');
@@ -8419,6 +8437,10 @@
                 remoteStatus.textContent = tr('settings.about.remoteUpgrading');
                 setDotTone(remoteDot, 'busy');
                 break;
+              case 'draining':
+                remoteStatus.textContent = tr('settings.about.remoteDraining');
+                setDotTone(remoteDot, 'busy');
+                break;
               case 'restarting':
                 remoteStatus.textContent = tr('settings.about.remoteRestarting');
                 setDotTone(remoteDot, 'busy');
@@ -8479,7 +8501,9 @@
           );
           const remoteIsUpgrading = Boolean(
             remoteUpdateInfo &&
-              (remoteUpdateInfo.phase === 'upgrading' || remoteUpdateInfo.phase === 'restarting')
+              (remoteUpdateInfo.phase === 'upgrading' ||
+                remoteUpdateInfo.phase === 'restarting' ||
+                remoteUpdateInfo.phase === 'draining')
           );
           const remoteIsDone = Boolean(remoteUpdateInfo && remoteUpdateInfo.phase === 'done');
           const remoteHasUpdate = Boolean(remoteUpdateInfo && remoteUpdateInfo.hasUpdate && remoteUpdateInfo.canUpdate);
@@ -8499,7 +8523,12 @@
 
           if (remoteIsUpgrading) {
             const isRestarting = remoteUpdateInfo?.phase === 'restarting';
-            const statusText = isRestarting ? tr('settings.about.remoteRestarting') : tr('settings.about.remoteUpgrading');
+            const isDraining = remoteUpdateInfo?.phase === 'draining';
+            const statusText = isDraining
+              ? tr('settings.about.remoteDraining')
+              : isRestarting
+                ? tr('settings.about.remoteRestarting')
+                : tr('settings.about.remoteUpgrading');
             dualHint.textContent = statusText;
             dualBtn.disabled = true;
             dualBtn.className = 'siu-btn text-[12px] py-1 px-3 shrink-0';
@@ -8581,7 +8610,7 @@
             dualBtn.className = 'siu-btn text-[12px] py-1 px-3 shrink-0';
             dualBtn.textContent = tr('settings.about.checkUpdate');
             dualBtn.onclick = () => {
-              void checkBothUpdates();
+              void checkBothUpdates({ interactive: true });
             };
           } else {
             dualHint.textContent = tr('settings.about.dualUpToDate');
@@ -8589,7 +8618,7 @@
             dualBtn.className = 'siu-btn text-[12px] py-1 px-3 shrink-0';
             dualBtn.textContent = tr('settings.about.checkUpdate');
             dualBtn.onclick = () => {
-              void checkBothUpdates();
+              void checkBothUpdates({ interactive: true });
             };
           }
         } else if (dualWrap) {

@@ -136,8 +136,8 @@ const bridge: SuperiuDesktopBridge = {
     };
   },
 
-  checkForUpdate(): Promise<void> {
-    return ipcRenderer.invoke(CHECK_FOR_UPDATE);
+  checkForUpdate(options?: { interactive?: boolean }): Promise<void> {
+    return ipcRenderer.invoke(CHECK_FOR_UPDATE, options);
   },
 
   installUpdate(): Promise<void> {

@@ -83,7 +83,7 @@ const STATE_DIR_MODE = 0o700;
 const STATE_FILE_MODE = 0o600;
 
 /** Hours between idle update checks when neither the flag nor the state names one. */
-const DEFAULT_AUTO_UPDATE_INTERVAL_HOURS = 6;
+const DEFAULT_AUTO_UPDATE_INTERVAL_HOURS = 1;
 
 /** How long `stop` waits for a SIGTERM'd daemon to actually exit. */
 const STOP_TIMEOUT_MS = 10_000;

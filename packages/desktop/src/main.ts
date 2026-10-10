@@ -420,6 +420,44 @@ onUpdateState((state: UpdateState) => {
 });
 
 // ---------------------------------------------------------------------------
+// Background update loop (startup delay + periodic polling)
+// ---------------------------------------------------------------------------
+// Startup probe: 30 seconds delay so initial local server boot, SSH tunnels,
+// and gateway handshakes have completely settled without network/CPU contention.
+//
+// Periodic polling: 1 hour between silent background checks.
+const UPDATE_STARTUP_PROBE_DELAY_MS = 30 * 1000;
+const UPDATE_POLL_INTERVAL_MS = 60 * 60 * 1000;
+
+let updateProbeTimer: NodeJS.Timeout | undefined;
+let updatePollTimer: NodeJS.Timeout | undefined;
+
+function startBackgroundUpdateLoop(): void {
+  if (updateProbeTimer || updatePollTimer) return;
+  if (!app.isPackaged) return;
+
+  updateProbeTimer = setTimeout(() => {
+    updateProbeTimer = undefined;
+    void checkForUpdate(false);
+  }, UPDATE_STARTUP_PROBE_DELAY_MS);
+
+  updatePollTimer = setInterval(() => {
+    void checkForUpdate(false);
+  }, UPDATE_POLL_INTERVAL_MS);
+}
+
+function stopBackgroundUpdateLoop(): void {
+  if (updateProbeTimer) {
+    clearTimeout(updateProbeTimer);
+    updateProbeTimer = undefined;
+  }
+  if (updatePollTimer) {
+    clearInterval(updatePollTimer);
+    updatePollTimer = undefined;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Window
 // ---------------------------------------------------------------------------
 
@@ -671,16 +709,6 @@ async function startLocalMode(): Promise<void> {
   nativeTheme.themeSource = serverHandle.theme;
 
   mainWindow = createWindow(serverHandle.url);
-
-  // Silent background update probe. Delayed so it never competes with startup
-  // work, and skipped in development where there is no installable bundle. The
-  // download it may start is invisible by design: progress and the restart
-  // offer reach the user through the update-state listener above.
-  if (app.isPackaged) {
-    setTimeout(() => {
-      void checkForUpdate(false);
-    }, 5000);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2414,8 +2442,8 @@ function installIpcHandlers(): void {
     closeOnboarding();
   });
 
-  ipcMain.handle(INVOKE.checkForUpdate, async () => {
-    await checkForUpdate(true);
+  ipcMain.handle(INVOKE.checkForUpdate, async (_event, options?: { interactive?: boolean }) => {
+    await checkForUpdate(options?.interactive ?? true);
   });
 
   ipcMain.handle(INVOKE.installUpdate, async () => {
@@ -2445,6 +2473,7 @@ async function closeServer(): Promise<void> {
 
 /** Tear down whichever transport mode is active, exactly once. */
 async function shutdown(): Promise<void> {
+  stopBackgroundUpdateLoop();
   closeGateway();
   await closeRemote();
   await closeServer();
@@ -2517,6 +2546,7 @@ async function bootstrap(): Promise<void> {
   if (gateway.mode === 'custom_url') {
     console.log(`[superiu] workspace ${workspace}`);
     await startCustomUrlMode(gateway);
+    startBackgroundUpdateLoop();
     return;
   }
 
@@ -2527,16 +2557,19 @@ async function bootstrap(): Promise<void> {
     // do NOT fall back to local mode: that would start a second AgentRunner the
     // user did not ask for.
     await startRemoteMode(gateway);
+    startBackgroundUpdateLoop();
     return;
   }
 
   if (gateway.mode === 'gateway') {
     console.log(`[superiu] workspace ${workspace}`);
     startGatewayMode(gateway);
+    startBackgroundUpdateLoop();
     return;
   }
 
   await startLocalMode();
+  startBackgroundUpdateLoop();
 }
 
 if (gotTheLock) {

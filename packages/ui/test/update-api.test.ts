@@ -1,6 +1,14 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import http from 'node:http';
-import { startServer, type ServerHandle } from '../src/server.js';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import {
+  startServer,
+  type ServerHandle,
+  writePendingResumeMarker,
+  checkAndConsumePendingResume
+} from '../src/server.js';
 
 describe('Server /api/update endpoints', () => {
   let handle: ServerHandle | undefined;
@@ -95,5 +103,30 @@ describe('Server /api/update endpoints', () => {
 
     const res = await fetch(`${handle.url}/api/update`, { method: 'POST' });
     expect(res.status).toBe(400);
+  });
+
+  it('writePendingResumeMarker and checkAndConsumePendingResume manage resume marker atomically', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'superiu-resume-test-'));
+    try {
+      expect(checkAndConsumePendingResume(tmpDir)).toBeNull();
+
+      writePendingResumeMarker(tmpDir, {
+        sessionId: 'test-session-123',
+        leafId: 'test-leaf-456',
+        timestamp: 1234567890,
+        reason: 'server_update'
+      });
+
+      const marker = checkAndConsumePendingResume(tmpDir);
+      expect(marker).not.toBeNull();
+      expect(marker?.sessionId).toBe('test-session-123');
+      expect(marker?.leafId).toBe('test-leaf-456');
+      expect(marker?.reason).toBe('server_update');
+
+      // Once consumed, the marker file is removed atomically
+      expect(checkAndConsumePendingResume(tmpDir)).toBeNull();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });

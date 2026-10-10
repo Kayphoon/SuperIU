@@ -199,7 +199,7 @@ const RESOLVER_ROWS: ResolverRow[] = [
     parsed: { autoUpdateIdle: false },
     state: null,
     env: undefined,
-    expected: { enabled: false, intervalHours: 6, releaseBase: undefined, clearPersisted: false }
+    expected: { enabled: false, intervalHours: 1, releaseBase: undefined, clearPersisted: false }
   },
   {
     name: '--auto-update-idle -> on, flag interval wins',
@@ -213,14 +213,14 @@ const RESOLVER_ROWS: ResolverRow[] = [
     parsed: { autoUpdateIdle: false, noAutoUpdateIdle: true },
     state: null,
     env: undefined,
-    expected: { enabled: false, intervalHours: 6, releaseBase: undefined, clearPersisted: true }
+    expected: { enabled: false, intervalHours: 1, releaseBase: undefined, clearPersisted: true }
   },
   {
     name: 'SUPERIU_AUTO_UPDATE_IDLE=1 -> on',
     parsed: { autoUpdateIdle: false },
     state: null,
     env: '1',
-    expected: { enabled: true, intervalHours: 6, releaseBase: undefined, clearPersisted: false }
+    expected: { enabled: true, intervalHours: 1, releaseBase: undefined, clearPersisted: false }
   },
   {
     name: 'SUPERIU_AUTO_UPDATE_IDLE=0 -> off AND clears the persisted keys',
