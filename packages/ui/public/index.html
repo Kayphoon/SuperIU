@@ -1474,8 +1474,10 @@
          About · update node board
          ===================================================================== */
       .siu-update-node.hidden,
-      .siu-update-dualbar.hidden {
-        display: none;
+      .siu-update-dualbar.hidden,
+      .siu-btn.hidden,
+      .siu-btn[hidden] {
+        display: none !important;
       }
       .siu-update-node {
         position: relative;
@@ -5113,7 +5115,7 @@
                   </div>
                   <div class="siu-update-node-side">
                     <span id="settings-update-version" class="siu-update-version-badge hidden"></span>
-                    <button id="settings-update-action" type="button" class="siu-btn text-[12px] py-1 px-3 shrink-0 hidden"></button>
+                    <button id="settings-update-action" type="button" class="siu-btn text-[12px] py-1 px-3 shrink-0 hidden" hidden></button>
                   </div>
                   <div id="settings-update-progress-wrap" class="siu-update-node-progress hidden">
                     <div class="w-full bg-border rounded-full h-1 overflow-hidden">
@@ -5144,7 +5146,7 @@
                   </div>
                   <div class="siu-update-node-side">
                     <span id="settings-update-remote-version" class="siu-update-version-badge hidden"></span>
-                    <button id="settings-update-remote-action" type="button" class="siu-btn text-[12px] py-1 px-3 shrink-0 hidden"></button>
+                    <button id="settings-update-remote-action" type="button" class="siu-btn text-[12px] py-1 px-3 shrink-0 hidden" hidden></button>
                   </div>
                 </div>
 
@@ -8245,8 +8247,8 @@
           } else {
             const statePayload = lastUpdatePayload;
             setVersionBadge(versionEl, statePayload.currentVersion || '');
-            actionBtn.classList.add('hidden');
-            actionBtn.className = 'siu-btn text-[12px] py-1 px-3 shrink-0';
+            actionBtn.className = 'siu-btn text-[12px] py-1 px-3 shrink-0 hidden';
+            actionBtn.hidden = true;
             progressWrap.classList.add('hidden');
             progressBar.style.width = '0%';
 
@@ -8342,8 +8344,8 @@
           } else {
             const cur = remoteUpdateInfo.current || '';
             setVersionBadge(remoteVersion, cur);
-            remoteActionBtn.classList.add('hidden');
-            remoteActionBtn.className = 'siu-btn text-[12px] py-1 px-3 shrink-0';
+            remoteActionBtn.className = 'siu-btn text-[12px] py-1 px-3 shrink-0 hidden';
+            remoteActionBtn.hidden = true;
 
             switch (remoteUpdateInfo.phase) {
               case 'checking':
@@ -8401,6 +8403,17 @@
           }
         } else if (remoteWrap) {
           remoteWrap.classList.add('hidden');
+        }
+
+        if (isDualMode) {
+          if (actionBtn) {
+            actionBtn.classList.add('hidden');
+            actionBtn.hidden = true;
+          }
+          if (remoteActionBtn) {
+            remoteActionBtn.classList.add('hidden');
+            remoteActionBtn.hidden = true;
+          }
         }
 
         // 3. Render Dual Master Action
