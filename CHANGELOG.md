@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.34 (2026-10-10)
+
+### 中文
+
+- 桌面端支持自定义服务地址（Custom URL）直连模式：
+  - **Custom URL 直连通道**：桌面端新增直连已运行 SuperIU 服务的能力，无需配置 SSH 隧道，可直接通过局域网、内网穿透或 Docker 地址（HTTP/HTTPS）连接；
+  - **自动注入配对凭据**：当远端开启 Web 配对鉴权时，支持输入可选配对密钥/Token，直连启动时自动向会话 Cookie 注入 `pairing_key`，免去浏览器跳转阻断；
+  - **设置面板与首次向导集成**：设置页「远程 VPS 连接」面板新增「SSH 隧道部署」与「自定义服务地址」分段切换，支持持久化为默认启动连接，且在首次启动向导中新增直连卡片与表单。
+
+### English
+
+- Desktop client support for Custom URL direct connection mode:
+  - **Custom URL direct connection channel**: the desktop client can now directly connect to an already-running SuperIU service without configuring an SSH tunnel, supporting LAN addresses, tunnels, and Docker containers (HTTP/HTTPS);
+  - **Automatic pairing credential injection**: supports supplying an optional pairing key/token when the remote service enforces web pairing authentication, automatically injecting the `pairing_key` cookie into the Electron session upon launch;
+  - **Settings pane and first-run onboarding wizard integration**: the "Remote VPS" settings pane features a segmented control switching between SSH Tunnel and Custom URL with a "save as default" toggle, accompanied by a dedicated card in the first-run onboarding wizard.
+
 ## v0.2.33 (2026-10-10)
 
 ### 中文
