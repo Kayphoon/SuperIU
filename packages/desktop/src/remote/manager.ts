@@ -326,10 +326,16 @@ export class RemoteConnectionManager {
     const effectiveSocket = daemon.socketPath;
     let remotePort = 0;
     if (effectiveSocket) {
+      // A dual-listen daemon also exposes a TCP web port; surface it when known
+      // so the operator sees both endpoints.
+      const webPort =
+        typeof daemon.port === 'number' && daemon.port > 0 ? daemon.port : undefined;
       this.progress(onProgress, {
         id: 'start',
         status: 'done',
-        detail: `listening on unix socket ${effectiveSocket}`,
+        detail: webPort
+          ? `listening on unix socket ${effectiveSocket} (web port ${webPort})`
+          : `listening on unix socket ${effectiveSocket}`,
       });
     } else {
       remotePort = daemon.port ?? (await this.failMissingPort());

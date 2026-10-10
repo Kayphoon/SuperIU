@@ -934,8 +934,13 @@ async function commandStart(parsed: ParsedArgs): Promise<number> {
   const publicDir = await materializeEmbeddedAssets();
 
   const handle = await startServer({
-    // In socket mode `port`/`host` are ignored, so pass only the socket path.
-    ...(parsed.socketPath ? { socketPath: parsed.socketPath } : { port, host }),
+    // A Unix socket and a TCP port are independent listeners: passing both makes
+    // the server dual-listen, so a `--socket` daemon still serves browsers on
+    // `--port`/`--host`. With `--socket` alone, `port` defaults and the TCP
+    // listener comes up alongside the socket; `--port 0` keeps it socket-only.
+    port,
+    host,
+    ...(parsed.socketPath ? { socketPath: parsed.socketPath } : {}),
     workspaceDir: workspace,
     gatewayToken: token,
     quiet: true,
@@ -1485,13 +1490,17 @@ function restartDaemon(target: string, state: DaemonState): void {
 
   // `readState` defaults a missing port to 0 and a missing token to '', so a
   // state file written by an older build may lack them. An empty `--token` is
-  // rejected by `parseArgs` and `--port 0` means "ephemeral": replaying either
-  // would fail the restart after the binary was already swapped. Only the flags
-  // that actually carry a value are passed; the daemon then falls back to its
-  // own defaults for the rest.
+  // rejected by `parseArgs`, so only a non-empty one is replayed. `--port 0` is
+  // a valid, meaningful value here: on a socket daemon it marks socket-only, and
+  // replaying it is what stops the flagless default from adding a TCP listener.
   const args = ['start'];
+  if (state.socketPath) args.push('--socket', state.socketPath);
+  // Replay the TCP listener whenever one existed. In dual-listen mode the port
+  // accompanies the socket, and a recorded `0` keeps a socket-only daemon from
+  // silently re-adding the default TCP port on restart.
   if (state.socketPath) {
-    args.push('--socket', state.socketPath);
+    args.push('--port', String(state.port));
+    if (state.port > 0 && state.host) args.push('--host', state.host);
   } else {
     if (state.port > 0) args.push('--port', String(state.port));
     if (state.host) args.push('--host', state.host);
@@ -1566,8 +1575,13 @@ export function restartDaemonDetached(target: string, state: DaemonState, seams:
   // Same replay rules as `restartDaemon`: only flags that actually carry a value
   // are passed, so a state file from an older build cannot fail the restart.
   const args = ['start'];
+  if (state.socketPath) args.push('--socket', state.socketPath);
+  // Replay the TCP listener whenever one existed. In dual-listen mode the port
+  // accompanies the socket, and a recorded `0` keeps a socket-only daemon from
+  // silently re-adding the default TCP port on restart.
   if (state.socketPath) {
-    args.push('--socket', state.socketPath);
+    args.push('--port', String(state.port));
+    if (state.port > 0 && state.host) args.push('--host', state.host);
   } else {
     if (state.port > 0) args.push('--port', String(state.port));
     if (state.host) args.push('--host', state.host);

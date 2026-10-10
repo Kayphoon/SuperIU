@@ -2139,6 +2139,33 @@ function handleStatic(req: http.IncomingMessage, res: http.ServerResponse, pathn
 // ---------------------------------------------------------------------------
 
 /**
+ * Prepare a Unix domain socket path for `listen()`: create the parent directory
+ * and clear a stale socket file. A leftover file from a crashed process would
+ * make `listen()` fail with EADDRINUSE; clearing it is safe because nothing is
+ * bound there.
+ */
+function prepareSocketPath(socketPath: string): void {
+  fs.mkdirSync(path.dirname(socketPath), { recursive: true });
+  try {
+    fs.rmSync(socketPath, { force: true });
+  } catch {
+    // Best effort: listen() will surface a real problem.
+  }
+}
+
+/**
+ * Best-effort `0600` on a freshly-bound socket. A filesystem that refuses chmod
+ * still has a working socket, so this must never fail a boot.
+ */
+function secureSocketPath(socketPath: string): void {
+  try {
+    fs.chmodSync(socketPath, 0o600);
+  } catch {
+    // A filesystem that refuses chmod still has a working socket.
+  }
+}
+
+/**
  * Boot the SuperIU web shell.
  *
  * Importing this module has no side effects; the HTTP server only starts here,
@@ -2150,6 +2177,13 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
   const host = options.host ?? process.env.HOST ?? '127.0.0.1';
   const socketPath = options.socketPath ? path.resolve(options.socketPath) : undefined;
   const workspaceDir = path.resolve(options.workspaceDir ?? process.cwd());
+
+  // Dual-listen: a Unix domain socket AND a TCP port at once. This is only a
+  // TCP boot when the caller explicitly named a positive port — an omitted port
+  // still defaults to 3000 for pure-TCP mode, but must not silently add a TCP
+  // listener when only a socket was requested. `port: 0` opts a socket-only boot
+  // back in explicitly.
+  const dualListen = socketPath !== undefined && options.port !== undefined && options.port > 0;
 
   PUBLIC_DIR = options.publicDir ? path.resolve(options.publicDir) : path.resolve(HERE, '..', 'public');
   SETTINGS_FILE = options.settingsFile
@@ -2174,7 +2208,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
         : authModeFromEnv(process.env.SUPERIU_WEB_AUTH);
   const auth = new AuthLayer({ workspaceDir, host, mode: authMode });
 
-  const server = http.createServer((req, res) => {
+  // The single request handler both listeners share, so the SPA and API answer
+  // identically whether a client reaches the server over TCP or the socket.
+  const requestHandler = (req: http.IncomingMessage, res: http.ServerResponse): void => {
     const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
     const pathname = url.pathname;
 
@@ -2200,19 +2236,14 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
         }
       }
     })();
-  });
+  };
+
+  const server = http.createServer(requestHandler);
 
   const listening = await new Promise<number>((resolve, reject) => {
     server.once('error', reject);
-    if (socketPath) {
-      fs.mkdirSync(path.dirname(socketPath), { recursive: true });
-      // A leftover socket file from a crashed process would make listen() fail
-      // with EADDRINUSE; clearing it is safe because nothing is bound there.
-      try {
-        fs.rmSync(socketPath, { force: true });
-      } catch {
-        // Best effort: listen() will surface a real problem.
-      }
+    if (socketPath && !dualListen) {
+      prepareSocketPath(socketPath);
       server.listen(socketPath, () => resolve(0));
       return;
     }
@@ -2222,14 +2253,29 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
     });
   });
 
-  if (socketPath) {
+  // Second listener for dual mode. A failure here must not leave the TCP
+  // listener holding the port, so tear it down before surfacing the error.
+  let socketServer: http.Server | undefined;
+  if (dualListen && socketPath) {
+    const secondary = http.createServer(requestHandler);
     try {
-      fs.chmodSync(socketPath, 0o600);
-    } catch {
-      // A filesystem that refuses chmod still has a working socket; do not fail
-      // a boot over socket permissions.
+      await new Promise<void>((resolve, reject) => {
+        secondary.once('error', reject);
+        prepareSocketPath(socketPath);
+        secondary.listen(socketPath, () => resolve());
+      });
+    } catch (err) {
+      await new Promise<void>((resolve) => secondary.close(() => resolve()));
+      await new Promise<void>((resolve) => {
+        server.close(() => resolve());
+        server.closeAllConnections?.();
+      });
+      throw err;
     }
+    socketServer = secondary;
   }
+
+  if (socketPath) secureSocketPath(socketPath);
 
   // Boot the VPS Gateway on the SAME server so `@agent/ui` serves the SPA and
   // the WebSocket endpoint from one port. `gatewayPath: null` opts out.
@@ -2245,6 +2291,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
       // session, never the whole core class.
       runner: runner as unknown as GatewayRunner
     });
+    // Dual-listen: answer `/ws` upgrades on the socket listener too, so a
+    // loopback/tunnel client and a browser client share one gateway.
+    if (socketServer) gateway.attachSecondary(socketServer);
     gatewayRef = gateway;
   }
 
@@ -2260,7 +2309,12 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
     const describeModel = (configured: string, inForce: string): string =>
       configured ? configured : `${inForce} (default)`;
     console.log('=== SuperIU Web UI (@agent/ui) ===');
-    console.log(`  Listening:   ${socketPath ? socketPath : `http://${host}:${listening}`}`);
+    const listeningLabel = dualListen
+      ? `${socketPath} + http://${host}:${listening}`
+      : socketPath
+        ? socketPath
+        : `http://${host}:${listening}`;
+    console.log(`  Listening:   ${listeningLabel}`);
     console.log(`  Main model:  ${describeModel(settings.modelName, effective.main.model)}`);
     console.log(`  Language:    ${settings.language}`);
     console.log(`  Theme:       ${settings.theme}`);
@@ -2288,11 +2342,16 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
   const close = (): Promise<void> => {
     closing ??= new Promise<void>((resolve) => {
       resolvePendingApprovals(false);
-      // Close the gateway first so its upgrade listener stops and every client
-      // receives a clean close before the HTTP server goes down.
+      // Close the gateway first so its upgrade listeners stop and every client
+      // receives a clean close before the HTTP servers go down.
       const gatewayClose = gateway ? gateway.close() : Promise.resolve();
       void gatewayClose.then(() => {
-        server.close(() => {
+        // Both listeners must be down before the runner is released; the socket
+        // file is removed once they are.
+        let remaining = socketServer ? 2 : 1;
+        const onClosed = (): void => {
+          remaining -= 1;
+          if (remaining > 0) return;
           if (socketPath) {
             try {
               fs.rmSync(socketPath, { force: true });
@@ -2302,9 +2361,14 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
           }
           runner.close();
           resolve();
-        });
+        };
+        server.close(onClosed);
         // Idle keep-alive sockets would otherwise hold the close callback open.
         server.closeAllConnections?.();
+        if (socketServer) {
+          socketServer.close(onClosed);
+          socketServer.closeAllConnections?.();
+        }
       });
     });
     return closing;
@@ -2314,15 +2378,15 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
   return {
     port: listening,
     host,
-    url: socketPath ? `http://unix:${socketPath}` : `http://${host}:${listening}`,
+    url: dualListen || !socketPath ? `http://${host}:${listening}` : `http://unix:${socketPath}`,
     socketPath,
     language: settings.language,
     theme: settings.theme,
     gateway,
     gatewayUrl: gateway
-      ? socketPath
-        ? `ws+unix://${socketPath}${gateway.path}`
-        : `ws://${host}:${listening}${gateway.path}`
+      ? dualListen || !socketPath
+        ? `ws://${host}:${listening}${gateway.path}`
+        : `ws+unix://${socketPath}${gateway.path}`
       : undefined,
     pairingEnabled: auth.isEnabled(),
     mintConnectCode: (advertiseUrl?: string) => auth.mintConnectCode(advertiseUrl),

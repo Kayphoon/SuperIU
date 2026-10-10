@@ -9,8 +9,9 @@
  * stopped and started again with the requested flag.
  *
  * Also covered: the socket transport. When the remote binary advertises
- * `--socket`, the daemon is started on a workspace-local Unix socket and the
- * tunnel forwards to that socket instead of a TCP port; when it does not, the
+ * `--socket`, the daemon is started on a workspace-local Unix socket (and, since
+ * a positive port accompanies it, dual-listens on TCP `0.0.0.0` too) and the
+ * tunnel forwards to that socket; when the binary does not support sockets, the
  * original `--port`/`127.0.0.1` behaviour is unchanged.
  */
 
@@ -388,7 +389,10 @@ describe('RemoteConnectionManager socket transport', () => {
 
     const argv = launchArgv(commands);
     expect(argv).toContain('--socket');
-    expect(argv).not.toContain('--port');
+    // Dual-listen: a positive port alongside the socket also binds TCP on all
+    // interfaces for a browser client.
+    expect(argv).toContain('--port');
+    expect(argv).toContain('--host 0.0.0.0');
     // The path is single-quoted for the remote shell (and escaped once more by
     // the outer `sh -c` wrapper), so assert on the path itself.
     expect(argv).toContain('/w/.superiu/server.sock');
@@ -485,7 +489,10 @@ describe('RemoteConnectionManager socket transport', () => {
 
     const argv = launchArgv(commands);
     expect(argv).toContain('--socket');
-    expect(argv).not.toContain('--port');
+    // Dual-listen: a positive port alongside the socket also binds TCP on all
+    // interfaces for a browser client.
+    expect(argv).toContain('--port');
+    expect(argv).toContain('--host 0.0.0.0');
   });
 });
 

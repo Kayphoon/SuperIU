@@ -254,6 +254,23 @@ export class GatewayServer {
   }
 
   /**
+   * Bind a SECOND HTTP server to the same gateway.
+   *
+   * A dual-listen host serves the same WebSocket endpoint on a Unix domain
+   * socket and a TCP port at once: {@link attach} binds the primary server, and
+   * this routes the secondary server's upgrades to the same
+   * {@link WebSocketServer}, so either transport reaches an identical client
+   * set. A no-op when the gateway has no socket server yet or is already closed.
+   */
+  attachSecondary(server: http.Server): void {
+    if (!this.wss || this.closed) return;
+    const wss = this.wss;
+    server.on('upgrade', (req, socket: Duplex, head: Buffer) => {
+      this.routeUpgrade(wss, req, socket, head);
+    });
+  }
+
+  /**
    * Run standalone on an ephemeral (or fixed) port. Returns the bound port.
    * Used by `node dist/gateway/server.js` style invocations and tests.
    */
@@ -397,27 +414,41 @@ export class GatewayServer {
   private createSocketServer(server: http.Server): WebSocketServer {
     const wss = new WebSocketServer({ noServer: true });
 
-    // Auth and routing happen on the raw upgrade; a rejected upgrade gets an
-    // HTTP status rather than an immediately-closed socket, which a browser
-    // surfaces as a failed connection instead of an opaque close code.
     server.on('upgrade', (req, socket: Duplex, head: Buffer) => {
-      let pathname: string;
-      try {
-        pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
-      } catch {
-        socket.destroy();
-        return;
-      }
-      if (pathname !== this.path) return; // Another listener may own it.
-      if (this.closed) {
-        rejectUpgrade(socket, 503, 'Service Unavailable');
-        return;
-      }
-      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+      this.routeUpgrade(wss, req, socket, head);
     });
 
     wss.on('connection', (ws: WebSocket) => this.onConnection(ws));
     return wss;
+  }
+
+  /**
+   * Route a raw upgrade to the shared WebSocketServer, or reject it.
+   *
+   * Auth and routing happen on the raw upgrade; a rejected upgrade gets an HTTP
+   * status rather than an immediately-closed socket, which a browser surfaces as
+   * a failed connection instead of an opaque close code. Shared by the primary
+   * and any {@link attachSecondary} listener so both behave identically.
+   */
+  private routeUpgrade(
+    wss: WebSocketServer,
+    req: http.IncomingMessage,
+    socket: Duplex,
+    head: Buffer
+  ): void {
+    let pathname: string;
+    try {
+      pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+    } catch {
+      socket.destroy();
+      return;
+    }
+    if (pathname !== this.path) return; // Another listener may own it.
+    if (this.closed) {
+      rejectUpgrade(socket, 503, 'Service Unavailable');
+      return;
+    }
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   }
 
   private onConnection(ws: WebSocket): void {

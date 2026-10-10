@@ -74,8 +74,9 @@ export interface RemoteStartOptions {
   /** Remote workspace directory. */
   workspace: string;
   /**
-   * Absolute remote Unix socket path. When set the daemon listens on a socket
-   * instead of a TCP port, and `--port`/`--host` are not emitted.
+   * Absolute remote Unix socket path. When set the daemon listens on a socket;
+   * a positive `port` alongside it makes the daemon dual-listen (socket + a
+   * TCP port on `0.0.0.0`), otherwise the socket is the only listener.
    */
   socketPath?: string;
   /**
@@ -364,17 +365,27 @@ export class RemoteBootstrapper {
    * Start the daemon detached from the ssh session, then poll `status` until it
    * reports running (or a ~20s timeout elapses).
    *
-   * A `systemctl --user` unit is preferred when one exists; otherwise the
-   * daemon is launched with `setsid nohup … &` so it survives the ssh session
-   * ending.
+   * When a `systemd --user` manager is available the service unit is written
+   * (and linger enabled) so the daemon is persistent and restarts on failure;
+   * otherwise it is launched with `setsid nohup … &` so it survives the ssh
+   * session ending.
    */
   async start(alias: string, options: RemoteStartOptions): Promise<RemoteDaemonState> {
     const { port, token, workspace } = options;
 
-    // Socket mode binds a Unix domain socket instead of a loopback TCP port;
-    // the two are mutually exclusive on the daemon CLI.
+    // Socket mode binds a Unix domain socket; when a positive TCP port is also
+    // requested the daemon dual-listens — the socket serves the local tunnel,
+    // the TCP listener (bound on all interfaces) serves a browser. A socket
+    // with no positive port stays socket-only; a port with no socket stays a
+    // loopback TCP listener.
     const listenArgs = options.socketPath
-      ? ['--socket', shellQuotePath(options.socketPath)]
+      ? [
+          '--socket',
+          shellQuotePath(options.socketPath),
+          ...(typeof port === 'number' && port > 0
+            ? ['--port', String(port), '--host', '0.0.0.0']
+            : []),
+        ]
       : ['--port', String(port), '--host', '127.0.0.1'];
 
     const args = [
@@ -409,8 +420,39 @@ export class RemoteBootstrapper {
 
     const argsLine = args.join(' ');
 
-    const unitCheck = 'systemctl --user cat superiu-server >/dev/null 2>&1';
-    const systemctlStart = `systemctl --user restart superiu-server`;
+    // A `systemd --user` host is provisioned automatically: the unit is written,
+    // linger enabled so it survives logout, and the service (re)started. When
+    // systemd is unavailable (no user manager / not booted with systemd) the
+    // daemon falls back to a detached `setsid nohup` launch.
+    const unitCheck =
+      'command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/dev/null 2>&1';
+    const systemdUnit = [
+      '[Unit]',
+      'Description=SuperIU Daemon (Web + Desktop Gateway)',
+      'After=network-online.target',
+      'Wants=network-online.target',
+      '',
+      '[Service]',
+      'Type=simple',
+      `ExecStart=%h/.superiu/bin/superiu-server ${argsLine}`,
+      'Restart=always',
+      'RestartSec=3',
+      'TimeoutStopSec=15',
+      'WorkingDirectory=%h',
+      '',
+      '[Install]',
+      'WantedBy=default.target',
+    ].join('\n');
+
+    const systemctlStart = [
+      'loginctl enable-linger 2>/dev/null || true',
+      'mkdir -p "$HOME/.config/systemd/user"',
+      `printf '%s\\n' ${shellQuote(systemdUnit)} > "$HOME/.config/systemd/user/superiu-server.service"`,
+      'systemctl --user daemon-reload >/dev/null 2>&1 || true',
+      'systemctl --user enable superiu-server >/dev/null 2>&1 || true',
+      'systemctl --user restart superiu-server',
+    ].join('\n');
+
     const nohupStart =
       `setsid nohup ${REMOTE_BIN_PATH} ${argsLine} ` +
       `</dev/null >"$HOME/.superiu/server.log" 2>&1 &`;
