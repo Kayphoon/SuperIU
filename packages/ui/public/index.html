@@ -9,10 +9,10 @@
     <meta name="color-scheme" content="dark light" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <meta name="apple-mobile-web-app-title" content="SuperIU" />
     <meta name="application-name" content="SuperIU" />
-    <meta name="theme-color" content="#121316" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#0a0c11" media="(prefers-color-scheme: dark)" />
     <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
     <title data-i18n="app.title">SuperIU · 智能体控制台</title>
     <link rel="icon" type="image/png" href="/app-icon.png" />
@@ -351,11 +351,14 @@
       html,
       body {
         height: 100%;
-        /* Transparent so the macOS `under-window` material is the base layer.
-           The opaque fallback lives on the token, not on the element. */
-        background: transparent;
+        /* Base app background by default, transparent only in the Electron desktop shell */
+        background: var(--siu-bg-app);
         overscroll-behavior-y: none;
         -webkit-tap-highlight-color: transparent;
+      }
+      html[data-vibrancy='under-window'],
+      html[data-vibrancy='under-window'] body {
+        background: transparent;
       }
       /* `html body` outranks Tailwind's preflight `body` rule (which sets
          `line-height: inherit`); both are single-class specificity otherwise. */
@@ -531,11 +534,11 @@
       .siu-app {
         display: flex;
         flex-direction: column;
-        /* `100vh` stays as the fallback for browsers without `dvh`; the token
-           then carries the dynamic viewport height (and the live
-           visual-viewport height once `syncViewport()` has run). */
+        min-height: 100vh;
+        min-height: 100dvh;
         height: 100vh;
-        height: var(--siu-vvh, 100vh);
+        height: 100dvh;
+        height: var(--siu-vvh, 100dvh);
         background: var(--siu-bg-app);
       }
       /* The whole chrome strip is a drag region; interactive children opt out. */
@@ -2583,21 +2586,23 @@
       }
       .siu-empty-aura {
         position: absolute;
-        width: 480px;
-        height: 320px;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        width: 380px;
+        height: 260px;
         border-radius: 50%;
         background: radial-gradient(
           circle at 50% 50%,
-          rgba(0, 113, 227, 0.12) 0%,
-          rgba(168, 85, 247, 0.08) 40%,
+          rgba(0, 113, 227, 0.14) 0%,
+          rgba(168, 85, 247, 0.08) 45%,
           transparent 70%
         );
-        filter: blur(48px);
+        filter: blur(42px);
         pointer-events: none;
         z-index: 0;
       }
-      /* A bare frame, not a second plate: the app icon already carries its own
-         white squircle and the ambient shadow macOS reserves in the margin. */
+      /* Adaptive squircle card that shifts seamlessly between light and dark themes */
       .siu-empty-icon {
         display: flex;
         align-items: center;
@@ -2608,19 +2613,37 @@
         position: relative;
         z-index: 1;
         pointer-events: none;
+        border-radius: 22px;
+        transition: background var(--siu-dur-base) var(--siu-ease-out),
+          border-color var(--siu-dur-base) var(--siu-ease-out),
+          box-shadow var(--siu-dur-base) var(--siu-ease-out);
       }
-      .siu-empty-icon img {
-        width: 100%;
-        height: 100%;
+      /* Light mode: crisp white card with gentle rim and shadow */
+      [data-color-scheme='light'] .siu-empty-icon {
+        background: #ffffff;
+        border: 1px solid rgba(0, 0, 0, 0.08);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+      }
+      [data-color-scheme='light'] .siu-empty-icon img {
+        width: 72px;
+        height: 72px;
         object-fit: contain;
         -webkit-user-drag: none;
       }
-      /* The plate is white; on the light app layer that is barely 2% off the
-         background. `drop-shadow` follows the icon's own alpha, so it traces
-         the squircle instead of its bounding box — a `box-shadow` would draw a
-         hard rectangle over the transparent margin. */
-      [data-color-scheme='light'] .siu-empty-icon img {
-        filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.14)) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.08));
+      /* Dark mode: sleek dark gradient squircle matching macOS/iOS 18 dark icons */
+      [data-color-scheme='dark'] .siu-empty-icon,
+      :root:not([data-color-scheme='light']) .siu-empty-icon {
+        background: linear-gradient(180deg, #1f2330 0%, #141720 100%);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.25);
+      }
+      [data-color-scheme='dark'] .siu-empty-icon img,
+      :root:not([data-color-scheme='light']) .siu-empty-icon img {
+        width: 72px;
+        height: 72px;
+        object-fit: contain;
+        -webkit-user-drag: none;
+        filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.4)) drop-shadow(0 2px 5px rgba(0, 0, 0, 0.35));
       }
       .siu-empty-eyebrow {
         font-family: var(--siu-font-mono);
@@ -3713,7 +3736,15 @@
          selector collapse rule). ≥641px rendering is untouched.
          ===================================================================== */
       @media (max-width: 640px) {
-        /* The sidebar becomes a left off-canvas drawer. It must never be
+        /* Desktop macOS traffic lights have no place on mobile screens */
+        .traffic-group {
+          display: none !important;
+        }
+        .siu-titlebar {
+          padding-left: calc(var(--siu-space-3) + var(--siu-safe-left));
+          padding-right: calc(var(--siu-space-3) + var(--siu-safe-right));
+          padding-bottom: var(--siu-space-1);
+        }
            `display: none`: that would leave `#btn-toggle-sidebar` a dead
            control. `transform` is re-declared explicitly in both states so the
            drawer position is never inferred from the desktop collapse rule,
@@ -3832,9 +3863,11 @@
           padding: var(--siu-space-6) var(--siu-space-3);
         }
         .siu-empty-aura {
-          width: 100%;
-          max-width: 480px;
-          height: 220px;
+          width: 260px;
+          height: 180px;
+          max-width: 85vw;
+          filter: blur(36px);
+          opacity: 0.75;
         }
 
         /* The two panels anchored above the composer must never grow taller
@@ -5564,8 +5597,9 @@
        * only dimmed once content has actually scrolled past the top.
        */
       function syncScrollEdges() {
-        const top = transcript.scrollTop > 1;
-        const bottom = transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight > 1;
+        const isScrollable = transcript.scrollHeight > transcript.clientHeight + 4;
+        const top = isScrollable && transcript.scrollTop > 4;
+        const bottom = isScrollable && transcript.scrollHeight - transcript.scrollTop - transcript.clientHeight > 4;
         if (top) transcript.dataset.overflowTop = 'true';
         else delete transcript.dataset.overflowTop;
         if (bottom) transcript.dataset.overflowBottom = 'true';
@@ -5799,9 +5833,22 @@
         const flush = () => {
           vvhFrame = 0;
           const viewport = window.visualViewport;
-          const height = viewport ? viewport.height : window.innerHeight;
-          if (!height) return;
-          document.documentElement.style.setProperty('--siu-vvh', `${Math.round(height)}px`);
+          const activeEl = document.activeElement;
+          const isInputFocused = Boolean(
+            activeEl &&
+            (activeEl.tagName === 'INPUT' ||
+              activeEl.tagName === 'TEXTAREA' ||
+              activeEl.isContentEditable)
+          );
+          // Only pin --siu-vvh when a soft keyboard is actively open. On iOS
+          // Safari / standalone PWA, visualViewport.height while idle reports a height
+          // with safe insets subtracted, which otherwise crops the app short and
+          // leaves a dead black bar at the bottom of the phone screen.
+          if (viewport && isInputFocused && viewport.height < window.innerHeight - 80) {
+            document.documentElement.style.setProperty('--siu-vvh', `${Math.round(viewport.height)}px`);
+          } else {
+            document.documentElement.style.removeProperty('--siu-vvh');
+          }
         };
         if (typeof requestAnimationFrame === 'function') vvhFrame = requestAnimationFrame(flush);
         else flush();
@@ -5809,7 +5856,8 @@
       window.visualViewport?.addEventListener('resize', syncViewport);
       window.addEventListener('resize', syncViewport);
       window.addEventListener('orientationchange', syncViewport);
-      // Before any boot UI work, so the first paint already has a height.
+      document.addEventListener('focusin', () => requestAnimationFrame(syncViewport));
+      document.addEventListener('focusout', () => requestAnimationFrame(syncViewport));
       syncViewport();
 
       // =======================================================================
