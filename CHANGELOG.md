@@ -14,6 +14,20 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.47 (2026-10-10)
+
+### 中文
+
+- 恢复经典原生纯白 Big Sur 卡片图标资产并强化 Web 静态资源强缓存防御：
+  - **恢复纯白原生 Squircle 卡片应用图标**：彻底将 `packages/ui/public/app-icon.png` 与 `packages/desktop/src/views/app-icon.png` 恢复为原生内置纯白圆角卡片（与 macOS `.app` bundle 资产完全对齐），消除 CSS 外挂渐变背景导致的主题残留，同时还原欢迎界面 `.siu-empty-icon` 原生投影与洁白质感；
+  - **增强 HTML 入口文件防缓存机制**：在服务端静态资源服务中对所有 `.html` 响应强制注入 `Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0` 响应头，彻底杜绝 iOS Safari 与 PWA 容器因强力缓存导致的旧版前端样式滞留问题。
+
+### English
+
+- Restore classic native all-white Big Sur squircle app icon and strengthen Web cache defenses:
+  - **Restore native all-white squircle card assets**: restored `packages/ui/public/app-icon.png` and `packages/desktop/src/views/app-icon.png` back to the native built-in white squircle card (perfectly aligned with macOS `.app` bundle master assets), eliminating theme drift from synthetic CSS gradients and restoring clean native elevation shadows for `.siu-empty-icon`;
+  - **Strengthen HTML entry-point cache busting**: explicitly send `Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0` for all `.html` responses from the UI server, preventing iOS Safari and PWA containers from serving stale cached shell layouts.
+
 ## v0.2.46 (2026-10-10)
 
 ### 中文

@@ -2188,10 +2188,15 @@ function serveFile(res: http.ServerResponse, filePath: string): boolean {
     return false;
   }
 
+  const ext = path.extname(filePath).toLowerCase();
+  const isHtml = ext === '.html';
+
   res.writeHead(200, {
-    'Content-Type': MIME_TYPES[path.extname(filePath).toLowerCase()] ?? 'application/octet-stream',
+    'Content-Type': MIME_TYPES[ext] ?? 'application/octet-stream',
     'Content-Length': data.length,
-    'Cache-Control': 'no-cache'
+    'Cache-Control': isHtml
+      ? 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0'
+      : 'no-cache, must-revalidate'
   });
   res.end(data);
   return true;
