@@ -14,6 +14,24 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.43 (2026-10-10)
+
+### 中文
+
+- 极简化更新体验与解耦双端升级流水线：
+  - **彻底移除阻塞模态弹窗**：删除桌面端在后台下载完后跳出的原生 Changelog 模态对话框（`dialog.showMessageBox`），下载完成仅保留轻量系统通知，右上角标题栏绿色药丸按钮成为唯一的非侵入式确认重启控制点；
+  - **异步化更新检查与下载**：将桌面端 `checkForUpdate` 的下载过程异步化，消除上层并发自检时的长时间假死；
+  - **设置关于面板进入即并发自检刷新**：打开或切换至关于面板时自动重新并发拉取本地与远程最新版本，打破旧状态缓存；
+  - **双端生命周期彻底解耦**：移除双端模式下强行隐藏卡片操作按钮的垄断逻辑；远程有新版本时随时可独立执行平滑升级（无需等待本地下载），本地下载就绪后随时可重启换装，双端并行互不锁死。
+
+### English
+
+- Streamline update pipeline and decouple dual-end update flow:
+  - **Eliminate blocking modal dialogs**: removed desktop native Changelog `dialog.showMessageBox` upon download completion, keeping non-intrusive system notifications and leaving the titlebar green pill button as the sole explicit restart action;
+  - **Asynchronous check and preparation**: decoupled download execution in `checkForUpdate` so upper-level update checks return promptly without locking up the UI;
+  - **Immediate concurrent refresh on About panel**: automatically fetches fresh status for both local and remote nodes upon opening the About pane, eliminating stale cache blind spots;
+  - **Decoupled dual-end lifecycle**: removed artificial button suppression in dual mode; remote gateway can be upgraded smoothly at any time without waiting for local macOS bundle downloads, and local client restarts independently without deadlocks.
+
 ## v0.2.42 (2026-10-10)
 
 ### 中文
