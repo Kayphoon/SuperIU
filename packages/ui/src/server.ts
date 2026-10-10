@@ -870,6 +870,7 @@ function runnerOptions(sessionReference?: string, historyDbPath?: string, newSes
     workspaceDir: activeWorkspaceDir,
     apiKey: settings.apiKey || undefined,
     baseURL: settings.baseURL || undefined,
+    provider: settings.activeProviderId || undefined,
     modelName: settings.modelName || undefined,
     reviewModelName: settings.reviewModelName || undefined,
     autoReview: settings.autoReview,
@@ -1671,6 +1672,10 @@ async function handleApi(
       };
       if (targetKey) {
         headers['Authorization'] = `Bearer ${targetKey}`;
+        if (endpoint.includes('anthropic.com')) {
+          headers['x-api-key'] = targetKey;
+          headers['anthropic-version'] = '2023-06-01';
+        }
       }
       const resp = await fetch(modelsUrl, {
         method: 'GET',

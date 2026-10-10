@@ -19,6 +19,46 @@ export const MODEL_ROLES: readonly ModelRole[] = ['main', 'review', 'title', 'me
 /** Provider reasoning effort. Higher effort reasons for longer and needs more output budget. */
 export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
+export type ProviderType = 'openai' | 'anthropic' | 'google';
+
+/**
+ * Resolves the underlying provider type ('openai', 'anthropic', or 'google')
+ * for a model route.
+ */
+export function resolveProviderType(
+  route: ModelRoute,
+  defaultProvider?: string
+): ProviderType {
+  const explicit = (route.provider || defaultProvider || '').toLowerCase().trim();
+  if (explicit === 'anthropic') return 'anthropic';
+  if (explicit === 'google' || explicit === 'gemini') {
+    // If baseURL is specifically Google's OpenAI-compatible endpoint, use openai
+    if (route.baseURL && /\/openai\/?$/i.test(route.baseURL)) {
+      return 'openai';
+    }
+    return 'google';
+  }
+  if (explicit === 'openai' || explicit === 'deepseek' || explicit === 'ollama' || explicit === 'openrouter') {
+    return 'openai';
+  }
+
+  // Auto-detect based on endpoint URL or model identifier
+  const normBaseUrl = (route.baseURL || '').toLowerCase();
+  if (normBaseUrl.includes('api.anthropic.com')) return 'anthropic';
+  if (normBaseUrl.includes('generativelanguage.googleapis.com') && !normBaseUrl.includes('/openai')) {
+    return 'google';
+  }
+
+  const modelId = route.model.trim().toLowerCase();
+  if (modelId.startsWith('claude-') && !normBaseUrl.includes('openrouter') && !normBaseUrl.includes('deepseek')) {
+    if (!normBaseUrl || normBaseUrl.includes('anthropic')) {
+      return 'anthropic';
+    }
+  }
+
+  return 'openai';
+}
+
 const REASONING_EFFORTS: readonly ReasoningEffort[] = [
   'none',
   'minimal',

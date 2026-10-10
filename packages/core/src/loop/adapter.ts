@@ -19,6 +19,52 @@ function finiteOrUndefined(value: number | undefined): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
+const THINKING_BUDGET_MAP: Record<string, number> = {
+  minimal: 1024,
+  low: 2048,
+  medium: 8192,
+  high: 16384,
+  xhigh: 32768,
+  max: 64000
+};
+
+function buildProviderOptions(
+  provider: string,
+  effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+): Record<string, unknown> | undefined {
+  if (!effort) return undefined;
+
+  if (provider.startsWith('anthropic')) {
+    if (effort === 'none') {
+      return { anthropic: { thinking: { type: 'disabled' } } };
+    }
+    const budgetTokens = THINKING_BUDGET_MAP[effort] ?? 8192;
+    return {
+      anthropic: {
+        thinking: { type: 'enabled', budgetTokens }
+      }
+    };
+  }
+
+  if (provider.startsWith('google')) {
+    if (effort === 'none') {
+      return { google: { thinkingConfig: { thinkingBudget: 0 } } };
+    }
+    const thinkingBudget = THINKING_BUDGET_MAP[effort] ?? 8192;
+    return {
+      google: {
+        thinkingConfig: { thinkingBudget }
+      }
+    };
+  }
+
+  return {
+    openai: {
+      reasoningEffort: effort
+    }
+  };
+}
+
 export class AiSdkStepAdapter implements StepModelCaller {
   private model: LanguageModelV1;
   private options: AiSdkStepAdapterOptions;
@@ -53,10 +99,26 @@ export class AiSdkStepAdapter implements StepModelCaller {
       // A reasoning route spends output tokens on thinking before it emits an
       // answer; without the scaled budget the call can finish on `max-tokens`
       // with empty text. `maxTokens` is only sent when the route sets one.
-      ...(this.options.maxTokens !== undefined ? { maxTokens: this.options.maxTokens } : {}),
-      ...(this.options.reasoningEffort
-        ? { providerOptions: { openai: { reasoningEffort: this.options.reasoningEffort } } }
-        : {})
+      ...(() => {
+        let maxTokens = this.options.maxTokens;
+        if (
+          this.model.provider?.startsWith('anthropic') &&
+          this.options.reasoningEffort &&
+          this.options.reasoningEffort !== 'none'
+        ) {
+          const budget = THINKING_BUDGET_MAP[this.options.reasoningEffort] ?? 8192;
+          if (maxTokens !== undefined && maxTokens <= budget) {
+            maxTokens = budget + 4096;
+          }
+        }
+        return maxTokens !== undefined ? { maxTokens } : {};
+      })(),
+      ...(() => {
+        const providerOptions = buildProviderOptions(this.model.provider || '', this.options.reasoningEffort);
+        return providerOptions
+          ? { providerOptions: providerOptions as Parameters<typeof streamText>[0]['providerOptions'] }
+          : {};
+      })()
     });
     let fullText = '';
     const toolCalls: ToolCallItem[] = [];

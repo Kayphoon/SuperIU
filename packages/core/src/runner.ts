@@ -1,4 +1,7 @@
 import { createOpenAI } from '@ai-sdk/openai';
+import { createAnthropic } from '@ai-sdk/anthropic';
+import { createGoogleGenerativeAI } from '@ai-sdk/google';
+import type { LanguageModelV1 } from 'ai';
 import * as dotenv from 'dotenv';
 import * as path from 'node:path';
 import type {
@@ -36,8 +39,10 @@ import {
   DEFAULT_REASONING_EFFORT,
   ModelRouter,
   parseReasoningEffort,
+  resolveProviderType,
   type ModelRole,
   type ModelRoute,
+  type ProviderType,
   type ReasoningEffort
 } from './model/router.js';
 import { estimateContextTokens, modelMetadataFor } from './model/metadata.js';
@@ -181,7 +186,7 @@ export class AgentRunner {
   private mcpConfigPath: string | null = null;
   private stepCaller: StepModelCaller;
   /** Credentials a route inherits when it does not carry its own. */
-  private providerDefaults: { apiKey: string; baseURL?: string };
+  private providerDefaults: { apiKey: string; baseURL?: string; provider?: string };
   /**
    * Builds a caller from a route. Absent when a `stepCaller` was injected (the
    * test seam), in which case that injected caller stands in for every route.
@@ -244,6 +249,7 @@ export class AgentRunner {
     //    the collision.
     const apiKey = this.config.apiKey || process.env.OPENAI_API_KEY || 'placeholder-key';
     const baseURL = this.config.baseURL || process.env.OPENAI_BASE_URL;
+    const provider = this.config.provider || process.env.OPENAI_PROVIDER;
     const modelName =
       this.config.modelName || process.env.OPENAI_MODEL_NAME || DEFAULT_MAIN_MODEL;
     const reviewModelName =
@@ -269,7 +275,7 @@ export class AgentRunner {
     // Role→route registry. The main model is the one the chat UI selects at
     // runtime; every other role is a tool/auxiliary model configured in
     // settings, and falls back to the default route when it is not set.
-    const defaultRoute: ModelRoute = { model: modelName, apiKey, baseURL };
+    const defaultRoute: ModelRoute = { model: modelName, apiKey, baseURL, ...(provider ? { provider } : {}) };
     const routes: Partial<Record<ModelRole, ModelRoute>> = {
       review: { model: reviewModelName },
       ...(process.env.OPENAI_MEMORY_MODEL_NAME
@@ -292,16 +298,13 @@ export class AgentRunner {
       // defers to the built-in detector.
       modelReasoningCapable: options.modelReasoningCapable
     });
-    this.providerDefaults = { apiKey, baseURL };
+    this.providerDefaults = { apiKey, baseURL, provider };
 
     // A route may name its own credentials/endpoint; otherwise it inherits the
     // runner-wide defaults so a role only has to name what differs.
     const callerFor = (route: ModelRoute): StepModelCaller => {
-      const provider = createOpenAI({
-        apiKey: route.apiKey ?? this.providerDefaults.apiKey,
-        baseURL: route.baseURL ?? this.providerDefaults.baseURL
-      });
-      return new AiSdkStepAdapter(provider(route.model), {
+      const model = AgentRunner.createLanguageModel(route, this.providerDefaults);
+      return new AiSdkStepAdapter(model, {
         maxTokens: route.maxTokens,
         reasoningEffort: route.reasoningEffort
       });
@@ -608,6 +611,60 @@ export class AgentRunner {
       return this.stepCaller;
     }
     throw new Error('AgentRunner has no step caller configured for route ' + route.model);
+  }
+
+  /**
+   * Instantiate an AI SDK LanguageModelV1 from a resolved route and fallback defaults.
+   * Supports OpenAI-compatible, Anthropic Claude, and Google Generative AI formats.
+   */
+  public static createLanguageModel(
+    route: ModelRoute,
+    defaults: { apiKey: string; baseURL?: string; provider?: string }
+  ): LanguageModelV1 {
+    const providerType = resolveProviderType(route, defaults.provider);
+    if (providerType === 'anthropic') {
+      const apiKey = route.apiKey ?? process.env.ANTHROPIC_API_KEY ?? defaults.apiKey;
+      const rawBaseURL =
+        route.baseURL ??
+        process.env.ANTHROPIC_BASE_URL ??
+        (defaults.provider === 'anthropic' ? defaults.baseURL : undefined);
+      // Ignore OpenAI default endpoint if leaked into Anthropic route
+      const baseURL =
+        rawBaseURL && !rawBaseURL.includes('api.openai.com') ? rawBaseURL : undefined;
+      const client = createAnthropic({
+        apiKey,
+        ...(baseURL ? { baseURL } : {})
+      });
+      return client(route.model);
+    }
+
+    if (providerType === 'google') {
+      const apiKey =
+        route.apiKey ??
+        process.env.GEMINI_API_KEY ??
+        process.env.GOOGLE_GENERATIVE_AI_API_KEY ??
+        defaults.apiKey;
+      const rawBaseURL =
+        route.baseURL ??
+        process.env.GOOGLE_BASE_URL ??
+        (defaults.provider === 'google' || defaults.provider === 'gemini'
+          ? defaults.baseURL
+          : undefined);
+      // Ignore OpenAI default endpoint if leaked into Google route
+      const baseURL =
+        rawBaseURL && !rawBaseURL.includes('api.openai.com') ? rawBaseURL : undefined;
+      const client = createGoogleGenerativeAI({
+        apiKey,
+        ...(baseURL ? { baseURL } : {})
+      });
+      return client(route.model);
+    }
+
+    const client = createOpenAI({
+      apiKey: route.apiKey ?? defaults.apiKey,
+      baseURL: route.baseURL ?? defaults.baseURL
+    });
+    return client(route.model);
   }
 
   /**

@@ -14,6 +14,24 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.49 (2026-10-10)
+
+### 中文
+
+- 支持 AI SDK 原生多格式模型调用（支持 Anthropic Claude Messages 格式与 Google Gemini Generative AI 格式，与原有的 OpenAI Chat Completions 格式并存）：
+  - **核心多格式适配器与路由**：在 `@agent/core` 中引入 `@ai-sdk/anthropic` 与 `@ai-sdk/google`，实现 `resolveProviderType` 路由解析器与 `AgentRunner.createLanguageModel` 多格式工厂；支持通过 `route.provider` 显式路由，或按端点特征及模型前缀智能推导提供商类型；
+  - **各厂商推理与深度思考参数适配**：在 `AiSdkStepAdapter` 中统一标准化推理/思考参数分发机制——为 Anthropic 自动组装 `thinking: { type: 'enabled', budgetTokens }` 并智能对齐 `maxTokens` 门槛，为 Google 自动组装 `thinkingConfig: { thinkingBudget }`，为 OpenAI 保持 `reasoningEffort`；在模型能力探测器中支持 Claude 3.7 Sonnet 混合思考模型；
+  - **UI 服务端与模型探测请求头增强**：在 `packages/ui` 中将活跃服务商（`activeProviderId`）注入运行配置；在 `/api/models/fetch` 探测逻辑中对 Anthropic 端点补齐 `x-api-key` 与 `anthropic-version: 2023-06-01` 鉴权头；
+  - **完整测试验证与向下兼容**：新增多提供商路由及模型实例构建单元测试，确保 OpenAI 兼容端点、Gemini OpenAI 代理端点及纯本地端点行为无缝兼容。
+
+### English
+
+- Support native multi-provider and multi-format model calling via Vercel AI SDK (Anthropic Messages format and Google Generative AI format alongside OpenAI Chat Completions):
+  - **Core Multi-Provider Adapters & Routing**: Added `@ai-sdk/anthropic` and `@ai-sdk/google` to `@agent/core`, introducing `resolveProviderType` and `AgentRunner.createLanguageModel` to dispatch between Anthropic, Google, and OpenAI-compatible providers either via explicit `route.provider` or via heuristic endpoint and model prefix detection;
+  - **Provider-Specific Reasoning and Thinking Options**: Standardized reasoning effort mapping across providers in `AiSdkStepAdapter`—configuring Anthropic extended thinking (`thinking: { type: 'enabled', budgetTokens }`) with automatic `maxTokens` budget alignment, Google `thinkingConfig: { thinkingBudget }`, and OpenAI `reasoningEffort`; added `claude-3-7-sonnet` to the reasoning model allowlist;
+  - **UI Server & Model Fetch Headers**: Injected active provider id into runner options; added Anthropic-specific authentication headers (`x-api-key` and `anthropic-version: 2023-06-01`) to `/api/models/fetch` probes when querying Anthropic endpoints;
+  - **Comprehensive Test Coverage & Backwards Compatibility**: Added unit test coverage for provider resolution, capability guards, and language model instantiation while ensuring existing OpenAI-compatible proxies and endpoints remain fully backwards-compatible.
+
 ## v0.2.48 (2026-10-10)
 
 ### 中文

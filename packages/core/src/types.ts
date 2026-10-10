@@ -24,6 +24,8 @@ export interface RunnerCallbacks {
 export interface RunnerConfig {
   apiKey?: string;
   baseURL?: string;
+  /** Provider format identifier (e.g. 'openai', 'anthropic', 'google'). Defaults to 'openai'. */
+  provider?: string;
   /** Main agent model. Defaults to `OPENAI_MODEL_NAME` then `gpt-4o`. */
   modelName?: string;
   /** Review/tool model used by AutoReview. Defaults to `OPENAI_REVIEW_MODEL_NAME`, then the main model. */
