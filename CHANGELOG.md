@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.35 (2026-10-10)
+
+### 中文
+
+- 重构设置「关于 / 产品更新」卡片交互与双端看板：
+  - **单入口一键并发检查**：在双端连接（桌面客户端 + 远程网关）模式下，移除分端独立的检查更新按钮，由底栏单个「检查更新」按钮统一并发调度本地与远端检测，彻底解决需要点击两次的问题；
+  - **双节点看板与右对齐排版**：采用独立悬浮节点卡片呈现双端状态，左侧展示专属节点图标（显示器 / 云端网关）、节点名称与从属别名 Chip（如 `arm`），右侧绝对同轴对齐 Mono 版本号徽章，配合实时健康状态指示灯（🟢/🔵/🟠/🔴）；
+  - **自适应主控操作栏**：底栏主按钮根据双端组合状态自适应切换为「⚡ 一键升级双端」、「升级远程网关」或「立即重启以更新」，并在进入关于页时自动预拉取远端更新信息。
+
+### English
+
+- Redesign About / Product Update card interaction and dual-node board:
+  - **Single unified concurrent check**: in dual-end mode (desktop client paired with remote gateway), removed per-row check buttons in favor of a single unified "Check for Updates" action that checks both local and remote nodes concurrently, eliminating the need to click twice;
+  - **Dual-node board and right-aligned layout**: native floating node cards display each node with dedicated icons (desktop display / cloud gateway), node title, and gateway alias chip (e.g. `arm`), with right-aligned mono version badges and real-time status indicator dots (🟢/🔵/🟠/🔴);
+  - **Adaptive master action control**: the master action bar dynamically switches between "⚡ Upgrade Both Sides", "Upgrade Remote Gateway", and "Restart to Update" based on combined dual-end state, with automatic pre-fetching of remote update info upon opening the About pane.
+
 ## v0.2.34 (2026-10-10)
 
 ### 中文
