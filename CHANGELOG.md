@@ -14,6 +14,26 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.50 (2026-10-10)
+
+### 中文
+
+- Web 控制台设置页面正式支持 MCP (Model Context Protocol) 扩展服务配置与管理：
+  - **设置界面新增「MCP 服务」专属面板**：在设置左侧导航栏新增 MCP 服务面板，提供直观的卡片化服务列表，实时展示服务连接状态（已连接、已禁用、连接失败及诊断错误）、传输协议（`stdio` / `sse` 徽标）及命令或端点 URL 预览；
+  - **工具列表透明可查**：服务卡片支持一键展开已挂载的外部工具抽屉，清晰展示该服务向模型暴露的所有工具名称与功能说明；
+  - **可视化「添加 / 编辑服务」表单**：内置卡片化配置表单，支持配置 `stdio` 本地命令行（Command、Args 参数、Cwd 运行目录、Environment 环境变量）以及 `sse` 远程端点（URL、Headers 自定义头），支持即时保存与行内快速启停切换；
+  - **「编辑 JSON」高级模式**：支持展开 Monaco 级极简单色代码编辑器，直接读取、编辑与粘贴与 Claude Desktop / Cursor 完全兼容的标准 `mcpServers` JSON 配置，内置格式化与语法校验；
+  - **服务端原子持久化与动态热重载**：所有变更实时原子写入 `~/.superiu/mcp.json` 并调用 `McpManager.reload()` / `runner.refreshTools()` 动态热重载，无需重启守护进程；控制台启动时默认自动初始化并连接可用服务。
+
+### English
+
+- Full support for Model Context Protocol (MCP) configuration and tool management in the Web Console Settings:
+  - **Dedicated \"MCP Servers\" Settings Pane**: Added MCP Servers to the settings navigation, providing intuitive card-based server listings with live connection status indicators (Connected, Disabled, Error with failure cause), transport badges (`stdio` / `sse`), and command / URL summaries;
+  - **Discovered Tools Disclosure**: Each server card features an expandable tool drawer displaying all external tools exposed to the agent along with their descriptions;
+  - **Visual Add / Edit Form**: Inline form supporting both `stdio` local processes (command, arguments, working directory, environment variables) and `sse` remote endpoints (URL, custom request headers) with instant validation and per-card enable/disable switches;
+  - **Raw JSON Advanced Mode**: Toggleable code editor allowing users to directly inspect, edit, and paste standard `mcpServers` JSON configurations compatible with Claude Desktop and Cursor, complete with one-click formatting and syntax checking;
+  - **Atomic Persistence & Dynamic Hot-Reload**: Automatically saves changes to `~/.superiu/mcp.json` and updates the runner tool registry dynamically without requiring a server daemon restart; automatic MCP initialization on server boot.
+
 ## v0.2.49 (2026-10-10)
 
 ### 中文
