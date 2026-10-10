@@ -59,6 +59,18 @@ function redirect(res: http.ServerResponse, location: string): void {
   res.end();
 }
 
+/** Guess a simple human-friendly device label from the User-Agent header. */
+export function parseUserAgentLabel(ua?: string): string {
+  if (!ua || typeof ua !== 'string') return '';
+  if (/iPad/i.test(ua)) return 'iPad';
+  if (/iPhone/i.test(ua)) return 'iPhone';
+  if (/Android/i.test(ua)) return 'Android';
+  if (/Macintosh|Mac OS X/i.test(ua)) return 'Mac';
+  if (/Windows/i.test(ua)) return 'Windows';
+  if (/Linux/i.test(ua)) return 'Linux';
+  return '';
+}
+
 /**
  * `GET /auth/connect/:code`: consume the one-time code, set the cookie and
  * redirect home. Every failure mode redirects to `/?pair_error=invalid` so the
@@ -77,12 +89,19 @@ export function handleConnectCode(
     raw = '';
   }
 
-  let issued = raw ? layer.store.consumeCode(raw, 'web') : null;
+  const queryLabel = (url.searchParams.get('label') || url.searchParams.get('name') || '').trim();
+  const uaLabel = parseUserAgentLabel(req.headers['user-agent']);
+  const defaultLabel = queryLabel ? queryLabel.slice(0, 64) : (uaLabel || 'web');
+
+  let issued = raw ? layer.store.consumeCode(raw, defaultLabel) : null;
   if (!issued && raw && /^[0-9a-fA-F]{64}$/.test(raw)) {
     const verified = layer.store.verify(raw);
     if (verified) {
+      if (queryLabel) {
+        layer.store.updateLabel(verified.id, queryLabel);
+      }
       layer.store.markUsed(raw);
-      issued = { raw, id: verified.id };
+      issued = { raw, id: verified.id, label: queryLabel || verified.label };
     }
   }
   if (!issued) {
@@ -108,18 +127,19 @@ export async function handlePair(
   }
 
   const rawLabel = typeof body.label === 'string' ? body.label.trim() : '';
-  const label = rawLabel ? rawLabel.slice(0, 64) : 'web';
+  const uaLabel = parseUserAgentLabel(req.headers['user-agent']);
+  const defaultLabel = rawLabel ? rawLabel.slice(0, 64) : (uaLabel || 'web');
   const code = typeof body.code === 'string' ? body.code.trim() : '';
   const key = typeof body.key === 'string' ? body.key.trim() : '';
 
   if (code) {
-    const issued = layer.store.consumeCode(code, label);
+    const issued = layer.store.consumeCode(code, defaultLabel);
     if (!issued) {
       layer.rejectPair(req, res);
       return;
     }
     layer.issueCookie(res, req, issued.raw);
-    sendJson(res, 200, { ok: true, label, id: issued.id });
+    sendJson(res, 200, { ok: true, label: issued.label, id: issued.id });
     return;
   }
 
@@ -129,9 +149,14 @@ export async function handlePair(
       layer.rejectPair(req, res);
       return;
     }
+    let finalLabel = record.label;
+    if (rawLabel) {
+      layer.store.updateLabel(record.id, rawLabel);
+      finalLabel = rawLabel.slice(0, 64);
+    }
     layer.store.markUsed(key);
     layer.issueCookie(res, req, key);
-    sendJson(res, 200, { ok: true, label: record.label, id: record.id });
+    sendJson(res, 200, { ok: true, label: finalLabel, id: record.id });
     return;
   }
 
@@ -164,7 +189,42 @@ export async function handlePairing(
     const customBase = typeof body.advertiseUrl === 'string' && body.advertiseUrl.trim()
       ? body.advertiseUrl.trim()
       : undefined;
-    sendJson(res, 200, layer.mintConnectCode(customBase || layer.getAdvertiseUrl() || layer.publicOrigin(req)));
+    const label = typeof body.label === 'string' && body.label.trim()
+      ? body.label.trim().slice(0, 64)
+      : undefined;
+    sendJson(
+      res,
+      200,
+      layer.mintConnectCode(customBase || layer.getAdvertiseUrl() || layer.publicOrigin(req), label)
+    );
+    return;
+  }
+
+  if (pathname.startsWith('/api/pairing/') && (method === 'PATCH' || method === 'PUT')) {
+    let id = '';
+    try {
+      id = decodeURIComponent(pathname.slice('/api/pairing/'.length));
+    } catch {
+      id = '';
+    }
+    let body: Record<string, unknown> = {};
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      body = {};
+    }
+    const rawLabel = typeof body.label === 'string' ? body.label.trim() : '';
+    if (!rawLabel) {
+      sendJson(res, 400, { error: 'invalid_label' });
+      return;
+    }
+    const label = rawLabel.slice(0, 64);
+    const updated = id ? layer.store.updateLabel(id, label) : false;
+    if (!updated) {
+      sendJson(res, 404, { error: 'key_not_found' });
+      return;
+    }
+    sendJson(res, 200, { ok: true, id, label });
     return;
   }
 

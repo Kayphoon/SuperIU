@@ -206,6 +206,27 @@ describe('PairingStore', () => {
     expect(store.consumeCode(code.raw, 'web')).toBeNull();
   });
 
+  it('preserves minted code label on consume unless explicitly overridden', () => {
+    const { store } = makeStore();
+    const code1 = store.mintCode('iPad');
+    expect(code1.label).toBe('iPad');
+
+    const key1 = store.consumeCode(code1.raw);
+    expect(key1?.label).toBe('iPad');
+
+    const code2 = store.mintCode('Tablet');
+    const key2 = store.consumeCode(code2.raw, 'Custom Name');
+    expect(key2?.label).toBe('Custom Name');
+  });
+
+  it('updates label of an existing key', () => {
+    const { store } = makeStore();
+    const key = store.mintKey('old-name');
+    expect(store.updateLabel(key.id, 'new-name')).toBe(true);
+    expect(store.verify(key.raw)?.label).toBe('new-name');
+    expect(store.updateLabel('nonexistent', 'foo')).toBe(false);
+  });
+
   it('rejects an expired code', () => {
     const { store, clock } = makeStore();
     const code = store.mintCode();
@@ -558,5 +579,39 @@ describe('AuthLayer over HTTP', () => {
       headers: { 'sec-fetch-mode': 'cors' }
     });
     expect(res.status).toBe(401);
+  });
+
+  enforced('supports custom device label when pairing via API and renaming via PATCH', async () => {
+    const handle = await startAuthServer('0.0.0.0', true);
+    const base = `http://${lanIp}:${handle.port}`;
+    const minted = handle.mintConnectCode(base, 'Pre-assigned Name');
+    expect(minted.label).toBe('Pre-assigned Name');
+
+    const pair = await fetch(`${base}/api/pair`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: minted.code })
+    });
+    expect(pair.status).toBe(200);
+    const pairBody = (await pair.json()) as { ok: boolean; id: string; label: string };
+    expect(pairBody.label).toBe('Pre-assigned Name');
+
+    const raw = cookieValue(pair, 'superiu_pair') ?? '';
+    const auth = { Cookie: `superiu_pair=${raw}`, 'Content-Type': 'application/json' };
+
+    // Rename the key
+    const renameRes = await fetch(`${base}/api/pairing/${pairBody.id}`, {
+      method: 'PATCH',
+      headers: auth,
+      body: JSON.stringify({ label: 'Renamed Device' })
+    });
+    expect(renameRes.status).toBe(200);
+    const renameBody = (await renameRes.json()) as { ok: boolean; label: string };
+    expect(renameBody.label).toBe('Renamed Device');
+
+    // List reflects the new label
+    const list = await fetch(`${base}/api/pairing`, { headers: { Cookie: `superiu_pair=${raw}` } });
+    const listBody = (await list.json()) as { keys: Array<{ id: string; label: string }> };
+    expect(listBody.keys.find((k) => k.id === pairBody.id)?.label).toBe('Renamed Device');
   });
 });

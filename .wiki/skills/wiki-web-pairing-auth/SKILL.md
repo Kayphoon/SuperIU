@@ -29,9 +29,9 @@ WS gateway 侧存在, 浏览器路径仍为 REST+SSE (见 event_hub.ts 的已知
 - `packages/ui/src/auth/store.ts` — PairingStore (滑动 TTL、一次性 code、原子写、mtime 读穿)
 - `packages/ui/src/auth/middleware.ts` — AuthLayer (启用谓词、回环豁免、cookie/Bearer、限流)
 - `packages/ui/src/auth/routes.ts` — /auth/connect/:code、/api/pair、/api/pairing*
-- `packages/ui/src/daemon.ts` — `superiu-server pair [--url|--list|--revoke <id>]` 离线铸造
-- `packages/ui/public/index.html` — 连接屏、api() 容错层、设置配对面板
-- 测试: `packages/ui/test/pairing.test.ts` (28 例, 时钟注入测滑动过期)
+- `packages/ui/src/daemon.ts` — `superiu-server pair [--url|--list|--revoke <id>|--name <label>|--rename <id>]` 离线铸造与命名
+- `packages/ui/public/index.html` — 连接屏（支持设备命名）、api() 容错层、设置配对面板（发码指定设备名、设备列表支持重命名）
+- 测试: `packages/ui/test/pairing.test.ts` (滑动过期、设备命名与重命名)
 
 ## 踩过的坑
 

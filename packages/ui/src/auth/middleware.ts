@@ -290,11 +290,19 @@ export class AuthLayer {
    * Mint a one-time connect code. When `advertiseUrl` is omitted the URL is a
    * relative path; callers that know the public origin should pass it.
    */
-  mintConnectCode(advertiseUrl?: string): { code: string; url: string; expiresAt: string } {
-    const minted = this.store.mintCode();
+  mintConnectCode(
+    advertiseUrl?: string,
+    label?: string
+  ): { code: string; url: string; expiresAt: string; label?: string } {
+    const minted = this.store.mintCode(label);
     const base = (advertiseUrl || this.advertiseUrl || '').replace(/\/+$/, '');
     const suffix = `/auth/connect/${minted.raw}`;
-    return { code: minted.raw, url: base ? `${base}${suffix}` : suffix, expiresAt: minted.expiresAt };
+    return {
+      code: minted.raw,
+      url: base ? `${base}${suffix}` : suffix,
+      expiresAt: minted.expiresAt,
+      label: minted.label
+    };
   }
 
   /** The scheme + host a browser used to reach us. */

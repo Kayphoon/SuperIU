@@ -51,6 +51,7 @@ export interface PairingKeyRecord {
 /** A stored one-time pairing code. `hash` is the SHA-256 digest of the raw code. */
 export interface PairingCodeRecord {
   hash: string;
+  label?: string;
   createdAt: string;
   expiresAt: string;
 }
@@ -146,7 +147,11 @@ function normalizeFile(parsed: unknown): PairingFile {
         typeof item.createdAt === 'string' &&
         typeof item.expiresAt === 'string'
       ) {
-        codes.push({ hash: item.hash, createdAt: item.createdAt, expiresAt: item.expiresAt });
+        const label =
+          typeof item.label === 'string' && item.label.trim()
+            ? item.label.trim().slice(0, 64)
+            : undefined;
+        codes.push({ hash: item.hash, label, createdAt: item.createdAt, expiresAt: item.expiresAt });
       }
     }
   }
@@ -260,16 +265,18 @@ export class PairingStore {
   }
 
   /** Mint a one-time code valid for {@link PAIRING_CODE_TTL_MS}. */
-  mintCode(): { raw: string; expiresAt: string } {
+  mintCode(label?: string): { raw: string; expiresAt: string; label?: string } {
     this.refresh();
     const raw = crypto.randomBytes(24).toString('base64url');
     const hash = sha256Hex(raw);
     const now = this.now();
     const expiresAt = new Date(now.getTime() + PAIRING_CODE_TTL_MS).toISOString();
-    this.codes.push({ hash, createdAt: now.toISOString(), expiresAt });
+    const cleanLabel =
+      typeof label === 'string' && label.trim() ? label.trim().slice(0, 64) : undefined;
+    this.codes.push({ hash, label: cleanLabel, createdAt: now.toISOString(), expiresAt });
     this.prune(now.getTime());
     this.persist();
-    return { raw, expiresAt };
+    return { raw, expiresAt, label: cleanLabel };
   }
 
   /**
@@ -277,7 +284,7 @@ export class PairingStore {
    * raw key and its id, or `null` when the code is unknown, already used, or
    * expired. The two mutations land in a single disk write.
    */
-  consumeCode(raw: string, label = 'web'): { raw: string; id: string } | null {
+  consumeCode(raw: string, label = 'web'): { raw: string; id: string; label: string } | null {
     if (!raw) return null;
     this.refresh();
     const hash = sha256Hex(raw);
@@ -296,10 +303,18 @@ export class PairingStore {
     const keyHash = sha256Hex(keyRaw);
     const id = keyHash.slice(0, 12);
     const at = now.toISOString();
-    this.keys.push({ id, hash: keyHash, label, createdAt: at, lastUsedAt: at });
+    const callerCustomLabel =
+      typeof label === 'string' && label.trim() && label.trim() !== 'web'
+        ? label.trim().slice(0, 64)
+        : undefined;
+    const finalLabel =
+      callerCustomLabel ??
+      code?.label ??
+      (typeof label === 'string' && label.trim() ? label.trim().slice(0, 64) : 'web');
+    this.keys.push({ id, hash: keyHash, label: finalLabel, createdAt: at, lastUsedAt: at });
     this.prune(now.getTime());
     this.persist();
-    return { raw: keyRaw, id };
+    return { raw: keyRaw, id, label: finalLabel };
   }
 
   /**
@@ -359,6 +374,21 @@ export class PairingStore {
     return removed;
   }
 
+  /**
+   * Update the label/name of an existing key by id.
+   */
+  updateLabel(id: string, label: string): boolean {
+    if (!id || typeof label !== 'string') return false;
+    const clean = label.trim().slice(0, 64);
+    if (!clean) return false;
+    this.refresh();
+    const key = this.keys.find((k) => k.id === id);
+    if (!key) return false;
+    key.label = clean;
+    this.persist();
+    return true;
+  }
+
   // -------------------------------------------------------------------------
   // Internals
   // -------------------------------------------------------------------------
@@ -415,11 +445,15 @@ export class PairingStore {
 
   /** Union codes by digest; disk wins on a collision (same digest, same code). */
   private mergeCodes(incoming: PairingCodeRecord[]): void {
-    const known = new Set(this.codes.map((code) => code.hash));
+    const known = new Map(this.codes.map((code) => [code.hash, code]));
     for (const code of incoming) {
-      if (known.has(code.hash)) continue;
-      this.codes.push(code);
-      known.add(code.hash);
+      const existing = known.get(code.hash);
+      if (!existing) {
+        this.codes.push(code);
+        known.set(code.hash, code);
+      } else if (code.label && !existing.label) {
+        existing.label = code.label;
+      }
     }
   }
 

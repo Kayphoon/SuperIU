@@ -41,7 +41,7 @@ Commands:
   stop     Ask a running daemon to shut down
   update   Upgrade the installed binary from GitHub Releases
   token    Print a fresh 64-hex-character gateway token
-  pair     Mint a one-time web-console pairing link (or --list / --revoke)
+  pair     Mint a one-time web-console pairing link (or --list / --revoke / --rename)
   version  Print the package version
 
 Options:
@@ -51,8 +51,10 @@ Options:
   --token <t>       Gateway token (start). Default: $SUPERIU_GATEWAY_TOKEN or random
   --workspace <dir> Workspace root owning .superiu/. Default: current directory
   --url <base>      Advertised origin for 'pair' (e.g. https://host:3000)
+  --name <label>    'pair': device name for minted code (or for --rename)
   --list            'pair': list active pairing keys instead of minting
   --revoke <id>     'pair': revoke the key with this id
+  --rename <id>     'pair': rename an existing key to --name <label>
   -h, --help        Show this help
 
 Auto-update options:
@@ -123,6 +125,10 @@ interface ParsedArgs {
   revoke?: string;
   /** `pair --url <base>`: advertised origin for the connect URL. */
   advertiseUrl?: string;
+  /** `pair --name <label>` or `--label <label>`: device label. */
+  label?: string;
+  /** `pair --rename <id>`: rename key to label. */
+  rename?: string;
   help: boolean;
 }
 
@@ -248,6 +254,19 @@ function parseArgs(argv: string[]): ParsedArgs {
         const value = takeValue();
         if (!value) throw new UsageError('Missing value for --revoke');
         parsed.revoke = value;
+        break;
+      }
+      case '--rename': {
+        const value = takeValue();
+        if (!value) throw new UsageError('Missing value for --rename');
+        parsed.rename = value;
+        break;
+      }
+      case '--name':
+      case '--label': {
+        const value = takeValue();
+        if (!value) throw new UsageError(`Missing value for ${arg}`);
+        parsed.label = value;
         break;
       }
       case '--url': {
@@ -1218,10 +1237,25 @@ function commandPair(parsed: ParsedArgs): number {
     return revoked ? 0 : 1;
   }
 
+  if (parsed.rename) {
+    if (!parsed.label) {
+      throw new UsageError('--rename requires --name <new-name> or --label <new-name>');
+    }
+    const updated = store.updateLabel(parsed.rename, parsed.label);
+    if (updated) {
+      process.stdout.write(`Renamed pairing key ${parsed.rename} to "${parsed.label}".\n`);
+    } else {
+      process.stderr.write(`Pairing key not found: ${parsed.rename}\n`);
+    }
+    printJson({ renamed: updated, id: parsed.rename, label: parsed.label });
+    return updated ? 0 : 1;
+  }
+
   const base = advertiseBase(parsed, state);
-  const minted = store.mintCode();
+  const minted = store.mintCode(parsed.label);
   const url = `${base}/auth/connect/${minted.raw}`;
-  process.stdout.write(`Pairing link: ${url}\n`);
+  const labelSuffix = minted.label ? ` (device: "${minted.label}")` : '';
+  process.stdout.write(`Pairing link${labelSuffix}: ${url}\n`);
   process.stdout.write('This link works once and expires in 5 minutes.\n');
   if (running) {
     process.stdout.write('The running daemon serves this link immediately.\n');
@@ -1230,7 +1264,7 @@ function commandPair(parsed: ParsedArgs): number {
       'Start the daemon (superiu-server start), then open the link; it picks the code up automatically.\n'
     );
   }
-  printJson({ code: minted.raw, url, expiresAt: minted.expiresAt });
+  printJson({ code: minted.raw, url, expiresAt: minted.expiresAt, label: minted.label });
   return 0;
 }
 

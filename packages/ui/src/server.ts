@@ -139,7 +139,10 @@ export interface ServerHandle {
    * command). `advertiseUrl` is the public origin to build the connect URL from;
    * when omitted the URL is a relative path.
    */
-  mintConnectCode(advertiseUrl?: string): { code: string; url: string; expiresAt: string };
+  mintConnectCode(
+    advertiseUrl?: string,
+    label?: string
+  ): { code: string; url: string; expiresAt: string; label?: string };
   /** True when no turn is running and none is waiting on a human approval. */
   isIdle(): boolean;
   /** Stop accepting new turns so an in-flight turn can finish before a self-update. */
@@ -2488,7 +2491,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
         : `ws+unix://${socketPath}${gateway.path}`
       : undefined,
     pairingEnabled: auth.isEnabled(),
-    mintConnectCode: (advertiseUrl?: string) => auth.mintConnectCode(advertiseUrl),
+    mintConnectCode: (advertiseUrl?: string, label?: string) => auth.mintConnectCode(advertiseUrl, label),
     // `runner.status` is the core's authoritative in-flight signal and already
     // gates `handleChat`; the gateway adds its own in-flight count for turns
     // started over the WebSocket, and `pendingApprovals` covers a turn parked

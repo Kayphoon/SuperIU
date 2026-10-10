@@ -4213,6 +4213,23 @@
           </div>
 
           <div class="siu-connect-field-wrap">
+            <div class="flex items-center justify-between">
+              <label class="siu-field-label" for="connect-device-label" data-i18n="pair.connect.deviceLabel">设备名称</label>
+              <span class="text-[11px] text-muted" data-i18n="pair.connect.deviceLabelOptional">可选，方便记忆此设备</span>
+            </div>
+            <input
+              id="connect-device-label"
+              type="text"
+              class="siu-field text-[13px] h-10 w-full"
+              placeholder=""
+              data-i18n-placeholder="pair.connect.devicePlaceholder"
+              autocomplete="off"
+              spellcheck="false"
+              maxlength="64"
+            />
+          </div>
+
+          <div class="siu-connect-field-wrap">
             <label class="siu-field-label" for="connect-input" data-i18n="pair.connect.inputLabel">配对凭证（链接或密钥）</label>
             <input
               id="connect-input"
@@ -5149,6 +5166,15 @@
                 <p class="siu-field-hint" data-i18n="settings.pairing.advertiseUrlHint">配置供 Web 浏览器及手机 iOS Safari (PWA) 访问的外部 IP 或域名反代地址。生成配对码时将自动以此为前缀。</p>
               </div>
 
+              <div>
+                <div class="flex items-center justify-between">
+                  <label class="siu-field-label" for="pairing-device-label" data-i18n="settings.pairing.deviceLabel">目标设备名称 / 备注</label>
+                  <span class="text-[11px] text-muted font-mono" data-i18n="settings.pairing.deviceLabelOptional">可选</span>
+                </div>
+                <input id="pairing-device-label" type="text" class="siu-field text-[12.5px]" spellcheck="false" autocomplete="off" autocapitalize="off" maxlength="64" data-i18n-placeholder="settings.pairing.devicePlaceholder" placeholder="" />
+                <p class="siu-field-hint" data-i18n="settings.pairing.deviceHint">为配对设备指定便于识别的名称。配对成功后将显示在已授权设备列表中。</p>
+              </div>
+
               <div class="flex items-center justify-between pt-1">
                 <button id="btn-mint-pair-code" type="button" class="siu-btn siu-btn--primary text-[12px]">
                   <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -5165,6 +5191,7 @@
                   <div class="flex items-center gap-2">
                     <span class="siu-status-dot" data-status="running"></span>
                     <strong class="text-[12.5px]" data-i18n="settings.pairing.oneTimeTitle"></strong>
+                    <span id="pairing-target-device-badge" class="siu-badge" hidden></span>
                   </div>
                   <span id="pairing-timer" class="font-mono text-[12px] text-accent font-semibold">05:00</span>
                 </div>
@@ -9843,6 +9870,15 @@
         card.hidden = false;
         urlInput.value = minted.url || '';
         if (copyBtn) copyBtn.textContent = tr('settings.pairing.copyLink');
+        const targetBadge = $('pairing-target-device-badge');
+        if (targetBadge) {
+          if (minted.label) {
+            targetBadge.textContent = tr('settings.pairing.targetDevice', { name: minted.label });
+            targetBadge.hidden = false;
+          } else {
+            targetBadge.hidden = true;
+          }
+        }
 
         if (pairingTimerInterval) {
           clearInterval(pairingTimerInterval);
@@ -9938,6 +9974,28 @@
           }
           head.appendChild(headLeft);
 
+          const actions = el('div', 'flex items-center gap-1.5 shrink-0');
+
+          const renameBtn = el('button', 'siu-btn text-[11px] py-0.5 px-2', tr('settings.pairing.rename'));
+          renameBtn.type = 'button';
+          renameBtn.addEventListener('click', async () => {
+            const next = prompt(tr('settings.pairing.renamePrompt'), item.label || '');
+            if (next === null) return;
+            const trimmed = next.trim();
+            if (!trimmed || trimmed === item.label) return;
+            try {
+              await api('/api/pairing/' + encodeURIComponent(item.id), {
+                method: 'PATCH',
+                body: JSON.stringify({ label: trimmed })
+              });
+              toast(tr('settings.pairing.renamed'));
+              void renderPairingPane();
+            } catch (err) {
+              toast(err.message, 'error');
+            }
+          });
+          actions.appendChild(renameBtn);
+
           const revokeBtn = el('button', 'siu-btn siu-btn--danger text-[11px] py-0.5 px-2', tr('settings.pairing.revoke'));
           revokeBtn.type = 'button';
           revokeBtn.addEventListener('click', async () => {
@@ -9950,7 +10008,8 @@
               toast(err.message, 'error');
             }
           });
-          head.appendChild(revokeBtn);
+          actions.appendChild(revokeBtn);
+          head.appendChild(actions);
           row.appendChild(head);
 
           const meta = el('div', 'grid grid-cols-2 gap-x-4 gap-y-1 text-[11.5px] text-muted');
@@ -10077,11 +10136,13 @@
 
         // 2. If targetOrigin is specified and differs from current origin in browser/mobile Safari:
         if (parsed.targetOrigin && parsed.targetOrigin !== window.location.origin) {
+          const deviceLabel = $('connect-device-label')?.value?.trim() || '';
+          const labelQuery = deviceLabel ? `?label=${encodeURIComponent(deviceLabel)}` : '';
           if (btnText) btnText.textContent = tr('pair.connect.success');
           if (parsed.code) {
-            window.location.href = `${parsed.targetOrigin}/auth/connect/${encodeURIComponent(parsed.code)}`;
+            window.location.href = `${parsed.targetOrigin}/auth/connect/${encodeURIComponent(parsed.code)}${labelQuery}`;
           } else if (parsed.key) {
-            window.location.href = `${parsed.targetOrigin}/auth/connect/${encodeURIComponent(parsed.key)}`;
+            window.location.href = `${parsed.targetOrigin}/auth/connect/${encodeURIComponent(parsed.key)}${labelQuery}`;
           } else {
             window.location.href = `${parsed.targetOrigin}/`;
           }
@@ -10090,10 +10151,11 @@
 
         // 3. Current host pairing (fetch /api/pair)
         try {
+          const deviceLabel = $('connect-device-label')?.value?.trim() || undefined;
           const res = await fetch('/api/pair', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ code: parsed.code, key: parsed.key, label: 'web' })
+            body: JSON.stringify({ code: parsed.code, key: parsed.key, label: deviceLabel })
           });
           const payload = await res.json().catch(() => ({}));
           if (res.status === 200 && payload.ok) {
@@ -10160,9 +10222,10 @@
         btn.disabled = true;
         try {
           const advUrl = $('pairing-advertise-url')?.value?.trim() || undefined;
+          const label = $('pairing-device-label')?.value?.trim() || undefined;
           const minted = await api('/api/pairing/code', {
             method: 'POST',
-            body: JSON.stringify({ advertiseUrl: advUrl })
+            body: JSON.stringify({ advertiseUrl: advUrl, label })
           });
           renderPairingCodeModal(minted);
         } catch (err) {
@@ -10175,9 +10238,10 @@
       $('btn-regen-pairing-code')?.addEventListener('click', async () => {
         try {
           const advUrl = $('pairing-advertise-url')?.value?.trim() || undefined;
+          const label = $('pairing-device-label')?.value?.trim() || undefined;
           const minted = await api('/api/pairing/code', {
             method: 'POST',
-            body: JSON.stringify({ advertiseUrl: advUrl })
+            body: JSON.stringify({ advertiseUrl: advUrl, label })
           });
           renderPairingCodeModal(minted);
         } catch (err) {
