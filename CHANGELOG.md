@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.53 (2026-10-10)
+
+### 中文
+
+- 支持 OpenAI Responses API (`/responses`) 协议格式：
+  - **核心模型路由与 Responses 工厂支持**：在 `ProviderType` 中扩展 `responses` 类型，支持显式路由以及基于 `/responses` 端点特征的自动推导；在 `AgentRunner.createLanguageModel` 中通过 AI SDK `createOpenAI().responses(model)` 原生挂载 OpenAI Responses 语言模型；
+  - **服务商设置界面新增 Responses 协议选项**：在设置面板的服务商「API 协议格式」下拉选择中增加「OpenAI (Responses API)」，允许将服务商端点配置为新版 Responses API；
+  - **端到端验证与测试守卫覆盖**：新增多提供商单元测试与 `provider-settings-wire` 中对 `responses` 协议持久化与视图投射的集成测试，通过全部多语言与安全守卫。
+
+### English
+
+- Support OpenAI Responses API (`/responses`) protocol format:
+  - **Core model routing & Responses model factory**: Extended `ProviderType` with `responses`, supporting explicit routing as well as automatic heuristic detection based on `/responses` endpoint URLs; integrated native `createOpenAI().responses(model)` language model creation in `AgentRunner.createLanguageModel`;
+  - **Responses protocol option in provider settings**: Added "OpenAI (Responses API)" to the "API Protocol Format" dropdown in the provider settings form, enabling configuration of custom endpoints and gateways implementing the Responses API;
+  - **End-to-end tests & verification guards**: Added unit tests and wire integration tests in `provider-settings-wire` for `responses` protocol persistence and projection, passing all repository guards and test suites.
+
 ## v0.2.52 (2026-10-10)
 
 ### 中文

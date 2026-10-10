@@ -4966,6 +4966,7 @@
                     <label class="siu-field-label" for="provider-api-type" data-i18n="settings.providers.apiType">API 协议格式</label>
                     <select id="provider-api-type" class="siu-field">
                       <option value="openai" data-i18n="settings.providers.apiType.openai">OpenAI 兼容 (Chat Completions)</option>
+                      <option value="responses" data-i18n="settings.providers.apiType.responses">OpenAI (Responses API)</option>
                       <option value="anthropic" data-i18n="settings.providers.apiType.anthropic">Anthropic (Messages)</option>
                       <option value="google" data-i18n="settings.providers.apiType.google">Google Gemini (Generative AI)</option>
                     </select>
@@ -7900,6 +7901,9 @@
         if (id.startsWith('gemini') || id.startsWith('google')) {
           if (provider?.baseURL && /\/openai\/?$/i.test(provider.baseURL)) return 'openai';
           return 'google';
+        }
+        if (id.includes('response') || (provider?.baseURL && /\/responses\/?$/i.test(provider.baseURL))) {
+          return 'responses';
         }
         return 'openai';
       }

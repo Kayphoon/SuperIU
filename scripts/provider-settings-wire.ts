@@ -911,6 +911,10 @@ async function runWireTests() {
           {
             ...providerEntry('beta', `${probe.origin}/beta`, ''),
             apiType: 'google'
+          },
+          {
+            ...providerEntry('gamma', `${probe.origin}/gamma`, ''),
+            apiType: 'responses'
           }
         ]
       });
@@ -918,10 +922,16 @@ async function runWireTests() {
       assert(alpha?.apiType === 'anthropic', `expected anthropic apiType, got '${alpha?.apiType}'`);
       const beta = view.providers.find((p: { id: string; apiType?: string }) => p.id === 'beta');
       assert(beta?.apiType === 'google', `expected google apiType, got '${beta?.apiType}'`);
+      const gamma = view.providers.find((p: { id: string; apiType?: string }) => p.id === 'gamma');
+      assert(gamma?.apiType === 'responses', `expected responses apiType, got '${gamma?.apiType}'`);
       const persisted = await readSettingsFile();
       assert(
         persisted.providers.find((p) => p.id === 'alpha')?.apiType === 'anthropic',
         'persisted file did not save apiType'
+      );
+      assert(
+        persisted.providers.find((p) => p.id === 'gamma')?.apiType === 'responses',
+        'persisted file did not save responses apiType'
       );
     });
 

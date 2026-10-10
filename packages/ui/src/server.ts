@@ -376,6 +376,9 @@ export function defaultApiTypeFor(id: string, baseURL?: string): string {
     if (baseURL && /\/openai\/?$/i.test(baseURL)) return 'openai';
     return 'google';
   }
+  if (id.includes('response') || (baseURL && /\/responses\/?$/i.test(baseURL))) {
+    return 'responses';
+  }
   return 'openai';
 }
 

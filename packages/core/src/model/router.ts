@@ -19,10 +19,10 @@ export const MODEL_ROLES: readonly ModelRole[] = ['main', 'review', 'title', 'me
 /** Provider reasoning effort. Higher effort reasons for longer and needs more output budget. */
 export type ReasoningEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
-export type ProviderType = 'openai' | 'anthropic' | 'google';
+export type ProviderType = 'openai' | 'responses' | 'anthropic' | 'google';
 
 /**
- * Resolves the underlying provider type ('openai', 'anthropic', or 'google')
+ * Resolves the underlying provider type ('openai', 'responses', 'anthropic', or 'google')
  * for a model route.
  */
 export function resolveProviderType(
@@ -30,6 +30,14 @@ export function resolveProviderType(
   defaultProvider?: string
 ): ProviderType {
   const explicit = (route.provider || defaultProvider || '').toLowerCase().trim();
+  if (
+    explicit === 'responses' ||
+    explicit === 'response' ||
+    explicit === 'openai-responses' ||
+    explicit === 'openai-response'
+  ) {
+    return 'responses';
+  }
   if (explicit === 'anthropic') return 'anthropic';
   if (explicit === 'google' || explicit === 'gemini') {
     // If baseURL is specifically Google's OpenAI-compatible endpoint, use openai
@@ -44,6 +52,9 @@ export function resolveProviderType(
 
   // Auto-detect based on endpoint URL or model identifier
   const normBaseUrl = (route.baseURL || '').toLowerCase();
+  if (normBaseUrl.endsWith('/responses') || normBaseUrl.includes('/v1/responses')) {
+    return 'responses';
+  }
   if (normBaseUrl.includes('api.anthropic.com')) return 'anthropic';
   if (normBaseUrl.includes('generativelanguage.googleapis.com') && !normBaseUrl.includes('/openai')) {
     return 'google';

@@ -660,6 +660,14 @@ export class AgentRunner {
       return client(route.model);
     }
 
+    if (providerType === 'responses') {
+      const client = createOpenAI({
+        apiKey: route.apiKey ?? defaults.apiKey,
+        baseURL: route.baseURL ?? defaults.baseURL
+      });
+      return client.responses(route.model as any);
+    }
+
     const client = createOpenAI({
       apiKey: route.apiKey ?? defaults.apiKey,
       baseURL: route.baseURL ?? defaults.baseURL

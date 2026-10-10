@@ -37,6 +37,13 @@ describe('Multi-provider routing and AI SDK integration', () => {
       expect(resolveProviderType({ model: 'meta-llama/llama-3', provider: 'openrouter' })).toBe('openai');
     });
 
+    it('resolves responses / response provider to responses', () => {
+      expect(resolveProviderType({ model: 'gpt-4o', provider: 'responses' })).toBe('responses');
+      expect(resolveProviderType({ model: 'gpt-4o', provider: 'response' })).toBe('responses');
+      expect(resolveProviderType({ model: 'gpt-4o', provider: 'openai-responses' })).toBe('responses');
+      expect(resolveProviderType({ model: 'custom', baseURL: 'https://api.openai.com/v1/responses' })).toBe('responses');
+    });
+
     it('auto-detects anthropic by baseURL', () => {
       const route: ModelRoute = {
         model: 'custom-model',
@@ -99,6 +106,15 @@ describe('Multi-provider routing and AI SDK integration', () => {
         { apiKey: 'sk-openai-test' }
       );
       expect(model.provider).toBe('openai.chat');
+      expect(model.modelId).toBe('gpt-4o');
+    });
+
+    it('creates OpenAI LanguageModelV1 with openai.responses provider', () => {
+      const model = AgentRunner.createLanguageModel(
+        { model: 'gpt-4o', provider: 'responses' },
+        { apiKey: 'sk-openai-test' }
+      );
+      expect(model.provider).toBe('openai.responses');
       expect(model.modelId).toBe('gpt-4o');
     });
   });
