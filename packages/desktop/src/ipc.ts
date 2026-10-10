@@ -33,7 +33,8 @@ export const INVOKE = {
   getUpdateState: 'superiu:get-update-state',
   getConnectionInfo: 'superiu:get-connection-info',
   disconnectRemote: 'superiu:disconnect-remote',
-  upgradeRemote: 'superiu:upgrade-remote'
+  upgradeRemote: 'superiu:upgrade-remote',
+  connectCustomUrl: 'superiu:connect-custom-url'
 } as const;
 
 export const REMOTE_PROGRESS_CHANNEL = 'superiu:remote-progress';
@@ -41,10 +42,11 @@ export const UPDATE_STATE_CHANNEL = 'superiu:update-state';
 export const CONNECTION_STATE_CHANNEL = 'superiu:connection-state';
 
 export interface ConnectionInfoPayload {
-  mode: 'local' | 'remote' | 'gateway';
+  mode: 'local' | 'remote' | 'gateway' | 'custom_url';
   alias?: string;
   remoteWorkspace?: string;
   localPort?: number;
+  customUrl?: string;
   state: 'idle' | 'connected' | 'connecting' | 'reconnecting' | 'closed';
   rttMs?: number;
 }
@@ -124,6 +126,12 @@ export interface SuperiuDesktopBridge {
     autoUpdateIntervalHours?: number;
   }): Promise<void>;
   onRemoteProgress?(callback: (step: { id: string; status: string; detail?: string }) => void): () => void;
+  /**
+   * Connect directly to an already-running SuperIU service at `url`, optionally
+   * presenting a pairing token. `saveDefault` records the choice (and marks
+   * onboarding complete) so it is restored on the next launch.
+   */
+  connectCustomUrl?(options: { url: string; token?: string; saveDefault?: boolean }): Promise<void>;
   /**
    * Record the first-run choice of the local in-process engine and start it.
    * Only `{ mode: 'local' }` is supported; the remote path goes through

@@ -22,8 +22,16 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-/** The three ways the desktop shell can run. */
-export type ConnectionMode = 'local' | 'gateway' | 'remote';
+/** The ways the desktop shell can run. */
+export type ConnectionMode = 'local' | 'gateway' | 'remote' | 'custom_url';
+
+/** A direct-URL connection to an already-running SuperIU service. */
+export interface CustomUrlConfig {
+  /** Base URL of the service (`http://` or `https://`). */
+  url: string;
+  /** Optional pairing key / token presented as a `pairing_key` cookie. */
+  token?: string;
+}
 
 /** A resolved connection configuration for the shell. */
 export interface GatewayConfig {
@@ -38,6 +46,8 @@ export interface GatewayConfig {
   deviceId?: string;
   /** SSH-managed remote settings, when `mode === 'remote'`. */
   remote?: RemoteConfig;
+  /** Direct URL settings, when `mode === 'custom_url'`. */
+  customUrl?: CustomUrlConfig;
 }
 
 /** Resolved settings for the SSH-managed `remote` mode. */
@@ -62,6 +72,7 @@ export interface RemoteConfig {
 export interface DesktopSettings {
   connectionMode?: string;
   gateway?: { url?: string; token?: string; deviceId?: string; deviceName?: string };
+  customUrl?: { url?: string; token?: string };
   remote?: {
     alias?: string;
     workspace?: string;
@@ -143,6 +154,14 @@ export function resolveGatewayConfig(workspaceRoot: string): GatewayConfig {
   const url = envUrl ?? settingUrl;
   const token = envToken ?? settingToken;
 
+  // Custom-URL connection: env wins, empty string is "unset".
+  const envCustomUrl = process.env.SUPERIU_CUSTOM_URL?.trim() || undefined;
+  const settingCustomUrl = settings.customUrl?.url?.trim() || undefined;
+  const customUrl = envCustomUrl ?? settingCustomUrl;
+  const envCustomToken = process.env.SUPERIU_CUSTOM_TOKEN?.trim() || undefined;
+  const settingCustomToken = settings.customUrl?.token?.trim() || undefined;
+  const customToken = envCustomToken ?? settingCustomToken;
+
   // Remote alias: env wins, empty string is "unset".
   const envAlias = process.env.SUPERIU_REMOTE_ALIAS?.trim() || undefined;
   const settingAlias = settings.remote?.alias?.trim() || undefined;
@@ -157,7 +176,15 @@ export function resolveGatewayConfig(workspaceRoot: string): GatewayConfig {
     .trim()
     .toLowerCase();
   const explicitMode: ConnectionMode | undefined =
-    rawMode === 'local' ? 'local' : rawMode === 'gateway' ? 'gateway' : rawMode === 'remote' ? 'remote' : undefined;
+    rawMode === 'local'
+      ? 'local'
+      : rawMode === 'gateway'
+        ? 'gateway'
+        : rawMode === 'remote'
+          ? 'remote'
+          : rawMode === 'custom_url'
+            ? 'custom_url'
+            : undefined;
 
   // A gateway is usable only with both halves of the credential pair. Without
   // them the shell would connect and be rejected, which is strictly worse than
@@ -197,13 +224,17 @@ export function resolveGatewayConfig(workspaceRoot: string): GatewayConfig {
       }
     : undefined;
 
+  const customUrlConfig: CustomUrlConfig | undefined =
+    mode === 'custom_url' ? { url: customUrl ?? '', token: customToken } : undefined;
+
   return {
     mode,
-    url,
-    token,
+    url: mode === 'custom_url' ? customUrl : url,
+    token: mode === 'custom_url' ? customToken : token,
     deviceId: settings.gateway?.deviceId?.trim() || undefined,
     workspaceRoot: resolvedWorkspaceRoot,
-    remote
+    remote,
+    customUrl: customUrlConfig
   };
 }
 
@@ -214,7 +245,7 @@ export function resolveGatewayConfig(workspaceRoot: string): GatewayConfig {
  *   1. `SUPERIU_SKIP_ONBOARDING=1`  → never show (false)
  *   2. `SUPERIU_FORCE_ONBOARDING=1` → always show (true)
  *   3. `settings.onboardingCompleted === true` → false
- *   4. an explicit `connectionMode` of local|gateway|remote → false
+ *   4. an explicit `connectionMode` of local|gateway|remote|custom_url → false
  *   5. `gateway.mode !== 'local'` (a gateway/remote is already configured) → false
  *   6. otherwise → true
  *
@@ -226,7 +257,7 @@ export function needsOnboarding(settings: DesktopSettings, gateway: GatewayConfi
   if (process.env.SUPERIU_FORCE_ONBOARDING === '1') return true;
   if (settings.onboardingCompleted === true) return false;
   const mode = settings.connectionMode?.trim().toLowerCase();
-  if (mode === 'local' || mode === 'gateway' || mode === 'remote') return false;
+  if (mode === 'local' || mode === 'gateway' || mode === 'remote' || mode === 'custom_url') return false;
   if (gateway.mode !== 'local') return false;
   return true;
 }

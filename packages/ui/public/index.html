@@ -1275,6 +1275,54 @@
         transform: translateX(16px);
       }
 
+      .siu-segmented-control {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px;
+        background: var(--siu-bg-inset);
+        border: 1px solid var(--siu-border);
+        border-radius: var(--siu-radius-md);
+        gap: 3px;
+        width: 100%;
+        max-width: 360px;
+      }
+      .siu-segmented-item {
+        flex: 1;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 28px;
+        padding: 0 var(--siu-space-3);
+        border-radius: var(--siu-radius-sm);
+        border: 1px solid transparent;
+        background: transparent;
+        color: var(--siu-text-secondary);
+        font-family: var(--siu-font-sans);
+        font-size: var(--siu-text-sm);
+        font-weight: 500;
+        cursor: pointer;
+        transition: background var(--siu-dur-fast) var(--siu-ease-out),
+          color var(--siu-dur-fast) var(--siu-ease-out),
+          border-color var(--siu-dur-fast) var(--siu-ease-out),
+          box-shadow var(--siu-dur-fast) var(--siu-ease-out);
+        user-select: none;
+      }
+      .siu-segmented-item:hover {
+        color: var(--siu-text-primary);
+        background: var(--siu-bg-hover);
+      }
+      .siu-segmented-item:focus-visible {
+        border-color: var(--siu-border-focus);
+        outline: none;
+      }
+      .siu-segmented-item[aria-selected='true'] {
+        background: var(--siu-bg-elevated);
+        color: var(--siu-text-primary);
+        border-color: var(--siu-border-subtle);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+        font-weight: 600;
+      }
+
       .siu-kbd {
         display: inline-flex;
         align-items: center;
@@ -4681,8 +4729,8 @@
                   </div>
                   <span id="remote-connected-latency" class="font-mono text-[11px] text-muted"></span>
                 </div>
-                <p class="text-[12px] text-muted leading-relaxed" data-i18n="settings.remote.connectedDesc">当前会话正通过 SSH 隧道在此远程 VPS 上执行。</p>
-                <div class="grid grid-cols-2 gap-2 text-[12px] pt-1 border-t border-line font-mono">
+                <p id="remote-connected-desc" class="text-[12px] text-muted leading-relaxed" data-i18n="settings.remote.connectedDesc">当前会话正通过 SSH 隧道在此远程 VPS 上执行。</p>
+                <div id="remote-connected-details-ssh" class="grid grid-cols-2 gap-2 text-[12px] pt-1 border-t border-line font-mono">
                   <div>
                     <span class="text-muted" data-i18n="settings.remote.currentHost">当前主机</span>:
                     <strong id="remote-connected-alias" class="text-primary ml-1"></strong>
@@ -4696,9 +4744,25 @@
                     <span id="remote-connected-workspace" class="ml-1"></span>
                   </div>
                 </div>
+                <div id="remote-connected-details-custom" class="grid grid-cols-2 gap-2 text-[12px] pt-1 border-t border-line font-mono" hidden>
+                  <div class="col-span-2">
+                    <span class="text-muted" data-i18n="connection.customUrl">自定义服务</span>:
+                    <strong class="text-primary ml-1" data-i18n="settings.remote.tabCustomUrl">自定义服务地址</strong>
+                  </div>
+                  <div class="col-span-2 truncate">
+                    <span class="text-muted" data-i18n="settings.remote.currentHost">当前主机</span>:
+                    <strong id="remote-connected-custom-url" class="text-primary ml-1 break-all"></strong>
+                  </div>
+                </div>
                 <div class="flex justify-end pt-2 border-t border-line">
                   <button id="btn-remote-switch" type="button" class="siu-btn text-[12px]" data-i18n="settings.remote.switchHost">断开并切换主机</button>
                 </div>
+              </div>
+
+              <!-- Segmented tab switcher for connection type -->
+              <div id="remote-tabs" class="siu-segmented-control" role="tablist">
+                <button id="tab-remote-ssh" type="button" class="siu-segmented-item" role="tab" aria-selected="true" data-i18n="settings.remote.tabSsh">SSH 隧道部署</button>
+                <button id="tab-remote-custom-url" type="button" class="siu-segmented-item" role="tab" aria-selected="false" data-i18n="settings.remote.tabCustomUrl">自定义服务地址</button>
               </div>
 
               <div id="remote-form-wrap" class="flex flex-col gap-4">
@@ -4737,6 +4801,36 @@
                 <div class="flex items-center justify-between pt-2">
                   <p class="text-[11.5px] text-muted max-w-[340px]" data-i18n="settings.remote.trust">全部流量经 SSH 加密隧道传输，配对凭据仅保存在本机。</p>
                   <button id="btn-remote-connect" type="button" class="siu-btn siu-btn--primary" data-i18n="settings.remote.connect">连接并部署</button>
+                </div>
+              </div>
+
+              <div id="custom-url-form-wrap" class="flex flex-col gap-4" hidden>
+                <div>
+                  <label class="siu-field-label" for="custom-url-input" data-i18n="settings.remote.customUrlLabel">服务地址 (URL)</label>
+                  <input id="custom-url-input" type="text" class="siu-field" spellcheck="false" autocomplete="off" autocapitalize="off" data-i18n-placeholder="settings.remote.customUrlPlaceholder" placeholder="http://192.168.1.100:3000 或 https://..." />
+                  <p class="siu-field-hint" data-i18n="settings.remote.customUrlHint">输入运行中的 SuperIU 完整服务地址</p>
+                </div>
+
+                <div>
+                  <div class="flex items-center justify-between">
+                    <label class="siu-field-label" for="custom-url-token" data-i18n="settings.remote.customTokenLabel">配对凭据 / Token (可选)</label>
+                    <span class="text-[11px] text-muted font-mono" data-i18n="settings.remote.portOptional">可选</span>
+                  </div>
+                  <input id="custom-url-token" type="text" class="siu-field font-mono text-[12.5px]" spellcheck="false" autocomplete="off" data-i18n-placeholder="settings.remote.customTokenPlaceholder" placeholder="粘贴 64 位密钥或 Token…" />
+                  <p class="siu-field-hint" data-i18n="settings.remote.customTokenHint">若远端开启了 Web 配对鉴权请输入凭证</p>
+                </div>
+
+                <div class="siu-toggle-row">
+                  <div class="flex-1">
+                    <div class="siu-toggle-row-title" data-i18n="settings.remote.remember">设为启动时默认连接</div>
+                    <p class="siu-toggle-row-hint" data-i18n="settings.remote.rememberHint">下次启动 SuperIU 时自动连接此主机。</p>
+                  </div>
+                  <button id="custom-url-remember" class="siu-switch" data-on="false" role="switch" aria-checked="false" aria-label="设为启动时默认连接" data-i18n-aria-label="settings.remote.remember"></button>
+                </div>
+
+                <div class="flex items-center justify-between pt-2">
+                  <p class="text-[11.5px] text-muted max-w-[340px]" data-i18n="settings.remote.customUrlTrust">直连已有服务实例，支持局域网、Docker 或内网穿透。</p>
+                  <button id="btn-custom-url-connect" type="button" class="siu-btn siu-btn--primary" data-i18n="settings.remote.customUrlConnect">连接至服务器</button>
                 </div>
               </div>
 
@@ -8665,6 +8759,26 @@
             dot.dataset.status = 'error';
             label.textContent = `${alias} · ${tr('connection.closed')}`;
           }
+        } else if (info.mode === 'custom_url') {
+          let hostName = tr('connection.customUrl');
+          if (info.customUrl) {
+            try {
+              hostName = new URL(info.customUrl).host || info.customUrl;
+            } catch {
+              hostName = info.customUrl.replace(/^https?:\/\//, '').split('/')[0] || info.customUrl;
+            }
+          }
+          if (info.state === 'reconnecting') {
+            dot.dataset.status = 'tool_calling';
+            label.textContent = `${hostName} · ${tr('connection.reconnecting')}`;
+          } else if (info.state === 'closed') {
+            dot.dataset.status = 'error';
+            label.textContent = `${hostName} · ${tr('connection.closed')}`;
+          } else {
+            dot.dataset.status = 'completed';
+            const latency = typeof info.rttMs === 'number' ? ` · ${info.rttMs}ms` : '';
+            label.textContent = `${hostName}${latency}`;
+          }
         } else {
           badge.hidden = true;
         }
@@ -8679,36 +8793,77 @@
       }
 
       function renderRemotePane() {
-        const isDesktop = Boolean(window.superiuDesktop?.connectRemote);
+        const isDesktop = Boolean(window.superiuDesktop?.connectRemote || window.superiuDesktop?.connectCustomUrl);
         const warning = $('remote-desktop-warning');
         const card = $('remote-connected-card');
+        const tabs = $('remote-tabs');
         const formWrap = $('remote-form-wrap');
+        const customUrlWrap = $('custom-url-form-wrap');
         const pipelineWrap = $('remote-pipeline-wrap');
         if (!isDesktop) {
           if (warning) warning.hidden = false;
           if (card) card.hidden = true;
+          if (tabs) tabs.hidden = true;
           if (formWrap) formWrap.hidden = true;
+          if (customUrlWrap) customUrlWrap.hidden = true;
           if (pipelineWrap) pipelineWrap.hidden = true;
           return;
         }
         if (warning) warning.hidden = true;
 
-        if (activeConnectionInfo && activeConnectionInfo.mode === 'remote' && activeConnectionInfo.state === 'connected') {
+        const isConnected = Boolean(
+          activeConnectionInfo &&
+          (activeConnectionInfo.mode === 'remote' || activeConnectionInfo.mode === 'custom_url') &&
+          (activeConnectionInfo.state === 'connected' || !activeConnectionInfo.state)
+        );
+
+        if (isConnected) {
           if (card) {
             card.hidden = false;
-            $('remote-connected-alias').textContent = activeConnectionInfo.alias || '—';
-            $('remote-connected-port').textContent = activeConnectionInfo.localPort ? String(activeConnectionInfo.localPort) : '—';
-            $('remote-connected-workspace').textContent = activeConnectionInfo.remoteWorkspace || '—';
-            $('remote-connected-latency').textContent = typeof activeConnectionInfo.rttMs === 'number' ? `${activeConnectionInfo.rttMs}ms` : '—';
+            const isCustom = activeConnectionInfo.mode === 'custom_url';
+            const sshDetails = $('remote-connected-details-ssh');
+            const customDetails = $('remote-connected-details-custom');
+            const desc = $('remote-connected-desc');
+            const latencyEl = $('remote-connected-latency');
+
+            if (latencyEl) {
+              latencyEl.textContent = typeof activeConnectionInfo.rttMs === 'number' ? `${activeConnectionInfo.rttMs}ms` : '—';
+            }
+
+            if (isCustom) {
+              if (desc) {
+                desc.textContent = tr('settings.remote.customUrlConnectedDesc');
+                desc.setAttribute('data-i18n', 'settings.remote.customUrlConnectedDesc');
+              }
+              if (sshDetails) sshDetails.hidden = true;
+              if (customDetails) customDetails.hidden = false;
+              const hostEl = $('remote-connected-custom-url');
+              if (hostEl) hostEl.textContent = activeConnectionInfo.customUrl || '—';
+            } else {
+              if (desc) {
+                desc.textContent = tr('settings.remote.connectedDesc');
+                desc.setAttribute('data-i18n', 'settings.remote.connectedDesc');
+              }
+              if (sshDetails) sshDetails.hidden = false;
+              if (customDetails) customDetails.hidden = true;
+              $('remote-connected-alias').textContent = activeConnectionInfo.alias || '—';
+              $('remote-connected-port').textContent = activeConnectionInfo.localPort ? String(activeConnectionInfo.localPort) : '—';
+              $('remote-connected-workspace').textContent = activeConnectionInfo.remoteWorkspace || '—';
+            }
           }
+          if (tabs) tabs.hidden = true;
           if (formWrap) formWrap.hidden = true;
+          if (customUrlWrap) customUrlWrap.hidden = true;
           if (pipelineWrap) pipelineWrap.hidden = true;
           return;
         }
 
         if (card) card.hidden = true;
         if (!remoteConnecting && pipelineWrap?.hidden) {
-          if (formWrap) formWrap.hidden = false;
+          if (tabs) tabs.hidden = false;
+          const isCustomTab = $('tab-remote-custom-url')?.getAttribute('aria-selected') === 'true';
+          if (formWrap) formWrap.hidden = isCustomTab;
+          if (customUrlWrap) customUrlWrap.hidden = !isCustomTab;
         }
         applyRemoteWorkspaceDefault();
         void loadRemoteSshHosts();
@@ -8856,6 +9011,8 @@
         lastRemotePayload = payload;
 
         $('remote-form-wrap').hidden = true;
+        $('custom-url-form-wrap').hidden = true;
+        $('remote-tabs').hidden = true;
         $('remote-pipeline-wrap').hidden = false;
         $('remote-banner-error').hidden = true;
         $('remote-banner-success').hidden = true;
@@ -8977,12 +9134,12 @@
 
       $('btn-remote-back')?.addEventListener('click', () => {
         $('remote-pipeline-wrap').hidden = true;
-        $('remote-form-wrap').hidden = false;
+        renderRemotePane();
       });
 
       $('btn-remote-cancel')?.addEventListener('click', () => {
         $('remote-pipeline-wrap').hidden = true;
-        $('remote-form-wrap').hidden = false;
+        renderRemotePane();
       });
 
       $('btn-remote-finish')?.addEventListener('click', () => {
@@ -8997,12 +9154,103 @@
           }
         }
         activeConnectionInfo = null;
-        const card = $('remote-connected-card');
-        const formWrap = $('remote-form-wrap');
-        if (card) card.hidden = true;
-        if (formWrap) formWrap.hidden = false;
-        applyRemoteWorkspaceDefault();
-        void loadRemoteSshHosts();
+        renderRemotePane();
+      });
+
+      function setRemoteTab(tab) {
+        const sshTab = $('tab-remote-ssh');
+        const customTab = $('tab-remote-custom-url');
+        const sshWrap = $('remote-form-wrap');
+        const customWrap = $('custom-url-form-wrap');
+
+        if (sshTab) {
+          sshTab.setAttribute('aria-selected', String(tab === 'ssh'));
+        }
+        if (customTab) {
+          customTab.setAttribute('aria-selected', String(tab === 'custom_url'));
+        }
+
+        if (sshWrap && customWrap && !remoteConnecting && $('remote-pipeline-wrap')?.hidden && $('remote-connected-card')?.hidden) {
+          sshWrap.hidden = tab !== 'ssh';
+          customWrap.hidden = tab !== 'custom_url';
+        }
+      }
+
+      $('tab-remote-ssh')?.addEventListener('click', () => {
+        setRemoteTab('ssh');
+      });
+
+      $('tab-remote-custom-url')?.addEventListener('click', () => {
+        setRemoteTab('custom_url');
+      });
+
+      $('custom-url-remember')?.addEventListener('click', () => {
+        const btn = $('custom-url-remember');
+        if (!btn) return;
+        const next = btn.dataset.on !== 'true';
+        btn.dataset.on = String(next);
+        btn.setAttribute('aria-checked', String(next));
+      });
+
+      $('btn-custom-url-connect')?.addEventListener('click', async () => {
+        const urlInput = $('custom-url-input');
+        const tokenInput = $('custom-url-token');
+        const rememberBtn = $('custom-url-remember');
+        const connectBtn = $('btn-custom-url-connect');
+
+        const rawUrl = urlInput?.value?.trim() || '';
+        if (!rawUrl) {
+          toast(tr('settings.remote.customUrlRequired'), 'error');
+          urlInput?.focus();
+          return;
+        }
+
+        let valid = false;
+        try {
+          const parsed = new URL(rawUrl);
+          if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+            valid = true;
+          }
+        } catch {}
+
+        if (!valid) {
+          toast(tr('settings.remote.customUrlRequired'), 'error');
+          urlInput?.focus();
+          return;
+        }
+
+        const token = tokenInput?.value?.trim() || undefined;
+        const saveDefault = rememberBtn?.dataset?.on === 'true';
+
+        if (connectBtn) connectBtn.disabled = true;
+        try {
+          if (window.superiuDesktop?.connectCustomUrl) {
+            await window.superiuDesktop.connectCustomUrl({
+              url: rawUrl,
+              ...(token ? { token } : {}),
+              saveDefault
+            });
+          }
+        } catch (err) {
+          const msg = err?.message || String(err);
+          toast(msg, 'error');
+        } finally {
+          if (connectBtn) connectBtn.disabled = false;
+        }
+      });
+
+      $('custom-url-input')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          $('btn-custom-url-connect')?.click();
+        }
+      });
+
+      $('custom-url-token')?.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          $('btn-custom-url-connect')?.click();
+        }
       });
 
       // Subscribe to live connection info from desktop shell

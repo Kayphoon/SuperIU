@@ -309,6 +309,7 @@ body {
 }
 .mode-icon.is-local { background: linear-gradient(150deg, #0a84ff 0%, #5e5ce6 100%); }
 .mode-icon.is-remote { background: linear-gradient(150deg, #30d158 0%, #0a84ff 100%); }
+.mode-icon.is-custom-url { background: linear-gradient(150deg, #ff9f0a 0%, #ff375f 100%); }
 .mode-body { min-width: 0; flex: 1; }
 .mode-name {
   display: block;
@@ -810,6 +811,22 @@ input[type="number"] { -moz-appearance: textfield; }
             </span>
             <span class="mode-chevron" aria-hidden="true">›</span>
           </button>
+
+          <button type="button" class="mode-card" id="card-custom-url"
+                  aria-label="自定义服务地址：直接连接已有的 SuperIU 服务，无需 SSH 隧道">
+            <span class="mode-icon is-custom-url" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="8.5" stroke="#fff" stroke-width="1.7"/>
+                <path d="M3.5 12h17M12 3.5c2.4 2.3 3.7 5.3 3.7 8.5s-1.3 6.2-3.7 8.5c-2.4-2.3-3.7-5.3-3.7-8.5S9.6 5.8 12 3.5Z"
+                      stroke="#fff" stroke-width="1.7" stroke-linejoin="round"/>
+              </svg>
+            </span>
+            <span class="mode-body">
+              <span class="mode-name">自定义服务地址</span>
+              <span class="mode-desc">直接连接已有 SuperIU 服务，无需 SSH 隧道。</span>
+            </span>
+            <span class="mode-chevron" aria-hidden="true">›</span>
+          </button>
         </div>
       </div>
 
@@ -928,6 +945,37 @@ input[type="number"] { -moz-appearance: textfield; }
         </div>
       </form>
 
+      <!-- ░░ Panel 3b · custom URL connection ░░ -->
+      <div class="panel is-hidden" id="panel-custom-url" aria-hidden="true">
+        <button type="button" class="btn-back" id="btn-custom-url-back">‹ 返回选择运行方式</button>
+
+        <h2 class="panel-title">自定义服务地址</h2>
+        <p class="panel-sub">直接连接一个已经运行的 SuperIU 服务，无需 SSH 隧道。</p>
+
+        <div class="field" id="field-custom-url">
+          <div class="field-head">
+            <label for="input-custom-url">服务地址</label>
+          </div>
+          <input type="text" id="input-custom-url" placeholder="http://192.168.1.100:3000 或 https://..."
+                 spellcheck="false" autocapitalize="off" autocorrect="off">
+          <p class="hint">服务端的完整地址，需以 <code>http://</code> 或 <code>https://</code> 开头。</p>
+        </div>
+
+        <div class="field" id="field-custom-token">
+          <div class="field-head">
+            <label for="input-custom-token">配对密钥</label>
+            <span class="tag-optional">可选</span>
+          </div>
+          <input type="text" id="input-custom-token" placeholder="可选配对密钥或 Token"
+                 spellcheck="false" autocapitalize="off" autocorrect="off">
+          <p class="hint">如服务端启用了配对校验，请填入密钥或 Token。</p>
+        </div>
+
+        <div class="actions">
+          <button type="button" class="btn btn-primary" id="btn-start-custom-url">连接</button>
+        </div>
+      </div>
+
       <!-- ░░ Panel 4 · deployment pipeline ░░ -->
       <div class="panel is-hidden" id="panel-progress" aria-hidden="true">
         <div class="pipeline-head">
@@ -1019,9 +1067,15 @@ var els = {
   panelMode: $('panel-mode'),
   panelLocal: $('panel-local'),
   panelForm: $('panel-form'),
+  panelCustomUrl: $('panel-custom-url'),
   panelProgress: $('panel-progress'),
   cardLocal: $('card-local'),
   cardRemote: $('card-remote'),
+  cardCustomUrl: $('card-custom-url'),
+  inputCustomUrl: $('input-custom-url'),
+  inputCustomToken: $('input-custom-token'),
+  btnCustomUrlBack: $('btn-custom-url-back'),
+  btnStartCustomUrl: $('btn-start-custom-url'),
   btnStartLocal: $('btn-start-local'),
   btnLocalBack: $('btn-local-back'),
   btnFormBack: $('btn-form-back'),
@@ -1111,6 +1165,9 @@ var bridge = {
     : null,
   completeOnboarding: desktop && typeof desktop.completeOnboarding === 'function'
     ? function (options) { return desktop.completeOnboarding(options); }
+    : null,
+  connectCustomUrl: desktop && typeof desktop.connectCustomUrl === 'function'
+    ? function (payload) { return desktop.connectCustomUrl(payload); }
     : null,
   dismiss: desktop && typeof desktop.dismiss === 'function'
     ? function () { return desktop.dismiss(); }
@@ -1386,12 +1443,13 @@ function updatePipelineHead() {
 /* ════════════════════════════════════════════════════════════════════════
    Panel switching — four panels share one grid cell and cross-fade.
    ════════════════════════════════════════════════════════════════════════ */
-var panelEls = { mode: null, local: null, form: null, progress: null };
+var panelEls = { mode: null, local: null, form: null, customUrl: null, progress: null };
 
 function showPanel(which) {
   panelEls.mode = els.panelMode;
   panelEls.local = els.panelLocal;
   panelEls.form = els.panelForm;
+  panelEls.customUrl = els.panelCustomUrl;
   panelEls.progress = els.panelProgress;
   Object.keys(panelEls).forEach(function (k) {
     var on = k === which;
@@ -1429,6 +1487,62 @@ els.btnFormBack.addEventListener('click', function () {
   if (state.connecting) return;
   showPanel('mode');
   els.cardRemote.focus();
+});
+
+/* ════════════════════════════════════════════════════════════════════════
+   Custom URL mode
+   ════════════════════════════════════════════════════════════════════════ */
+els.cardCustomUrl.addEventListener('click', function () {
+  showPanel('customUrl');
+  els.inputCustomUrl.focus();
+});
+
+els.btnCustomUrlBack.addEventListener('click', function () {
+  showPanel('mode');
+  els.cardCustomUrl.focus();
+});
+
+els.inputCustomUrl.addEventListener('input', function () {
+  els.inputCustomUrl.removeAttribute('aria-invalid');
+});
+
+function setCustomUrlBusy(busy) {
+  els.btnStartCustomUrl.disabled = busy;
+  els.btnStartCustomUrl.textContent = busy ? '正在连接…' : '连接';
+}
+
+els.btnStartCustomUrl.addEventListener('click', function () {
+  var url = els.inputCustomUrl.value.trim();
+  if (!url || !/^https?:\/\//i.test(url)) {
+    els.inputCustomUrl.setAttribute('aria-invalid', 'true');
+    els.inputCustomUrl.focus();
+    els.sr.textContent = '请输入有效的服务地址（以 http:// 或 https:// 开头）。';
+    return;
+  }
+  els.inputCustomUrl.removeAttribute('aria-invalid');
+
+  var token = els.inputCustomToken.value.trim();
+  var call = bridge.connectCustomUrl;
+  setCustomUrlBusy(true);
+
+  var pending = call
+    ? call({ url: url, token: token || undefined, saveDefault: true })
+    : new Promise(function (resolve) { setTimeout(resolve, 1100); });
+
+  Promise.resolve(pending)
+    .then(function () {
+      if (!call) {
+        els.sr.textContent = '已在真实应用中生效；此处为预览，未连接桌面主进程。';
+      }
+      // With a real bridge the main process closes this window on success.
+    })
+    .catch(function (err) {
+      els.inputCustomUrl.setAttribute('aria-invalid', 'true');
+      els.sr.textContent = (err && err.message) || String(err || '连接失败，请重试。');
+    })
+    .finally(function () {
+      setCustomUrlBusy(false);
+    });
 });
 
 /* ════════════════════════════════════════════════════════════════════════

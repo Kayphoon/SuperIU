@@ -18,6 +18,7 @@ import {
   dialog,
   ipcMain,
   nativeTheme,
+  session,
   shell
 } from 'electron';
 import * as fs from 'node:fs';
@@ -102,6 +103,10 @@ let serverHandle: ServerHandle | null = null;
 let gatewayClient: GatewayClient | null = null;
 let remoteManager: RemoteConnectionManager | null = null;
 let activeRemoteUrl: string | null = null;
+/** URL of the directly-connected custom service, when `mode === 'custom_url'`. */
+let activeCustomUrl: string | null = null;
+/** Pairing token for the custom service, mirrored into a cookie on connect. */
+let customUrlToken: string | null = null;
 /** Retries spent on the current SPA navigation (reset when the SPA commits). */
 let remoteNavAttempts = 0;
 /** Pending SPA reload timer for a failed navigation. */
@@ -114,6 +119,13 @@ let remoteRendererRevivals = 0;
 const spaRecoveryAttached = new WeakSet<BrowserWindow>();
 
 function getConnectionInfo(): ConnectionInfoPayload {
+  if (activeCustomUrl) {
+    return {
+      mode: 'custom_url',
+      customUrl: activeCustomUrl,
+      state: 'connected'
+    };
+  }
   if (remoteManager && activeRemoteUrl) {
     const config = resolveGatewayConfig(resolveWorkspace());
     const client = remoteManager.gatewayClient;
@@ -668,6 +680,74 @@ async function startLocalMode(): Promise<void> {
       void checkForUpdate(false);
     }, 5000);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Custom URL mode
+// ---------------------------------------------------------------------------
+
+/**
+ * Validate and normalize a user-supplied service URL.
+ *
+ * Only `http`/`https` are accepted (a `file:`/`javascript:` URL must never be
+ * loaded into the privileged window), and the result is reduced to
+ * `origin + pathname` so query strings / fragments cannot smuggle state into the
+ * persisted setting or the pairing-cookie scope.
+ */
+function normalizeCustomUrl(raw: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(raw);
+  } catch {
+    throw new Error(`invalid custom URL: ${raw}`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`unsupported custom URL protocol: ${parsed.protocol}`);
+  }
+  const pathname = parsed.pathname === '/' ? '' : parsed.pathname;
+  return `${parsed.origin}${pathname}`;
+}
+
+/**
+ * Boot custom-URL mode: point the window at an already-running SuperIU service.
+ *
+ * Unlike gateway/remote mode there is no transport to manage — the service is
+ * self-contained — so this only validates the URL, mirrors an optional pairing
+ * token into the `pairing_key` cookie, and navigates the main window. The token
+ * is a cookie rather than a query param so it never lands in history/logs.
+ */
+async function startCustomUrlMode(config: GatewayConfig): Promise<void> {
+  const rawUrl = config.customUrl?.url?.trim();
+  if (!rawUrl) {
+    throw new Error('custom_url mode requires a url');
+  }
+  const cleanUrl = normalizeCustomUrl(rawUrl);
+
+  const token = config.customUrl?.token?.trim() || undefined;
+  if (token) {
+    try {
+      await session.defaultSession.cookies.set({
+        url: cleanUrl,
+        name: 'pairing_key',
+        value: token
+      });
+    } catch (err) {
+      console.warn('[superiu] failed to set pairing cookie:', err);
+    }
+  }
+
+  activeCustomUrl = cleanUrl;
+  customUrlToken = token ?? null;
+  activeRemoteUrl = cleanUrl;
+
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    mainWindow = createWindow(cleanUrl);
+  } else {
+    void mainWindow.loadURL(cleanUrl);
+  }
+
+  broadcastConnectionInfo();
+  console.log(`[superiu] custom URL mode → ${cleanUrl}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -2154,6 +2234,14 @@ function installIpcHandlers(): void {
     return getConnectionInfo();
   });
   ipcMain.handle(INVOKE.disconnectRemote, async () => {
+    if (activeCustomUrl) {
+      activeCustomUrl = null;
+      customUrlToken = null;
+      activeRemoteUrl = null;
+      broadcastConnectionInfo();
+      await startLocalMode();
+      return;
+    }
     await closeRemote();
     broadcastConnectionInfo();
     const config = resolveGatewayConfig(resolveWorkspace());
@@ -2258,6 +2346,51 @@ function installIpcHandlers(): void {
           showGatewayStatus(config, remoteManager?.gatewayClient?.connectionState ?? 'connecting');
         }
       }
+    }
+  );
+
+  ipcMain.handle(
+    INVOKE.connectCustomUrl,
+    async (
+      event,
+      options: { url: string; token?: string; saveDefault?: boolean }
+    ) => {
+      const rawUrl = typeof options?.url === 'string' ? options.url.trim() : '';
+      const cleanUrl = normalizeCustomUrl(rawUrl);
+      const token =
+        typeof options?.token === 'string' && options.token.trim()
+          ? options.token.trim()
+          : undefined;
+
+      // A connect request that originated in the first-run wizard: close it once
+      // the connection is up (the main window takes over).
+      const onboarding =
+        onboardingWindow && !onboardingWindow.isDestroyed() ? onboardingWindow : null;
+      const fromOnboarding = Boolean(onboarding && event.sender === onboarding.webContents);
+
+      if (options?.saveDefault) {
+        try {
+          writeDesktopSettings(resolveWorkspace(), {
+            connectionMode: 'custom_url',
+            customUrl: { url: cleanUrl, token },
+            onboardingCompleted: true
+          });
+        } catch (e) {
+          console.warn('[superiu] failed to persist custom URL settings:', e);
+        }
+      }
+
+      const config: GatewayConfig = {
+        mode: 'custom_url',
+        url: cleanUrl,
+        token,
+        customUrl: { url: cleanUrl, token },
+        workspaceRoot: resolveWorkspace()
+      };
+
+      await startCustomUrlMode(config);
+
+      if (fromOnboarding) closeOnboarding();
     }
   );
 
@@ -2374,6 +2507,12 @@ async function bootstrap(): Promise<void> {
   if (needsOnboarding(readDesktopSettings(workspace), gateway)) {
     console.log(`[superiu] workspace ${workspace}`);
     openOnboarding();
+    return;
+  }
+
+  if (gateway.mode === 'custom_url') {
+    console.log(`[superiu] workspace ${workspace}`);
+    await startCustomUrlMode(gateway);
     return;
   }
 

@@ -53,6 +53,8 @@ const DISCONNECT_REMOTE: typeof import('./ipc.js').INVOKE.disconnectRemote =
   'superiu:disconnect-remote';
 const UPGRADE_REMOTE: typeof import('./ipc.js').INVOKE.upgradeRemote =
   'superiu:upgrade-remote';
+const CONNECT_CUSTOM_URL: typeof import('./ipc.js').INVOKE.connectCustomUrl =
+  'superiu:connect-custom-url';
 const CONNECTION_STATE_CHANNEL: typeof import('./ipc.js').CONNECTION_STATE_CHANNEL =
   'superiu:connection-state';
 const REMOTE_PROGRESS_CHANNEL: typeof import('./ipc.js').REMOTE_PROGRESS_CHANNEL = 'superiu:remote-progress';
@@ -180,6 +182,10 @@ const bridge: SuperiuDesktopBridge = {
 
   upgradeRemote(): Promise<{ ok: boolean; error?: string }> {
     return ipcRenderer.invoke(UPGRADE_REMOTE);
+  },
+
+  connectCustomUrl(options: { url: string; token?: string; saveDefault?: boolean }): Promise<void> {
+    return ipcRenderer.invoke(CONNECT_CUSTOM_URL, options);
   }
 };
 
