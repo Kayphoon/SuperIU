@@ -66,6 +66,8 @@ export interface RemoteConfig {
   autoUpdateIdle?: boolean;
   /** Hours between idle auto-update checks; only forwarded when `> 0`. */
   autoUpdateIntervalHours?: number;
+  /** Public external address for Web and mobile iOS clients. */
+  advertiseUrl?: string;
 }
 
 /** Parsed subset of `ui-settings.json` relevant to the desktop connection. */
@@ -81,6 +83,7 @@ export interface DesktopSettings {
     localPort?: number;
     autoUpdateIdle?: boolean;
     autoUpdateIntervalHours?: number;
+    advertiseUrl?: string;
   };
   workspaceRoot?: string;
   /** Set by the desktop shell once the user has chosen a mode. */
@@ -220,7 +223,11 @@ export function resolveGatewayConfig(workspaceRoot: string): GatewayConfig {
           Number.isFinite(settings.remote.autoUpdateIntervalHours) &&
           settings.remote.autoUpdateIntervalHours > 0
             ? settings.remote.autoUpdateIntervalHours
-            : undefined
+            : undefined,
+        advertiseUrl:
+          process.env.SUPERIU_ADVERTISE_URL?.trim() ||
+          settings.remote?.advertiseUrl?.trim() ||
+          undefined
       }
     : undefined;
 

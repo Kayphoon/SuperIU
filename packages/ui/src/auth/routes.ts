@@ -150,12 +150,21 @@ export async function handlePairing(
   const pathname = url.pathname;
 
   if (pathname === '/api/pairing' && method === 'GET') {
-    sendJson(res, 200, { keys: layer.store.list(), ttlDays: layer.ttlDays });
+    sendJson(res, 200, { keys: layer.store.list(), ttlDays: layer.ttlDays, advertiseUrl: layer.getAdvertiseUrl() || '' });
     return;
   }
 
   if (pathname === '/api/pairing/code' && method === 'POST') {
-    sendJson(res, 200, layer.mintConnectCode(layer.publicOrigin(req)));
+    let body: Record<string, unknown> = {};
+    try {
+      body = await readJsonBody(req);
+    } catch {
+      body = {};
+    }
+    const customBase = typeof body.advertiseUrl === 'string' && body.advertiseUrl.trim()
+      ? body.advertiseUrl.trim()
+      : undefined;
+    sendJson(res, 200, layer.mintConnectCode(customBase || layer.getAdvertiseUrl() || layer.publicOrigin(req)));
     return;
   }
 

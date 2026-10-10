@@ -47,6 +47,7 @@ export interface ConnectionInfoPayload {
   remoteWorkspace?: string;
   localPort?: number;
   customUrl?: string;
+  advertiseUrl?: string;
   state: 'idle' | 'connected' | 'connecting' | 'reconnecting' | 'closed';
   rttMs?: number;
 }

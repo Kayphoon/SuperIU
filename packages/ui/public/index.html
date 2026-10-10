@@ -4926,6 +4926,10 @@
                     <span class="text-muted" data-i18n="settings.remote.currentWorkspace">远程工作目录</span>:
                     <span id="remote-connected-workspace" class="ml-1"></span>
                   </div>
+                  <div id="remote-connected-advertise-wrap" class="col-span-2 truncate" hidden>
+                    <span class="text-muted" data-i18n="settings.remote.advertiseUrlLabel">外部访问服务地址 (Web / iOS)</span>:
+                    <span id="remote-connected-advertise" class="ml-1 text-primary"></span>
+                  </div>
                 </div>
                 <div id="remote-connected-details-custom" class="grid grid-cols-2 gap-2 text-[12px] pt-1 border-t border-line font-mono" hidden>
                   <div class="col-span-2">
@@ -4971,6 +4975,15 @@
                   </div>
                   <input id="remote-port" type="number" min="1024" max="65535" class="siu-field" data-i18n-placeholder="settings.remote.portPlaceholder" placeholder="自动分配" />
                   <p class="siu-field-hint" data-i18n="settings.remote.portHint">留空则自动分配一个空闲的本地端口（推荐）。</p>
+                </div>
+
+                <div>
+                  <div class="flex items-center justify-between">
+                    <label class="siu-field-label" for="remote-advertise-url" data-i18n="settings.remote.advertiseUrlLabel">外部访问服务地址 (Web / iOS)</label>
+                    <span class="text-[11px] text-muted font-mono" data-i18n="settings.remote.portOptional">可选</span>
+                  </div>
+                  <input id="remote-advertise-url" type="text" class="siu-field font-mono text-[12.5px]" spellcheck="false" autocomplete="off" autocapitalize="off" data-i18n-placeholder="settings.remote.advertiseUrlPlaceholder" placeholder="http://192.168.1.100:7345 或 https://..." />
+                  <p class="siu-field-hint" data-i18n="settings.remote.advertiseUrlHint">设置供外部浏览器或手机 iOS 访问该网关的公网 IP 或反代域名</p>
                 </div>
 
                 <div class="siu-toggle-row">
@@ -5068,6 +5081,15 @@
                 <p id="pairing-policy-text" data-i18n="settings.pairing.policy"></p>
               </div>
 
+              <div>
+                <div class="flex items-center justify-between">
+                  <label class="siu-field-label" for="pairing-advertise-url" data-i18n="settings.pairing.advertiseUrlLabel">外部服务地址 (URL)</label>
+                  <span class="text-[11px] text-muted font-mono" data-i18n="settings.pairing.advertiseUrlOptional">可选</span>
+                </div>
+                <input id="pairing-advertise-url" type="text" class="siu-field font-mono text-[12.5px]" spellcheck="false" autocomplete="off" autocapitalize="off" data-i18n-placeholder="settings.pairing.advertiseUrlPlaceholder" placeholder="http://192.168.1.100:7345 或 https://ai.example.com" />
+                <p class="siu-field-hint" data-i18n="settings.pairing.advertiseUrlHint">配置供 Web 浏览器及手机 iOS Safari (PWA) 访问的外部 IP 或域名反代地址。生成配对码时将自动以此为前缀。</p>
+              </div>
+
               <div class="flex items-center justify-between pt-1">
                 <button id="btn-mint-pair-code" type="button" class="siu-btn siu-btn--primary text-[12px]">
                   <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -5092,6 +5114,7 @@
                   <input id="pairing-code-url" type="text" class="siu-field font-mono text-[11.5px] flex-1 select-all" readonly />
                   <button id="btn-copy-pairing-url" type="button" class="siu-btn text-[12px]" data-i18n="settings.pairing.copyLink"></button>
                 </div>
+                <p class="text-[11px] text-muted leading-relaxed" data-i18n="settings.pairing.iosSafariTip"></p>
                 <div class="flex items-center justify-end gap-2 pt-1 border-t border-line">
                   <button id="btn-regen-pairing-code" type="button" class="siu-btn text-[11px]" data-i18n="settings.pairing.regenCode"></button>
                   <button id="btn-dismiss-pairing-code" type="button" class="siu-btn text-[11px]" data-i18n="settings.pairing.dismissCode"></button>
@@ -9255,6 +9278,16 @@
               $('remote-connected-alias').textContent = activeConnectionInfo.alias || '—';
               $('remote-connected-port').textContent = activeConnectionInfo.localPort ? String(activeConnectionInfo.localPort) : '—';
               $('remote-connected-workspace').textContent = activeConnectionInfo.remoteWorkspace || '—';
+              const advWrap = $('remote-connected-advertise-wrap');
+              const advEl = $('remote-connected-advertise');
+              if (advWrap && advEl) {
+                if (activeConnectionInfo.advertiseUrl) {
+                  advEl.textContent = activeConnectionInfo.advertiseUrl;
+                  advWrap.hidden = false;
+                } else {
+                  advWrap.hidden = true;
+                }
+              }
             }
           }
           if (tabs) tabs.hidden = true;
@@ -9272,6 +9305,10 @@
           if (customUrlWrap) customUrlWrap.hidden = !isCustomTab;
         }
         applyRemoteWorkspaceDefault();
+        const remoteAdvInput = $('remote-advertise-url');
+        if (remoteAdvInput && document.activeElement !== remoteAdvInput && activeConnectionInfo?.advertiseUrl) {
+          remoteAdvInput.value = activeConnectionInfo.advertiseUrl;
+        }
         void loadRemoteSshHosts();
       }
 
@@ -9525,11 +9562,13 @@
           localPort = num;
         }
 
+        const advertiseUrl = $('remote-advertise-url')?.value?.trim?.() || undefined;
         const payload = {
           alias,
           workspace,
           saveDefault: rememberBtn?.dataset?.on === 'true',
-          ...(localPort ? { localPort } : {})
+          ...(localPort ? { localPort } : {}),
+          ...(advertiseUrl ? { advertiseUrl } : {})
         };
         void triggerRemoteConnect(payload);
       });
@@ -9817,6 +9856,11 @@
           policyText.textContent = tr('settings.pairing.policy', { days: ttlDays });
         }
 
+        const advInput = $('pairing-advertise-url');
+        if (advInput && document.activeElement !== advInput) {
+          advInput.value = data.advertiseUrl || '';
+        }
+
         const keys = Array.isArray(data.keys) ? data.keys : [];
         if (count) count.textContent = String(keys.length);
 
@@ -10055,11 +10099,25 @@
         }
       });
 
+      $('pairing-advertise-url')?.addEventListener('change', async () => {
+        const val = $('pairing-advertise-url')?.value?.trim() || '';
+        try {
+          await api('/api/settings', { method: 'POST', body: JSON.stringify({ advertiseUrl: val }) });
+          toast(tr('settings.pairing.advertiseUrlSaved'));
+        } catch (err) {
+          toast(err?.message || 'Error', 'error');
+        }
+      });
+
       $('btn-mint-pair-code')?.addEventListener('click', async () => {
         const btn = $('btn-mint-pair-code');
         btn.disabled = true;
         try {
-          const minted = await api('/api/pairing/code', { method: 'POST' });
+          const advUrl = $('pairing-advertise-url')?.value?.trim() || undefined;
+          const minted = await api('/api/pairing/code', {
+            method: 'POST',
+            body: JSON.stringify({ advertiseUrl: advUrl })
+          });
           renderPairingCodeModal(minted);
         } catch (err) {
           toast(err.message, 'error');
@@ -10070,7 +10128,11 @@
 
       $('btn-regen-pairing-code')?.addEventListener('click', async () => {
         try {
-          const minted = await api('/api/pairing/code', { method: 'POST' });
+          const advUrl = $('pairing-advertise-url')?.value?.trim() || undefined;
+          const minted = await api('/api/pairing/code', {
+            method: 'POST',
+            body: JSON.stringify({ advertiseUrl: advUrl })
+          });
           renderPairingCodeModal(minted);
         } catch (err) {
           toast(err.message, 'error');

@@ -57,6 +57,8 @@ export interface AuthLayerOptions {
   store?: PairingStore;
   /** Pairing file path override (tests). Defaults to `<workspace>/.superiu/pairing.json`. */
   pairingPath?: string;
+  /** Public origin to advertise in connect links (e.g. `https://ai.example.com`). */
+  advertiseUrl?: string;
 }
 
 /** Translate `SUPERIU_WEB_AUTH` into a mode. */
@@ -160,6 +162,7 @@ export class AuthLayer {
   private readonly host: string;
   private readonly mode: AuthMode;
   private readonly now: () => Date;
+  private advertiseUrl?: string;
   /** Failed attempts per peer address, newest last. */
   private readonly failures = new Map<string, number[]>();
   /** Last `Set-Cookie` time per key id. */
@@ -169,12 +172,21 @@ export class AuthLayer {
     this.host = options.host;
     this.mode = options.mode ?? 'auto';
     this.now = options.now ?? (() => new Date());
+    this.advertiseUrl = options.advertiseUrl?.trim() || undefined;
     const pairingPath =
       options.pairingPath ?? path.join(options.workspaceDir, '.superiu', 'pairing.json');
     this.store =
       options.store ?? new PairingStore(pairingPath, { now: this.now });
     this.ttlDays = this.store.ttlDays;
     this.ttlMs = this.ttlDays * 24 * 60 * 60 * 1000;
+  }
+
+  setAdvertiseUrl(url?: string): void {
+    this.advertiseUrl = url?.trim() || undefined;
+  }
+
+  getAdvertiseUrl(): string | undefined {
+    return this.advertiseUrl;
   }
 
   /** Whether auth is currently enforced. */
@@ -280,7 +292,7 @@ export class AuthLayer {
    */
   mintConnectCode(advertiseUrl?: string): { code: string; url: string; expiresAt: string } {
     const minted = this.store.mintCode();
-    const base = (advertiseUrl ?? '').replace(/\/+$/, '');
+    const base = (advertiseUrl || this.advertiseUrl || '').replace(/\/+$/, '');
     const suffix = `/auth/connect/${minted.raw}`;
     return { code: minted.raw, url: base ? `${base}${suffix}` : suffix, expiresAt: minted.expiresAt };
   }

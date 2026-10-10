@@ -483,6 +483,8 @@ interface UiSettings {
   activeProviderId?: string;
   providers?: ProviderConfig[];
   modelConfigs?: Record<string, ModelOptionConfig>;
+  /** Public origin to advertise in connect links (Web / iOS Safari PWA). */
+  advertiseUrl?: string;
 }
 
 export type PostureKey = 'terse' | 'cautious' | 'constructive' | 'driven' | 'pragmatic';
@@ -541,7 +543,8 @@ function loadSettings(): UiSettings {
     reasoningEffort: parseReasoningEffort(process.env.OPENAI_REASONING_EFFORT) ?? '',
     language: parseLanguage(process.env.SUPERIU_LANGUAGE) ?? DEFAULT_LANGUAGE,
     theme: DEFAULT_THEME,
-    activeProviderId: ''
+    activeProviderId: '',
+    advertiseUrl: process.env.SUPERIU_ADVERTISE_URL ?? ''
   };
 
   try {
@@ -661,6 +664,7 @@ function loadSettings(): UiSettings {
       theme: parseTheme(raw.theme) ?? defaults.theme,
       activeProviderId,
       providers,
+      advertiseUrl: typeof raw.advertiseUrl === 'string' ? raw.advertiseUrl.trim() : defaults.advertiseUrl,
       ...(Object.keys(modelConfigs).length > 0 ? { modelConfigs } : {})
     };
   } catch {
@@ -695,7 +699,8 @@ const SERVER_OWNED_KEY_FLAGS = {
   theme: true,
   activeProviderId: true,
   providers: true,
-  modelConfigs: true
+  modelConfigs: true,
+  advertiseUrl: true
 } satisfies Record<keyof UiSettings, true>;
 
 /**
@@ -921,6 +926,7 @@ let gatewayRef: GatewayServer | undefined;
 // Created by startServer: importing this module must have no side effects.
 let settings: UiSettings = loadSettings();
 let runner: AgentRunner = null as unknown as AgentRunner;
+let activeAuth: AuthLayer | null = null;
 let activeWorkspaceDir = process.cwd();
 let memoryDir = '';
 /** Build version reported by `buildStatus`; set by startServer from `options.version`. */
@@ -1295,6 +1301,7 @@ function settingsView() {
     titleModelName: settings.titleModelName || '',
     memoryModelName: settings.memoryModelName || '',
     autoReview: settings.autoReview,
+    advertiseUrl: settings.advertiseUrl || '',
     language: settings.language,
     theme: settings.theme,
     reasoningEffort: settings.reasoningEffort,
@@ -1367,6 +1374,10 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
     next.memoryModelName = patch.memoryModelName.trim();
   }
   if (typeof patch.autoReview === 'boolean') next.autoReview = patch.autoReview;
+  if (typeof patch.advertiseUrl === 'string') {
+    next.advertiseUrl = patch.advertiseUrl.trim();
+    if (activeAuth) activeAuth.setAdvertiseUrl(next.advertiseUrl || undefined);
+  }
   if (typeof patch.reasoningEffort === 'string') {
     const raw = patch.reasoningEffort.trim();
     // '' is the explicit "derive" choice; anything else must name a level.
@@ -1712,7 +1723,9 @@ async function handleApi(
     // otherwise switching the interface language or the appearance mid-turn
     // fails with a 409 and the UI visibly snaps back. Any other key still
     // requires an idle runner.
-    const presentationOnly = Object.keys(body).every((key) => key === 'language' || key === 'theme');
+    const presentationOnly = Object.keys(body).every(
+      (key) => key === 'language' || key === 'theme' || key === 'advertiseUrl'
+    );
 
     if (!presentationOnly && runner.status !== 'idle') {
       sendError(res, 409, 'Cannot apply settings while the agent is busy. Abort the turn first.');
@@ -2207,7 +2220,13 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
       : options.webAuth === false
         ? 'off'
         : authModeFromEnv(process.env.SUPERIU_WEB_AUTH);
-  const auth = new AuthLayer({ workspaceDir, host, mode: authMode });
+  const auth = new AuthLayer({
+    workspaceDir,
+    host,
+    mode: authMode,
+    advertiseUrl: settings.advertiseUrl || process.env.SUPERIU_ADVERTISE_URL
+  });
+  activeAuth = auth;
 
   // The single request handler both listeners share, so the SPA and API answer
   // identically whether a client reaches the server over TCP or the socket.

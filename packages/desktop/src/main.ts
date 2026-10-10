@@ -138,6 +138,7 @@ function getConnectionInfo(): ConnectionInfoPayload {
       alias: config.remote?.alias,
       remoteWorkspace: config.remote?.workspace,
       localPort,
+      advertiseUrl: config.remote?.advertiseUrl,
       state: client?.connectionState ?? 'connected',
       rttMs: client?.rttMs
     };
@@ -2265,6 +2266,7 @@ function installIpcHandlers(): void {
         saveDefault?: boolean;
         autoUpdateIdle?: boolean;
         autoUpdateIntervalHours?: number;
+        advertiseUrl?: string;
       }
     ) => {
       // A connect request that originated in the first-run wizard: skip the
@@ -2305,7 +2307,8 @@ function installIpcHandlers(): void {
               workspace: options.workspace,
               localPort,
               ...(autoUpdateIdle !== undefined ? { autoUpdateIdle } : {}),
-              ...(autoUpdateIntervalHours !== undefined ? { autoUpdateIntervalHours } : {})
+              ...(autoUpdateIntervalHours !== undefined ? { autoUpdateIntervalHours } : {}),
+              ...(options.advertiseUrl ? { advertiseUrl: options.advertiseUrl.trim() } : {})
             },
             onboardingCompleted: true
           });
@@ -2322,7 +2325,8 @@ function installIpcHandlers(): void {
           workspace: options.workspace,
           localPort,
           autoUpdateIdle,
-          autoUpdateIntervalHours
+          autoUpdateIntervalHours,
+          advertiseUrl: options.advertiseUrl ? options.advertiseUrl.trim() : undefined
         }
       };
 
