@@ -139,6 +139,7 @@
         --siu-bg-overlay: var(--siu-bg-elevated-opaque);
 
         --siu-bg-inset: rgba(0, 0, 0, 0.28);
+        --siu-bg-subtle: rgba(255, 255, 255, 0.03);
         --siu-bg-hover: rgba(255, 255, 255, 0.055);
         --siu-bg-active: rgba(255, 255, 255, 0.085);
         --siu-bg-selected: rgba(10, 132, 255, 0.12);
@@ -287,6 +288,7 @@
         --siu-bg-elevated: var(--siu-bg-elevated-opaque);
         --siu-bg-overlay: var(--siu-bg-elevated-opaque);
         --siu-bg-inset: rgba(0, 0, 0, 0.045);
+        --siu-bg-subtle: rgba(0, 0, 0, 0.025);
         --siu-bg-hover: rgba(0, 0, 0, 0.045);
         --siu-bg-active: rgba(0, 0, 0, 0.075);
         --siu-bg-selected: rgba(0, 113, 227, 0.1);
@@ -1725,7 +1727,11 @@
         display: flex;
       }
       .siu-msg-row--user {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
         justify-content: flex-end;
+        gap: 4px;
       }
       .siu-msg-row--assistant {
         justify-content: flex-start;
@@ -1733,24 +1739,59 @@
       .siu-bubble {
         position: relative;
         max-width: 100%;
-        padding: var(--siu-space-3) var(--siu-space-4);
-        font-size: var(--siu-text-body);
         line-height: 21px;
-        border: 1px solid var(--siu-border);
-        /* Matches the tool cards and step groups; the asymmetric bottom corner
-           is the only bubble-specific flourish. */
-        border-radius: var(--siu-radius-xl);
         color: var(--siu-text-primary);
       }
       .siu-bubble--user {
-        background: var(--siu-accent-weak);
-        border-color: var(--siu-accent-border);
-        border-bottom-right-radius: var(--siu-radius-xs);
+        align-self: flex-end;
+        max-width: 85%;
+        background: #3b5cf6;
+        color: #ffffff;
+        border: none;
+        border-radius: 10px;
+        padding: 8px 12px;
+        font-size: 13.5px;
+        font-weight: 440;
         white-space: pre-wrap;
+        word-break: break-word;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+      }
+      .siu-user-meta {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 11px;
+        color: var(--siu-text-muted);
+        padding-inline: 2px;
+        user-select: none;
+      }
+      .siu-user-meta-copy {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 18px;
+        height: 18px;
+        padding: 0;
+        border: none;
+        background: transparent;
+        color: var(--siu-text-muted);
+        cursor: pointer;
+        opacity: 0;
+        transition: opacity var(--siu-dur-base) var(--siu-ease-out),
+          color var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-msg-row--user:hover .siu-user-meta-copy,
+      .siu-msg-row--user:focus-within .siu-user-meta-copy {
+        opacity: 1;
+      }
+      .siu-user-meta-copy:hover {
+        color: var(--siu-text-primary);
       }
       .siu-bubble--assistant {
-        background: var(--siu-bg-panel);
-        border-bottom-left-radius: var(--siu-radius-xs);
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        padding: 4px 28px 10px 0;
       }
       .siu-bubble-copy {
         position: absolute;
@@ -2048,6 +2089,41 @@
       }
       .siu-tool-chain svg {
         flex: none;
+      }
+
+      /* A turn's tool cards collected behind one foldable summary row. */
+      .siu-tool-group {
+        border: 1px solid var(--siu-border-subtle);
+        border-radius: 8px;
+        background: var(--siu-bg-subtle);
+        overflow: hidden;
+        transition: background var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-tool-group summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 6px 12px;
+        cursor: pointer;
+        font-size: 12.5px;
+        color: var(--siu-text-secondary);
+        user-select: none;
+        list-style: none;
+      }
+      .siu-tool-group summary::-webkit-details-marker {
+        display: none;
+      }
+      .siu-tool-group summary:hover {
+        background: var(--siu-bg-hover);
+        color: var(--siu-text-primary);
+      }
+      .siu-tool-group-body {
+        padding: 8px 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        border-top: 1px solid var(--siu-border-subtle);
+        background: var(--siu-bg-panel);
       }
 
       /* =====================================================================
@@ -6578,6 +6654,12 @@
       function userBubble(text) {
         const row = el('div', 'siu-msg-row siu-msg-row--user ' + enterClass());
         row.appendChild(el('div', 'siu-bubble siu-bubble--user', text));
+        // The meta row sits under the bubble: the model (or role) that answered
+        // plus a hover-revealed copy affordance, mirroring the assistant bubble.
+        const meta = el('div', 'siu-user-meta');
+        meta.appendChild(el('span', 'siu-user-meta-label', state.currentModel || tr('transcript.orchestrator')));
+        attachCopy(meta, () => text, 'siu-user-meta-copy');
+        row.appendChild(meta);
         return row;
       }
 
@@ -6589,8 +6671,8 @@
       }
 
       /** A copy affordance on the assistant's answer, revealed on hover. */
-      function attachCopy(bubble, getText) {
-        const button = el('button', 'siu-bubble-copy');
+      function attachCopy(host, getText, className) {
+        const button = el('button', className || 'siu-bubble-copy');
         button.type = 'button';
         button.title = tr('transcript.copy');
         button.setAttribute('aria-label', tr('transcript.copy'));
@@ -6606,7 +6688,7 @@
             toast(tr('toast.clipboard'), 'error');
           }
         });
-        bubble.appendChild(button);
+        host.appendChild(button);
       }
 
       function statusBadge(status) {
@@ -6679,6 +6761,55 @@
 
         details.appendChild(body);
         return { details, duration, outPre, summary, wait };
+      }
+
+      /**
+       * The OpenCode v2 tool summary: one foldable row that collects a turn's
+       * tool cards behind a single `使用了 N 个 …` line, so a run of tool calls
+       * reads as one collapsed step rather than a column of separate cards.
+       */
+      function toolGroup() {
+        const details = el('details', 'siu-tool-group ' + enterClass());
+        details.dataset.kind = 'tool-group';
+        const summary = el('summary');
+        const label = el('span', 'siu-tool-group-label');
+        summary.appendChild(label);
+        const chev = el('span', 'siu-tool-group-chev');
+        chev.innerHTML = CHEVRON;
+        summary.appendChild(chev);
+        details.appendChild(summary);
+        const body = el('div', 'siu-tool-group-body');
+        details.appendChild(body);
+        const names = [];
+        let finished = false;
+        // While a live turn runs the row reads "working"; once it settles it
+        // names what ran, so the folded summary is the durable record.
+        const refresh = () => {
+          label.textContent = finished
+            ? tr('transcript.toolUsed', { n: names.length, tools: names.join(toolSeparator()) })
+            : tr('transcript.working');
+        };
+        refresh();
+        return {
+          details,
+          body,
+          summary,
+          label,
+          add(tool, name) {
+            if (name) names.push(name);
+            if (tool) body.appendChild(tool.details);
+            refresh();
+          },
+          finish() {
+            finished = true;
+            refresh();
+          }
+        };
+      }
+
+      /** The enumeration mark for a tool-name list: the locale's own separator. */
+      function toolSeparator() {
+        return getLanguage?.() === 'en' ? ', ' : '、';
       }
 
       function setToolStatus(card, status, durationMs) {
@@ -6866,24 +6997,32 @@
           const card = el('div', 'siu-turn ' + enterClass());
           card.dataset.role = 'content';
 
+          const calls = message.toolCalls || [];
+          if (calls.length) {
+            // Tool execution precedes the answer, so the folded summary sits
+            // above the bubble rather than below it.
+            const group = toolGroup();
+            for (const call of calls) {
+              const tool = toolCard(call.name, call.args);
+              const result = resultByCallId.get(call.id);
+              if (result) {
+                tool.outPre.textContent =
+                  typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2);
+                setToolStatus(tool, result.isError ? 'error' : 'done');
+              } else {
+                setToolStatus(tool, 'done');
+              }
+              group.add(tool, call.name);
+            }
+            group.finish();
+            card.appendChild(group.details);
+          }
+
           if (message.content) {
             const bubble = el('div', 'siu-md siu-bubble siu-bubble--assistant');
             bubble.innerHTML = renderMarkdown(message.content);
             attachCopy(bubble, () => message.content);
             card.appendChild(bubble);
-          }
-
-          for (const call of message.toolCalls || []) {
-            const tool = toolCard(call.name, call.args);
-            const result = resultByCallId.get(call.id);
-            if (result) {
-              tool.outPre.textContent =
-                typeof result.result === 'string' ? result.result : JSON.stringify(result.result, null, 2);
-              setToolStatus(tool, result.isError ? 'error' : 'done');
-            } else {
-              setToolStatus(tool, 'done');
-            }
-            card.appendChild(tool.details);
           }
 
           transcript.appendChild(card);
@@ -7276,6 +7415,8 @@
         let phase = 'main';
         let lastTextBubble = null;
         let contentReceived = false;
+        // The current step's foldable tool summary; recreated per step.
+        let liveTools = null;
 
         const openStep = (step, stepPhase) => {
           // A new step ends the previous one. Without this the old bubble keeps
@@ -7290,6 +7431,7 @@
           thinking = null;
           toolCount = 0;
           stepApprovalWait = 0;
+          liveTools = null;
           group.details.addEventListener('toggle', () => {
             // Collapsing a step must not leave a live cursor stranded.
             if (!group.details.open && activeBubble) activeBubble.classList.remove('siu-cursor');
@@ -7305,6 +7447,16 @@
             lastTextBubble = activeBubble;
           }
           return activeBubble;
+        };
+
+        /** Lazily create the step's tool summary and append tools into it. */
+        const ensureToolGroup = () => {
+          if (!liveTools) {
+            liveTools = toolGroup();
+            liveTools.details.open = true;
+            group.body.appendChild(liveTools.details);
+          }
+          return liveTools;
         };
 
         const closeBubble = () => {
@@ -7401,7 +7553,7 @@
               closeThinking();
               closeBubble();
               const tool = toolCard(event.name, event.args);
-              group.body.appendChild(tool.details);
+              ensureToolGroup().add(tool, event.name);
               currentCard = tool;
               pendingCards.push(tool);
               toolCount++;
@@ -7461,6 +7613,7 @@
             case 'done': {
               closeThinking();
               closeBubble();
+              if (liveTools) liveTools.finish();
               settleOpenApprovals();
               if (group) updateStepMeta();
 
@@ -7586,6 +7739,7 @@
         } finally {
           closeThinking();
           closeBubble();
+          if (liveTools) liveTools.finish();
           settleOpenApprovals();
           state.controller = null;
           // Everything below runs while `running` is still true, and the flag is

@@ -473,6 +473,9 @@ const DICT = {
     'transcript.tools': '{n} 个工具',
     'transcript.waitBlocked': '等待你的审批决定 {seconds}s',
     'transcript.aborted': '■ 本轮已被用户中止',
+    'transcript.toolUsed': '使用了 {n} 个 {tools}',
+    'transcript.working': '工作中',
+    'transcript.orchestrator': '编排器',
 
     'approval.title': '需要审批',
     'approval.via': '经由 {name}',
@@ -1102,6 +1105,9 @@ const DICT = {
     'transcript.tools': '{n} tools',
     'transcript.waitBlocked': 'Blocked {seconds}s waiting for your approval decision',
     'transcript.aborted': '■ turn aborted by user',
+    'transcript.toolUsed': 'Used {n} {tools}',
+    'transcript.working': 'Working…',
+    'transcript.orchestrator': 'Orchestrator',
 
     'approval.title': 'Approval required',
     'approval.via': 'via {name}',
