@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.33 (2026-10-10)
+
+### 中文
+
+- 远端守护进程持久化与双重监听（Dual-Listen）：
+  - **自动配置持久化系统守护进程**：Desktop 远程连接 SSH 时，自动探测远端 `systemd --user` 支持，自动调用 `loginctl enable-linger` 开启用户会话持久化（确保断开 SSH 后不被系统回收杀死），并在 `~/.config/systemd/user/superiu-server.service` 自动写入用户服务单元与开机自启配置；非 systemd 环境平滑降级为 `setsid nohup` 进程；
+  - **双重监听（Dual-Listen）架构**：服务端支持同时监听 Unix domain socket（供 Desktop 经 SSH 隧道高速、零冲突接入，免配对认证）与 TCP 端口（如 `7345` / `3000`，绑定 `0.0.0.0`，受 Web 配对鉴权保护），使得 Desktop 不在线时，用户依然可以通过浏览器随时访问 Web 控制台；
+  - **Desktop 状态提示增强**：连接进度步骤中详细展示 Unix domain socket 路径及 Web 控制台端口，方便多端协同。
+
+### English
+
+- Persistent remote daemon auto-provisioning and dual-listen web access:
+  - **Automatic persistent system daemon configuration**: when connecting via SSH, Desktop automatically detects `systemd --user` availability, enables `loginctl enable-linger` (preventing session cleanup upon SSH disconnect), and generates a systemd user unit at `~/.config/systemd/user/superiu-server.service` with automatic restart and boot enablement; gracefully falls back to `setsid nohup` in non-systemd environments.
+  - **Dual-listen server architecture**: `superiu-server` now simultaneously listens on a Unix domain socket (for Desktop SSH tunnel loopback traffic with zero port conflict and loopback trust) and a TCP port (such as `7345` / `3000` on `0.0.0.0`, protected by web pairing auth), allowing users to access the Web Console via browser even when Desktop is closed/offline.
+  - **Enhanced connection status details**: connection progress displays both the active Unix domain socket path and the web console port for seamless multi-device coordination.
+
 ## v0.2.32 (2026-10-09)
 
 ### 中文
