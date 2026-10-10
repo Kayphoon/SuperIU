@@ -12,6 +12,7 @@ notes/
 tmp/
 scratch/
 *.tmp
+.vitest/
 
 # Stray tsc emit inside src/ (build output belongs in dist/)
 packages/*/src/**/*.js

@@ -12,6 +12,7 @@ import * as path from 'node:path';
 import {
   needsOnboarding,
   readDesktopSettings,
+  resolveGatewayConfig,
   settingsFilePath,
   writeDesktopSettings,
   type DesktopSettings,
@@ -60,7 +61,7 @@ describe('needsOnboarding', () => {
     expect(needsOnboarding({ onboardingCompleted: true }, localGateway)).toBe(false);
   });
 
-  it.each(['local', 'gateway', 'remote'] as const)(
+  it.each(['local', 'gateway', 'remote', 'custom_url'] as const)(
     'is false for an explicit connectionMode %s',
     (mode) => {
       expect(needsOnboarding({ connectionMode: mode }, localGateway)).toBe(false);
@@ -70,6 +71,7 @@ describe('needsOnboarding', () => {
   it('is false when the resolved gateway is not local', () => {
     expect(needsOnboarding({}, { ...localGateway, mode: 'gateway' })).toBe(false);
     expect(needsOnboarding({}, { ...localGateway, mode: 'remote' })).toBe(false);
+    expect(needsOnboarding({}, { ...localGateway, mode: 'custom_url' })).toBe(false);
   });
 
   it('is false under SUPERIU_SKIP_ONBOARDING even when fresh', () => {
@@ -186,6 +188,80 @@ describe('writeDesktopSettings', () => {
       alias: 'prod-1',
       workspace: '/srv/app',
       localPort: 51234
+    });
+  });
+
+  it('round-trips customUrl settings', () => {
+    const dir = makeTmpDir();
+    writeDesktopSettings(dir, {
+      connectionMode: 'custom_url',
+      customUrl: { url: 'http://192.168.1.50:4000', token: 'token-xyz' },
+      onboardingCompleted: true
+    });
+    expect(readDesktopSettings(dir).customUrl).toEqual({
+      url: 'http://192.168.1.50:4000',
+      token: 'token-xyz'
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveGatewayConfig
+// ---------------------------------------------------------------------------
+
+describe('resolveGatewayConfig', () => {
+  const CUSTOM_ENV = ['SUPERIU_CUSTOM_URL', 'SUPERIU_CUSTOM_TOKEN', 'SUPERIU_CONNECTION_MODE'] as const;
+  const originalCustomEnv: Record<string, string | undefined> = {};
+
+  beforeEach(() => {
+    for (const key of CUSTOM_ENV) {
+      originalCustomEnv[key] = process.env[key];
+      delete process.env[key];
+    }
+  });
+
+  afterEach(() => {
+    for (const key of CUSTOM_ENV) {
+      if (originalCustomEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = originalCustomEnv[key];
+    }
+  });
+
+  it('resolves custom_url mode from settings file', () => {
+    const dir = makeTmpDir();
+    writeDesktopSettings(dir, {
+      connectionMode: 'custom_url',
+      customUrl: { url: 'https://custom.superiu.internal:8080', token: 'auth-key-123' }
+    });
+
+    const config = resolveGatewayConfig(dir);
+    expect(config.mode).toBe('custom_url');
+    expect(config.url).toBe('https://custom.superiu.internal:8080');
+    expect(config.token).toBe('auth-key-123');
+    expect(config.customUrl).toEqual({
+      url: 'https://custom.superiu.internal:8080',
+      token: 'auth-key-123'
+    });
+  });
+
+  it('resolves custom_url mode from environment variables overriding settings', () => {
+    const dir = makeTmpDir();
+    writeDesktopSettings(dir, {
+      connectionMode: 'local',
+      customUrl: { url: 'http://old.example.com', token: 'old-token' }
+    });
+
+    process.env.SUPERIU_CONNECTION_MODE = 'custom_url';
+    process.env.SUPERIU_CUSTOM_URL = 'http://new.example.com';
+    process.env.SUPERIU_CUSTOM_TOKEN = 'new-token';
+
+    const config = resolveGatewayConfig(dir);
+    expect(config.mode).toBe('custom_url');
+    expect(config.url).toBe('http://new.example.com');
+    expect(config.token).toBe('new-token');
+    expect(config.customUrl).toEqual({
+      url: 'http://new.example.com',
+      token: 'new-token'
     });
   });
 });
