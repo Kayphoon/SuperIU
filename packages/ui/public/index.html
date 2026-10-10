@@ -16,7 +16,7 @@
     <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
     <title data-i18n="app.title">SuperIU · 智能体控制台</title>
     <link rel="icon" type="image/png" href="/app-icon.png" />
-    <link rel="apple-touch-icon" href="/app-icon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.json" />
     <script>
       // Set before the first paint so the translucent layers never flash opaque
@@ -2641,7 +2641,7 @@
         pointer-events: none;
         z-index: 0;
       }
-      /* Adaptive squircle card that shifts seamlessly between light and dark themes */
+      /* The classic all-white Apple/SuperIU squircle card */
       .siu-empty-icon {
         display: flex;
         align-items: center;
@@ -2653,36 +2653,18 @@
         z-index: 1;
         pointer-events: none;
         border-radius: 22px;
-        transition: background var(--siu-dur-base) var(--siu-ease-out),
-          border-color var(--siu-dur-base) var(--siu-ease-out),
-          box-shadow var(--siu-dur-base) var(--siu-ease-out);
-      }
-      /* Light mode: crisp white card with gentle rim and shadow */
-      [data-color-scheme='light'] .siu-empty-icon {
         background: #ffffff;
-        border: 1px solid rgba(0, 0, 0, 0.08);
-        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.42), 0 2px 6px rgba(0, 0, 0, 0.2);
+        border: none;
       }
-      [data-color-scheme='light'] .siu-empty-icon img {
+      .siu-empty-icon img {
         width: 72px;
         height: 72px;
         object-fit: contain;
         -webkit-user-drag: none;
       }
-      /* Dark mode: sleek dark gradient squircle matching macOS/iOS 18 dark icons */
-      [data-color-scheme='dark'] .siu-empty-icon,
-      :root:not([data-color-scheme='light']) .siu-empty-icon {
-        background: linear-gradient(180deg, #1f2330 0%, #141720 100%);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.25);
-      }
-      [data-color-scheme='dark'] .siu-empty-icon img,
-      :root:not([data-color-scheme='light']) .siu-empty-icon img {
-        width: 72px;
-        height: 72px;
-        object-fit: contain;
-        -webkit-user-drag: none;
-        filter: drop-shadow(0 0 1px rgba(255, 255, 255, 0.4)) drop-shadow(0 2px 5px rgba(0, 0, 0, 0.35));
+      [data-color-scheme='light'] .siu-empty-icon {
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.09), 0 1px 3px rgba(0, 0, 0, 0.05);
       }
       .siu-empty-eyebrow {
         font-family: var(--siu-font-mono);
@@ -3779,11 +3761,15 @@
         .traffic-group {
           display: none !important;
         }
+        .siu-chrome {
+          z-index: 40;
+        }
         .siu-titlebar {
           padding-left: calc(var(--siu-space-3) + var(--siu-safe-left));
           padding-right: calc(var(--siu-space-3) + var(--siu-safe-right));
           padding-bottom: var(--siu-space-1);
         }
+        /* The sidebar becomes a left off-canvas drawer. It must never be
            `display: none`: that would leave `#btn-toggle-sidebar` a dead
            control. `transform` is re-declared explicitly in both states so the
            drawer position is never inferred from the desktop collapse rule,
@@ -10399,9 +10385,10 @@
       $('btn-palette').addEventListener('click', () => openModal('palette'));
       $('btn-toggle-sidebar')?.addEventListener('click', toggleSidebarForWidth);
       $('btn-sidebar-collapse')?.addEventListener('click', () => {
-        if (mobileSidebarQuery.matches) closeMobileSidebar();
-        else setSidebarCollapsed(true);
+        closeMobileSidebar();
+        setSidebarCollapsed(true);
       });
+      $('sidebar-scrim')?.addEventListener('click', closeMobileSidebar);
 
       // =======================================================================
       // Main model selector (secondary menu)

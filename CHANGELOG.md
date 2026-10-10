@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.44 (2026-10-10)
+
+### 中文
+
+- 修复 iOS Safari 抽屉交互卡死与 PWA 图标外圈暗环：
+  - **移动端抽屉交互与点击响应修复**：修复移动端媒体查询样式块中因注释未闭合导致的 CSS 解析语法错误；修复后移动端抽屉正常恢复为左侧悬浮抽屉布局，并将顶部标题栏层级提升至遮罩层之上，彻底解决点击左上角消息列表按钮或 `<` 收起按钮无响应卡死的问题；
+  - **PWA 主屏幕图标外圈暗环消除**：为 Safari / PWA 独立生成 512×512 满幅纯白底色 `apple-touch-icon.png`，消除 iOS 自动添加主屏幕图标时因外围透明边距被系统默认填充为黑色所导致的暗色外圈；
+  - **欢迎界面头像底板回归经典纯白卡片**：去除头像外框双层边框与暗色叠加，恢复为经典纯白圆角卡片配柔和环境微投影，在暗夜模式下更加通透美观。
+
+### English
+
+- Fix iOS Safari drawer freeze and eliminate PWA dark icon outer ring:
+  - **Mobile drawer interaction & tap responsiveness fix**: resolved a CSS syntax error caused by an unclosed comment in the mobile media query; properly restores the off-canvas drawer layout and elevates the chrome z-index above the scrim, fixing the issue where tapping the sidebar toggle or `<` collapse button was stuck and non-responsive;
+  - **Safari PWA home-screen icon dark ring elimination**: generated a solid-bleed 512x512 opaque white `apple-touch-icon.png` for Safari and PWA manifest, preventing iOS from automatically filling transparent margins with black when added to the home screen;
+  - **Classic all-white squircle card for welcome avatar**: removed double border rings and dark mode tint on the avatar card, restoring the clean all-white Apple-style squircle card with gentle elevation shadow for a crisp appearance against dark backgrounds.
+
 ## v0.2.43 (2026-10-10)
 
 ### 中文
