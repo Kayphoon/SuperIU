@@ -35,6 +35,8 @@ WS gateway 侧存在, 浏览器路径仍为 REST+SSE (见 event_hub.ts 的已知
 
 ## 踩过的坑
 
+- **外部服务地址 (advertiseUrl) 优先注入**: 解决 SSH 隧道模式下因回环转发请求导致生成的一次性配对链接以 `http://127.0.0.1:<port>` 为基准、无法在外部手机/浏览器打开的痛点。AuthLayer、routes.ts 及 UI 设置面板支持配置与持久化 `advertiseUrl`（公网 IP、反向代理域名、Cloudflare Tunnel 等），生成配对码时自动作为前缀覆盖 `req.headers.host`。
+- **首次向导三卡片 Tab 选择器**: Desktop 首次运行向导 (`onboarding.html`) 采用横向三卡片切换布局（本地单机模式 / SSH 远程连接 / 自定义服务地址），支持免 SSH 隧道的 Custom URL 直连与 Token 交换，各面板平级切换。
 - **Unix 域套接字 peerAddress undefined**: 桌面 remote 模式经 SSH 隧道转发至远端 daemon 绑定的 socket 时，Node.js HTTP 连接的 remoteAddress 为 undefined。若仅校验 IP 字符串会导致 SSH 远程连接被误判为外网连接并报 401，进而弹出 Web 配对屏锁死 Desktop。必须将 req.socket.remoteAddress === undefined (AF_UNIX) 同样作为 loopback peer 豁免。
 - **Desktop 端永远不可被配对屏死锁**: 桌面端自带 SSH 与本地单机双轨制。配对屏在 window.superiuDesktop 存在时不得隐藏主 UI (.siu-app)，必须提供关闭按钮、使用 SSH 远程连接快捷入口（直达设置）以及返回本地模式按钮，支持 Esc/蒙层退出。
 - **CLI 铸造与 daemon 内存态竞态**: daemon 无控制 socket (status/stop 走 server.json+信号),
