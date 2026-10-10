@@ -1,5 +1,6 @@
 import * as http from 'node:http';
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -16,6 +17,7 @@ import {
   supportsReasoningEffort,
   type ContextMessage,
   type EmotionState,
+  type McpServerConfig,
   type ModelMetadata,
   type ModelRole,
   type ModelRoute,
@@ -83,6 +85,12 @@ export interface StartServerOptions {
    * code. Exposed so tests and embedders can pin the mode.
    */
   webAuth?: boolean;
+  /**
+   * MCP config file the runner's manager loads at boot. Defaults to
+   * `~/.superiu/mcp.json`; pass `null` to disable MCP config-file loading
+   * entirely (programmatic-only hosts, tests).
+   */
+  mcpConfigPath?: string | null;
   /** Optional lifecycle hooks to drive the `/api/update` routes. */
   updateHooks?: UpdateHooks;
 }
@@ -894,6 +902,9 @@ function runnerOptions(sessionReference?: string, historyDbPath?: string, newSes
     // rather than be handed a path that does not exist yet.
     newSession,
     historyDbPath,
+    // The MCP config path follows the runner across settings rebuilds, so a
+    // test-pinned (or disabled) path survives `applySettings`.
+    mcpConfigPath: activeMcpConfigPath,
     permissionGate: async (toolCall: ToolCallItem, review: ReviewResult): Promise<boolean> =>
       new Promise<boolean>((resolve) => {
         pendingApprovals.set(toolCall.id, resolve);
@@ -932,6 +943,8 @@ let settings: UiSettings = loadSettings();
 let runner: AgentRunner = null as unknown as AgentRunner;
 let activeAuth: AuthLayer | null = null;
 let activeWorkspaceDir = process.cwd();
+/** MCP config path pinned by `startServer`; `undefined` = the manager default. */
+let activeMcpConfigPath: string | null | undefined;
 let memoryDir = '';
 /** Build version reported by `buildStatus`; set by startServer from `options.version`. */
 let serverVersion = '0.0.0';
@@ -1567,11 +1580,20 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
   // nothing is lost and the new session still materializes on its first one.
   const draft = !runner.session.materialized;
   const carriedEmotion = runner.emotion;
-  runner.close();
+  const previousRunner = runner;
+  previousRunner.close();
+  // MCP connections live on the old runner's manager, which close() does not
+  // touch: disconnect explicitly so a settings rebuild cannot leak the stdio
+  // child processes a live server is backed by.
+  void previousRunner.getMcpManager().closeAll().catch(() => undefined);
   runner = new AgentRunner(
     runnerOptions(draft ? undefined : activeSession ?? undefined, undefined, draft)
   );
   runner.emotion = carriedEmotion;
+  // Reconnect the configured MCP servers on the rebuilt runner. `applySettings`
+  // is synchronous, so this is fire-and-forget: failures are contained per
+  // server by the manager and surface via `/api/mcp`, not in the save response.
+  void runner.initMcp().catch((err) => console.warn('[server] initMcp warning:', err));
 
   return { restarted: true, sessionId: runner.getSessionId() };
 }
@@ -1579,6 +1601,61 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
 // ---------------------------------------------------------------------------
 // API routes
 // ---------------------------------------------------------------------------
+
+/** Coerce a JSON object into a string map, dropping non-object inputs. */
+function stringRecord(value: unknown): Record<string, string> | undefined {
+  if (!isPlainObject(value)) return undefined;
+  return Object.fromEntries(Object.entries(value).map(([key, val]) => [key, String(val)]));
+}
+
+/**
+ * The `/api/mcp` payload: the raw on-disk server map plus a live status row per
+ * configured server.
+ *
+ * `servers` mirrors the config file exactly (the internal `name` key is the map
+ * key on disk, not a property of the value), while `statuses` joins each config
+ * with its connection state, its advertised tools and the manager's last
+ * recorded error — the union a settings surface needs to render both "what is
+ * configured" and "what is actually running".
+ */
+async function buildMcpPayload(target: AgentRunner) {
+  const manager = target.getMcpManager();
+  const configPath = manager.getConfigPath() ?? path.join(os.homedir(), '.superiu', 'mcp.json');
+  const configs = manager.listServerConfigs();
+  // A server that cannot answer listTools degrades to an empty tool list rather
+  // than failing the whole payload.
+  const tools = await manager.listTools().catch(() => []);
+  const lastErrors = manager.getLastErrors();
+
+  const servers: Record<string, unknown> = {};
+  for (const cfg of configs) {
+    const { name, ...rest } = cfg;
+    servers[name] = rest;
+  }
+
+  const statuses = configs.map((cfg) => {
+    const isLive = manager.isConnected(cfg.name);
+    const serverTools = tools
+      .filter((t) => t.serverName === cfg.name)
+      .map((t) => ({ name: t.name, description: t.description ?? '' }));
+    const stdio = cfg as { command?: string; args?: string[]; cwd?: string };
+    const sse = cfg as { url?: string };
+    return {
+      name: cfg.name,
+      enabled: cfg.enabled !== false,
+      connected: isLive,
+      transport: typeof sse.url === 'string' ? 'sse' : 'stdio',
+      command: stdio.command,
+      args: stdio.args,
+      cwd: stdio.cwd,
+      url: sse.url,
+      error: lastErrors[cfg.name] ?? null,
+      tools: serverTools
+    };
+  });
+
+  return { configPath, servers, statuses };
+}
 
 const API_METHODS: Record<string, string[]> = {
   '/api/status': ['GET'],
@@ -1596,6 +1673,12 @@ const API_METHODS: Record<string, string[]> = {
   '/api/approve': ['POST'],
   '/api/shutdown': ['POST'],
   '/api/update': ['GET', 'POST'],
+  '/api/mcp': ['GET'],
+  '/api/mcp/server': ['POST', 'DELETE'],
+  '/api/mcp/toggle': ['POST'],
+  '/api/mcp/reload': ['POST'],
+  '/api/mcp/raw': ['POST'],
+  '/api/mcp/delete': ['POST'],
   '/api/chat': ['POST']
 };
 
@@ -1975,6 +2058,200 @@ async function handleApi(
     return true;
   }
 
+  // -------------------------------------------------------------------------
+  // MCP management: the `/api/mcp*` family edits `mcp.json` through the
+  // runner's manager and answers with the fresh payload, so the settings
+  // surface never reads the file itself.
+  // -------------------------------------------------------------------------
+
+  if (pathname === '/api/mcp' && method === 'GET') {
+    sendJson(res, 200, await buildMcpPayload(runner));
+    return true;
+  }
+
+  if (pathname === '/api/mcp/server' && method === 'POST') {
+    let body: Record<string, unknown>;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      sendError(res, 400, errorMessage(err));
+      return true;
+    }
+
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    if (!name) {
+      sendError(res, 400, 'Missing required field: name');
+      return true;
+    }
+    const transport = body.transport === 'stdio' || body.transport === 'sse' ? body.transport : null;
+    if (!transport) {
+      sendError(res, 400, `Field 'transport' must be 'stdio' or 'sse'`);
+      return true;
+    }
+    const enabled = typeof body.enabled === 'boolean' ? body.enabled : true;
+
+    let config: McpServerConfig;
+    if (transport === 'stdio') {
+      const command = typeof body.command === 'string' ? body.command.trim() : '';
+      if (!command) {
+        sendError(res, 400, `Field 'command' is required for stdio servers`);
+        return true;
+      }
+      const env = stringRecord(body.env);
+      config = {
+        name,
+        enabled,
+        command,
+        ...(Array.isArray(body.args) ? { args: body.args.map((arg) => String(arg)) } : {}),
+        ...(env ? { env } : {}),
+        ...(typeof body.cwd === 'string' && body.cwd.trim() ? { cwd: body.cwd } : {})
+      };
+    } else {
+      const url = typeof body.url === 'string' ? body.url.trim() : '';
+      if (!url) {
+        sendError(res, 400, `Field 'url' is required for sse servers`);
+        return true;
+      }
+      const headers = stringRecord(body.headers);
+      config = {
+        name,
+        enabled,
+        url,
+        ...(headers ? { headers } : {})
+      };
+    }
+
+    const manager = runner.getMcpManager();
+    manager.addServer(config);
+    await manager.saveConfigFile();
+    if (config.enabled !== false) {
+      // A server that fails to start degrades itself through the manager's
+      // error ledger; the add still succeeds so the config is not lost.
+      await manager.connect(name);
+    }
+    await runner.refreshTools();
+    sendJson(res, 200, await buildMcpPayload(runner));
+    return true;
+  }
+
+  if (
+    (pathname === '/api/mcp/server' && method === 'DELETE') ||
+    (pathname === '/api/mcp/delete' && method === 'POST')
+  ) {
+    // The name arrives as `?name=…` (DELETE) or in the JSON body (POST); a
+    // DELETE may carry a body too, so fall back to it either way.
+    const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+    let name = url.searchParams.get('name')?.trim() ?? '';
+    if (!name) {
+      try {
+        const body = await readJsonBody(req);
+        name = typeof body.name === 'string' ? body.name.trim() : '';
+      } catch {
+        name = '';
+      }
+    }
+    if (!name) {
+      sendError(res, 400, 'Missing required field: name');
+      return true;
+    }
+
+    const manager = runner.getMcpManager();
+    await manager.removeServer(name);
+    await manager.saveConfigFile();
+    await runner.refreshTools();
+    sendJson(res, 200, await buildMcpPayload(runner));
+    return true;
+  }
+
+  if (pathname === '/api/mcp/toggle' && method === 'POST') {
+    let body: Record<string, unknown>;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      sendError(res, 400, errorMessage(err));
+      return true;
+    }
+
+    const name = typeof body.name === 'string' ? body.name.trim() : '';
+    if (!name) {
+      sendError(res, 400, 'Missing required field: name');
+      return true;
+    }
+    if (typeof body.enabled !== 'boolean') {
+      sendError(res, 400, `Field 'enabled' must be a boolean`);
+      return true;
+    }
+
+    const manager = runner.getMcpManager();
+    try {
+      if (body.enabled) {
+        await manager.enableServer(name);
+      } else {
+        await manager.disableServer(name);
+      }
+    } catch (err) {
+      // `enableServer` throws for an unknown name; that is a client error, not
+      // a server fault.
+      sendError(res, 404, errorMessage(err));
+      return true;
+    }
+    await manager.saveConfigFile();
+    await runner.refreshTools();
+    sendJson(res, 200, await buildMcpPayload(runner));
+    return true;
+  }
+
+  if (pathname === '/api/mcp/reload' && method === 'POST') {
+    const manager = runner.getMcpManager();
+    await manager.reload();
+    await runner.refreshTools();
+    sendJson(res, 200, await buildMcpPayload(runner));
+    return true;
+  }
+
+  if (pathname === '/api/mcp/raw' && method === 'POST') {
+    let body: Record<string, unknown>;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      sendError(res, 400, errorMessage(err));
+      return true;
+    }
+
+    // `raw` is the config file as a JSON string (a paste from an editor);
+    // otherwise the body itself carries `mcpServers`.
+    let parsed: unknown;
+    if (typeof body.raw === 'string') {
+      try {
+        parsed = JSON.parse(body.raw);
+      } catch {
+        sendError(res, 400, 'Invalid JSON');
+        return true;
+      }
+    } else {
+      parsed = body;
+    }
+
+    if (!isPlainObject(parsed) || !isPlainObject(parsed.mcpServers)) {
+      sendError(res, 400, 'Body must include an "mcpServers" object');
+      return true;
+    }
+
+    const manager = runner.getMcpManager();
+    const configPath = manager.getConfigPath() ?? path.join(os.homedir(), '.superiu', 'mcp.json');
+    try {
+      fs.mkdirSync(path.dirname(configPath), { recursive: true });
+      fs.writeFileSync(configPath, `${JSON.stringify(parsed, null, 2)}\n`, 'utf-8');
+    } catch (err) {
+      sendError(res, 500, errorMessage(err));
+      return true;
+    }
+    await manager.reload();
+    await runner.refreshTools();
+    sendJson(res, 200, await buildMcpPayload(runner));
+    return true;
+  }
+
   if (pathname.startsWith('/api/')) {
     sendError(res, 404, `Unknown API route: ${method} ${pathname}`);
     return true;
@@ -2289,7 +2566,13 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
   memoryDir = await resolveMemoryDir();
   serverVersion = options.version ?? '0.0.0';
   updateHooks = options.updateHooks ?? {};
+  activeMcpConfigPath = options.mcpConfigPath;
   runner = new AgentRunner(runnerOptions());
+
+  // Connect the MCP servers from the config file so their tools are available
+  // from the first turn. Failures are contained per server by the manager — a
+  // broken `mcp.json` entry must not stop the web shell from booting.
+  await runner.initMcp().catch((err) => console.warn('[server] initMcp warning:', err));
 
   const resumeMarker = checkAndConsumePendingResume(activeWorkspaceDir);
   if (resumeMarker?.sessionId) {
@@ -2472,7 +2755,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
             }
           }
           runner.close();
-          resolve();
+          // MCP stdio servers are child processes owned by the runner's
+          // manager, which runner.close() does not reach: disconnect them
+          // before resolving so close() leaves no spawned server behind.
+          void runner.getMcpManager().closeAll().catch(() => undefined).then(() => resolve());
         };
         server.close(onClosed);
         // Idle keep-alive sockets would otherwise hold the close callback open.

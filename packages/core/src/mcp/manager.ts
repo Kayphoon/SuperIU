@@ -90,6 +90,8 @@ export class McpManager {
   private readonly onError?: (serverName: string, error: Error) => void;
   /** Per-server in-flight connect promises, so concurrent calls share one handshake. */
   private readonly connecting = new Map<string, Promise<Client | null>>();
+  /** The most recent error reported per server name, for status surfaces. */
+  private readonly lastErrors = new Map<string, string>();
 
   constructor(options: McpManagerOptions = {}) {
     this.configPath = options.configPath === null ? null : options.configPath ?? DEFAULT_MCP_CONFIG_PATH;
@@ -112,6 +114,31 @@ export class McpManager {
   /** Whether `name` is currently connected. */
   public isConnected(name: string): boolean {
     return this.connections.has(name);
+  }
+
+  /** The last error reported for `name`, or `null` when it has never failed. */
+  public getLastError(name: string): string | null {
+    return this.lastErrors.get(name) ?? null;
+  }
+
+  /** Every server's most recent error message, keyed by server name. */
+  public getLastErrors(): Record<string, string> {
+    return Object.fromEntries(this.lastErrors);
+  }
+
+  /** The config registered under `name`, or `undefined` when unknown. */
+  public getServerConfig(name: string): McpServerConfig | undefined {
+    return this.configs.get(name);
+  }
+
+  /** Every configured server (enabled or not), in insertion order. */
+  public listServerConfigs(): McpServerConfig[] {
+    return [...this.configs.values()];
+  }
+
+  /** The config file this manager loads by default (`null` = programmatic-only). */
+  public getConfigPath(): string | null {
+    return this.configPath;
   }
 
   /**
@@ -167,6 +194,41 @@ export class McpManager {
     }
 
     return added;
+  }
+
+  /**
+   * Persist every configured server back to the on-disk `mcp.json` shape.
+   *
+   * The server `name` is the map key on disk rather than a property of the
+   * value, so it is stripped from the serialized entries. The write is atomic
+   * (temp file + rename) so a crash mid-write cannot leave a truncated config
+   * behind, and the parent directory is created when missing.
+   */
+  public async saveConfigFile(
+    configPath: string = this.configPath ?? DEFAULT_MCP_CONFIG_PATH
+  ): Promise<void> {
+    const mcpServers: Record<string, unknown> = {};
+    for (const config of this.configs.values()) {
+      const { name, ...rest } = config;
+      mcpServers[name] = rest;
+    }
+    const payload = `${JSON.stringify({ mcpServers }, null, 2)}\n`;
+    await fs.mkdir(path.dirname(configPath), { recursive: true });
+    const tempPath = `${configPath}.${process.pid}.${Date.now()}.tmp`;
+    await fs.writeFile(tempPath, payload, 'utf-8');
+    await fs.rename(tempPath, configPath);
+  }
+
+  /**
+   * Drop every connection and reload from the config file, reconnecting the
+   * enabled servers. The error ledger resets with the configs so a fixed
+   * server no longer reports a stale failure.
+   */
+  public async reload(): Promise<void> {
+    await this.closeAll();
+    this.configs.clear();
+    this.lastErrors.clear();
+    await this.loadConfigFile(this.configPath ?? DEFAULT_MCP_CONFIG_PATH, { connect: true });
   }
 
   /** Register (or replace) a server programmatically. */
@@ -446,6 +508,7 @@ export class McpManager {
   }
 
   private reportError(serverName: string, error: Error): void {
+    this.lastErrors.set(serverName, error.message);
     try {
       this.onError?.(serverName, error);
     } catch {

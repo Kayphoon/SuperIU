@@ -3742,6 +3742,60 @@
         color: var(--siu-text-secondary);
       }
 
+      /* =====================================================================
+         MCP (Model Context Protocol) Pane
+         ===================================================================== */
+      .siu-mcp-card {
+        border-radius: var(--siu-radius-lg);
+        border: 1px solid var(--siu-border);
+        background: var(--siu-bg-inset);
+        padding: var(--siu-space-3) var(--siu-space-4);
+        display: flex;
+        flex-direction: column;
+        gap: var(--siu-space-2);
+        transition: border-color var(--siu-dur-fast) var(--siu-ease-out),
+          background var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-mcp-card:hover {
+        border-color: var(--siu-border-strong);
+      }
+      .siu-mcp-transport-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 1px 6px;
+        border-radius: var(--siu-radius-full);
+        font-family: var(--siu-font-mono);
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        background: var(--siu-bg-hover);
+        border: 1px solid var(--siu-border-subtle);
+        color: var(--siu-text-secondary);
+      }
+      .siu-mcp-tool-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 8px;
+        border-radius: var(--siu-radius-sm);
+        font-family: var(--siu-font-mono);
+        font-size: 11px;
+        background: var(--siu-bg-hover);
+        border: 1px solid var(--siu-border-subtle);
+        color: var(--siu-text-secondary);
+        max-width: 100%;
+        transition: border-color var(--siu-dur-fast) var(--siu-ease-out),
+          color var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-mcp-tool-pill:hover {
+        border-color: var(--siu-border);
+        color: var(--siu-text-primary);
+      }
+      .siu-chev[data-open='true'] {
+        transform: rotate(90deg);
+      }
+
       /* Transparent cover that intercepts taps outside the open drawer. Hidden
          everywhere except the narrow layout with the drawer open, so desktop
          never sees an extra layer in the hit-test path. */
@@ -4758,6 +4812,7 @@
             <button type="button" class="siu-nav-item" role="tab" data-pane="models" aria-controls="settings-pane-models" aria-selected="false" data-i18n="settings.nav.models"></button>
             <button type="button" class="siu-nav-item" role="tab" data-pane="remote" aria-controls="settings-pane-remote" aria-selected="false" data-i18n="settings.nav.remote"></button>
             <button id="nav-item-pairing" type="button" class="siu-nav-item" role="tab" data-pane="pairing" aria-controls="settings-pane-pairing" aria-selected="false" data-i18n="settings.nav.pairing"></button>
+            <button id="nav-item-mcp" type="button" class="siu-nav-item" role="tab" data-pane="mcp" aria-controls="settings-pane-mcp" aria-selected="false" data-i18n="settings.nav.mcp"></button>
             <button type="button" class="siu-nav-item" role="tab" data-pane="about" aria-controls="settings-pane-about" aria-selected="false" data-i18n="settings.nav.about"></button>
           </nav>
           <!-- ================= Pane: General ================= -->
@@ -5216,6 +5271,148 @@
                 </div>
                 <div id="pairing-key-list" class="flex flex-col gap-2"></div>
                 <div id="pairing-empty-notice" class="siu-banner text-[12px] text-center text-muted py-4" data-i18n="settings.pairing.empty" hidden></div>
+              </div>
+            </div>
+          </section>
+
+          <!-- ================= Pane: MCP (Model Context Protocol) ================= -->
+          <section id="settings-pane-mcp" class="siu-prefs-pane" role="tabpanel" data-pane="mcp" data-active="false">
+            <header class="siu-prefs-head">
+              <h3 class="siu-prefs-title" data-i18n="settings.mcp.title"></h3>
+              <p class="siu-prefs-subtitle" data-i18n="settings.mcp.subtitle"></p>
+            </header>
+            <div class="siu-prefs-pane-body">
+              <!-- Top action & config path bar -->
+              <div class="flex flex-wrap items-center justify-between gap-2.5 pb-2 border-b border-line">
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="text-[11px] text-muted shrink-0" data-i18n="settings.mcp.configPathLabel"></span>
+                  <code id="mcp-config-path" class="font-mono text-[11px] px-2 py-0.5 rounded bg-fill-subtle border border-line text-secondary truncate max-w-[240px]"></code>
+                </div>
+                <div class="flex items-center gap-2 shrink-0">
+                  <button id="btn-mcp-add" type="button" class="siu-btn siu-btn--primary text-[12px]">
+                    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M8 3v10M3 8h10" stroke-linecap="round" />
+                    </svg>
+                    <span data-i18n="settings.mcp.addServer"></span>
+                  </button>
+                  <button id="btn-mcp-reload" type="button" class="siu-btn text-[12px]" data-i18n-title="settings.mcp.reloadTitle" title="">
+                    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M2.5 8a5.5 5.5 0 0 1 9.39-3.89L13.5 5.75M13.5 2.5v3.25H10.25M13.5 8a5.5 5.5 0 0 1-9.39 3.89L2.5 10.25M2.5 13.5v-3.25h3.25" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    <span data-i18n="settings.mcp.reload"></span>
+                  </button>
+                  <button id="btn-mcp-raw-toggle" type="button" class="siu-btn text-[12px]">
+                    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8">
+                      <path d="M5.5 3.5L2 8l3.5 4.5M10.5 3.5L14 8l-3.5 4.5" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    <span id="mcp-raw-toggle-text" data-i18n="settings.mcp.editRaw"></span>
+                  </button>
+                </div>
+              </div>
+
+              <!-- Raw JSON Editor View (toggleable) -->
+              <div id="mcp-raw-wrap" class="rounded-xl border border-line bg-fill-subtle p-3.5 flex flex-col gap-2.5" hidden>
+                <div class="flex items-center justify-between">
+                  <h4 class="text-[12.5px] font-semibold text-primary" data-i18n="settings.mcp.rawTitle"></h4>
+                  <p class="text-[11px] text-muted leading-relaxed" data-i18n="settings.mcp.rawHint"></p>
+                </div>
+                <textarea id="mcp-raw-json" class="siu-field font-mono text-[11.5px] leading-relaxed resize-y min-h-[220px]" spellcheck="false" data-i18n-placeholder="settings.mcp.rawPlaceholder" placeholder=""></textarea>
+                <div class="flex items-center justify-end gap-2 pt-1 border-t border-line">
+                  <button id="btn-mcp-raw-format" type="button" class="siu-btn text-[11.5px]" data-i18n="settings.mcp.rawFormat"></button>
+                  <button id="btn-mcp-raw-save" type="button" class="siu-btn siu-btn--primary text-[11.5px]" data-i18n="settings.mcp.rawSave"></button>
+                </div>
+              </div>
+
+              <!-- Inline Add/Edit Server Form Card -->
+              <div id="mcp-edit-card" class="rounded-xl border border-line bg-fill-subtle p-4 flex flex-col gap-3" hidden>
+                <div class="flex items-center justify-between pb-2 border-b border-line">
+                  <h4 id="mcp-edit-form-title" class="text-[13px] font-semibold text-primary" data-i18n="settings.mcp.formAddTitle"></h4>
+                  <button id="btn-mcp-form-close" type="button" class="siu-btn siu-btn-icon text-muted" data-i18n-aria-label="settings.closeBtn" aria-label="">
+                    <svg viewBox="0 0 10 10" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.6">
+                      <path d="M1.5 1.5l7 7M8.5 1.5l-7 7" stroke-linecap="round" />
+                    </svg>
+                  </button>
+                </div>
+
+                <div class="grid grid-cols-1 gap-3">
+                  <div>
+                    <label class="siu-field-label" for="mcp-input-name" data-i18n="settings.mcp.nameLabel"></label>
+                    <input id="mcp-input-name" type="text" class="siu-field font-mono text-[12.5px]" data-i18n-placeholder="settings.mcp.namePlaceholder" placeholder="" spellcheck="false" autocomplete="off" />
+                  </div>
+
+                  <div class="siu-toggle-row py-1">
+                    <div class="flex-1">
+                      <span class="siu-toggle-row-title text-[12px]" data-i18n="settings.mcp.enabledLabel"></span>
+                    </div>
+                    <button id="mcp-input-enabled" class="siu-switch" data-on="true" role="switch" aria-checked="true" data-i18n-aria-label="settings.mcp.enabledLabel" aria-label=""></button>
+                  </div>
+
+                  <div>
+                    <label class="siu-field-label" data-i18n="settings.mcp.transportLabel"></label>
+                    <div class="siu-segmented-control" role="tablist">
+                      <button type="button" id="mcp-transport-stdio" class="siu-segmented-item" role="tab" aria-selected="true" data-transport="stdio" data-i18n="settings.mcp.transportStdio"></button>
+                      <button type="button" id="mcp-transport-sse" class="siu-segmented-item" role="tab" aria-selected="false" data-transport="sse" data-i18n="settings.mcp.transportSse"></button>
+                    </div>
+                  </div>
+
+                  <!-- stdio specific fields -->
+                  <div id="mcp-fields-stdio" class="flex flex-col gap-3">
+                    <div>
+                      <label class="siu-field-label" for="mcp-input-command" data-i18n="settings.mcp.commandLabel"></label>
+                      <input id="mcp-input-command" type="text" class="siu-field font-mono text-[12px]" data-i18n-placeholder="settings.mcp.commandPlaceholder" placeholder="" spellcheck="false" autocomplete="off" />
+                    </div>
+                    <div>
+                      <label class="siu-field-label" for="mcp-input-args" data-i18n="settings.mcp.argsLabel"></label>
+                      <input id="mcp-input-args" type="text" class="siu-field font-mono text-[12px]" data-i18n-placeholder="settings.mcp.argsPlaceholder" placeholder="" spellcheck="false" autocomplete="off" />
+                      <p class="siu-field-hint" data-i18n="settings.mcp.argsHint"></p>
+                    </div>
+                    <div>
+                      <label class="siu-field-label" for="mcp-input-cwd" data-i18n="settings.mcp.cwdLabel"></label>
+                      <input id="mcp-input-cwd" type="text" class="siu-field font-mono text-[12px]" data-i18n-placeholder="settings.mcp.cwdPlaceholder" placeholder="" spellcheck="false" autocomplete="off" />
+                    </div>
+                    <div>
+                      <label class="siu-field-label" for="mcp-input-env" data-i18n="settings.mcp.envLabel"></label>
+                      <textarea id="mcp-input-env" class="siu-field font-mono text-[11.5px] min-h-[64px]" data-i18n-placeholder="settings.mcp.envPlaceholder" placeholder="" spellcheck="false"></textarea>
+                    </div>
+                  </div>
+
+                  <!-- sse specific fields -->
+                  <div id="mcp-fields-sse" class="flex flex-col gap-3" hidden>
+                    <div>
+                      <label class="siu-field-label" for="mcp-input-url" data-i18n="settings.mcp.urlLabel"></label>
+                      <input id="mcp-input-url" type="text" class="siu-field font-mono text-[12px]" data-i18n-placeholder="settings.mcp.urlPlaceholder" placeholder="" spellcheck="false" autocomplete="off" />
+                    </div>
+                    <div>
+                      <label class="siu-field-label" for="mcp-input-headers" data-i18n="settings.mcp.headersLabel"></label>
+                      <textarea id="mcp-input-headers" class="siu-field font-mono text-[11.5px] min-h-[64px]" data-i18n-placeholder="settings.mcp.headersPlaceholder" placeholder="" spellcheck="false"></textarea>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-2 border-t border-line">
+                  <button id="btn-mcp-form-cancel" type="button" class="siu-btn text-[12px]" data-i18n="settings.mcp.formCancel"></button>
+                  <button id="btn-mcp-form-save" type="button" class="siu-btn siu-btn--primary text-[12px]" data-i18n="settings.mcp.formSave"></button>
+                </div>
+              </div>
+
+              <!-- Visual Server Card List -->
+              <div id="mcp-server-list" class="flex flex-col gap-3"></div>
+
+              <!-- Empty State Notice -->
+              <div id="mcp-empty-notice" class="siu-banner flex flex-col items-center justify-center py-8 text-center gap-2.5 border border-line" hidden>
+                <svg viewBox="0 0 24 24" width="32" height="32" fill="none" stroke="currentColor" stroke-width="1.5" class="text-muted">
+                  <rect x="3" y="4" width="18" height="6" rx="2" />
+                  <rect x="3" y="14" width="18" height="6" rx="2" />
+                  <path d="M7 7h.01M7 17h.01M17 7h.01M17 17h.01" stroke-linecap="round" />
+                </svg>
+                <strong class="text-[13px] text-primary" data-i18n="settings.mcp.emptyTitle"></strong>
+                <p class="text-[12px] text-muted max-w-[380px] leading-relaxed" data-i18n="settings.mcp.emptyDesc"></p>
+                <button id="btn-mcp-empty-add" type="button" class="siu-btn siu-btn--primary text-[12px] mt-1">
+                  <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8">
+                    <path d="M8 3v10M3 8h10" stroke-linecap="round" />
+                  </svg>
+                  <span data-i18n="settings.mcp.addServer"></span>
+                </button>
               </div>
             </div>
           </section>
@@ -7659,7 +7856,7 @@
       // Settings modal
       // =======================================================================
       /** The panes the nav can switch between, in the order the markup lists them. */
-      const SETTINGS_PANES = ['general', 'autoreview', 'notifications', 'providers', 'models', 'remote', 'pairing', 'about'];
+      const SETTINGS_PANES = ['general', 'autoreview', 'notifications', 'providers', 'models', 'remote', 'pairing', 'mcp', 'about'];
       /**
        * One provider, shaped for editing. The stored credential is deliberately
        * NOT copied in: the view only ever carries a mask, and seeding the input
@@ -7875,6 +8072,9 @@
         }
         if (pane === 'pairing') {
           void renderPairingPane();
+        }
+        if (pane === 'mcp') {
+          void renderMcpPane();
         }
         if (pane === 'about') {
           const isDesktop = Boolean(window.superiuDesktop);
@@ -10313,6 +10513,526 @@
         }
       });
 
+      // =======================================================================
+      // MCP (Model Context Protocol) management
+      // =======================================================================
+      const mcpState = {
+        configPath: '',
+        servers: {},
+        statuses: [],
+        editingServerName: null,
+        transport: 'stdio'
+      };
+
+      function parseArgsString(str) {
+        if (!str || !str.trim()) return [];
+        const trimmed = str.trim();
+        if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (Array.isArray(parsed)) return parsed.map(String);
+          } catch {}
+        }
+        const matches = trimmed.match(/[^\s"']+|"([^"]*)"|'([^']*)'/g) || [];
+        return matches.map((m) => {
+          if ((m.startsWith('"') && m.endsWith('"')) || (m.startsWith("'") && m.endsWith("'"))) {
+            return m.slice(1, -1);
+          }
+          return m;
+        });
+      }
+
+      function parseKeyValueString(str) {
+        if (!str || !str.trim()) return undefined;
+        const trimmed = str.trim();
+        if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+          try {
+            const parsed = JSON.parse(trimmed);
+            if (typeof parsed === 'object' && parsed !== null) return parsed;
+          } catch {}
+        }
+        const result = {};
+        for (const line of trimmed.split('\n')) {
+          const l = line.trim();
+          if (!l || l.startsWith('#')) continue;
+          const eqIdx = l.indexOf('=') !== -1 ? l.indexOf('=') : l.indexOf(':');
+          if (eqIdx !== -1) {
+            const k = l.slice(0, eqIdx).trim();
+            const v = l.slice(eqIdx + 1).trim();
+            if (k) result[k] = v;
+          }
+        }
+        return Object.keys(result).length > 0 ? result : undefined;
+      }
+
+      function formatKeyValueString(obj) {
+        if (!obj || typeof obj !== 'object') return '';
+        return Object.entries(obj).map(([k, v]) => `${k}=${v}`).join('\n');
+      }
+
+      async function loadMcpData() {
+        try {
+          const res = await api('/api/mcp');
+          mcpState.configPath = res.configPath || '';
+          mcpState.servers = (typeof res.servers === 'object' && res.servers !== null) ? res.servers : {};
+          mcpState.statuses = Array.isArray(res.statuses) ? res.statuses : [];
+
+          const pathChip = $('mcp-config-path');
+          if (pathChip) {
+            pathChip.textContent = mcpState.configPath || ['~', '.superiu', 'mcp.json'].join('/');
+            pathChip.title = mcpState.configPath || '';
+          }
+
+          renderMcpServerList();
+
+          const rawWrap = $('mcp-raw-wrap');
+          if (rawWrap && !rawWrap.hidden) {
+            const rawArea = $('mcp-raw-json');
+            if (rawArea) rawArea.value = JSON.stringify({ mcpServers: mcpState.servers }, null, 2);
+          }
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      }
+
+      function renderMcpServerList() {
+        const list = $('mcp-server-list');
+        const emptyNotice = $('mcp-empty-notice');
+        if (!list) return;
+
+        const serverNames = Object.keys(mcpState.servers || {});
+        const statusNames = (mcpState.statuses || []).map((s) => s.name).filter(Boolean);
+        const allNames = Array.from(new Set([...serverNames, ...statusNames])).sort();
+
+        if (allNames.length === 0) {
+          list.innerHTML = '';
+          if (emptyNotice) emptyNotice.hidden = false;
+          return;
+        }
+
+        if (emptyNotice) emptyNotice.hidden = true;
+        list.innerHTML = '';
+
+        for (const name of allNames) {
+          const cfg = mcpState.servers[name] || {};
+          const status = mcpState.statuses.find((s) => s.name === name) || {};
+          const card = createMcpCard(name, cfg, status);
+          list.appendChild(card);
+        }
+      }
+
+      function createMcpCard(name, cfg, status) {
+        const card = el('div', 'siu-mcp-card');
+        const isEnabled = cfg.enabled !== false && status.enabled !== false;
+        const isConnected = Boolean(status.connected);
+        const errorMsg = status.error || null;
+        const transport = status.transport || cfg.transport || (cfg.url ? 'sse' : 'stdio');
+        const command = status.command || cfg.command || '';
+        const args = Array.isArray(status.args) ? status.args : (Array.isArray(cfg.args) ? cfg.args : []);
+        const url = status.url || cfg.url || '';
+        const tools = Array.isArray(status.tools) ? status.tools : [];
+
+        // 1. Header row
+        const head = el('div', 'flex items-center justify-between gap-2');
+        const headLeft = el('div', 'flex items-center gap-2 min-w-0');
+
+        const nameEl = el('span', 'font-semibold text-[13px] text-primary truncate max-w-[200px]', name);
+        headLeft.appendChild(nameEl);
+
+        const transportBadge = el('span', 'siu-mcp-transport-badge', transport);
+        headLeft.appendChild(transportBadge);
+
+        const statusWrap = el('span', 'inline-flex items-center gap-1.5 shrink-0');
+        const statusDot = el('span', 'siu-status-dot');
+        const statusLabel = el('span', 'text-[11px]');
+        if (!isEnabled) {
+          statusDot.dataset.status = 'idle';
+          statusLabel.className += ' text-muted';
+          statusLabel.textContent = tr('settings.mcp.disabled');
+        } else if (errorMsg) {
+          statusDot.dataset.status = 'error';
+          statusLabel.className += ' text-rose-400 font-medium';
+          statusLabel.textContent = tr('settings.mcp.error');
+        } else if (isConnected) {
+          statusDot.dataset.status = 'completed';
+          statusLabel.className += ' text-emerald-400 font-medium';
+          statusLabel.textContent = tr('settings.mcp.connected');
+        } else {
+          statusDot.dataset.status = 'running';
+          statusLabel.className += ' text-accent';
+          statusLabel.textContent = tr('status.running');
+        }
+        statusWrap.appendChild(statusDot);
+        statusWrap.appendChild(statusLabel);
+        headLeft.appendChild(statusWrap);
+        head.appendChild(headLeft);
+
+        // Controls on the right
+        const controls = el('div', 'flex items-center gap-1.5 shrink-0');
+        const toggleBtn = el('button', 'siu-switch');
+        toggleBtn.type = 'button';
+        toggleBtn.dataset.on = String(isEnabled);
+        toggleBtn.setAttribute('role', 'switch');
+        toggleBtn.setAttribute('aria-checked', String(isEnabled));
+        toggleBtn.setAttribute('aria-label', tr('settings.mcp.enabledLabel'));
+        toggleBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          toggleBtn.disabled = true;
+          try {
+            await toggleMcpServer(name, !isEnabled);
+          } finally {
+            toggleBtn.disabled = false;
+          }
+        });
+        controls.appendChild(toggleBtn);
+
+        const editBtn = el('button', 'siu-btn siu-btn-icon text-muted hover:text-primary');
+        editBtn.type = 'button';
+        editBtn.setAttribute('aria-label', tr('settings.mcp.edit'));
+        editBtn.setAttribute('title', tr('settings.mcp.edit'));
+        editBtn.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M11.5 2.5l2 2-8.5 8.5H3v-2l8.5-8.5z" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        editBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openMcpEditForm(name);
+        });
+        controls.appendChild(editBtn);
+
+        const delBtn = el('button', 'siu-btn siu-btn-icon text-muted hover:text-danger');
+        delBtn.type = 'button';
+        delBtn.setAttribute('aria-label', tr('settings.mcp.delete'));
+        delBtn.setAttribute('title', tr('settings.mcp.delete'));
+        delBtn.innerHTML = '<svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 4.5h10M6 4.5V3a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v1.5M4.5 4.5v8a1.5 1.5 0 0 0 1.5 1.5h4a1.5 1.5 0 0 0 1.5-1.5v-8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+        delBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          delBtn.disabled = true;
+          try {
+            await deleteMcpServer(name);
+          } finally {
+            delBtn.disabled = false;
+          }
+        });
+        controls.appendChild(delBtn);
+
+        head.appendChild(controls);
+        card.appendChild(head);
+
+        // 2. Error banner if any
+        if (errorMsg) {
+          const errBanner = el('div', 'siu-banner siu-banner-error text-[11px] font-mono break-all py-1.5 px-2.5');
+          errBanner.textContent = errorMsg;
+          card.appendChild(errBanner);
+        }
+
+        // 3. Command / URL row
+        const cmdRow = el('div', 'font-mono text-[11.5px] text-muted truncate bg-fill/50 px-2.5 py-1 rounded border border-line-subtle');
+        if (transport === 'sse') {
+          cmdRow.title = url;
+          cmdRow.innerHTML = '<span class="text-accent font-semibold mr-1.5">SSE</span>' + escapeHtml(url);
+        } else {
+          const fullCmd = [command, ...args].filter(Boolean).join(' ');
+          cmdRow.title = fullCmd;
+          cmdRow.innerHTML = '<span class="text-accent font-semibold mr-1.5">$</span>' + escapeHtml(fullCmd);
+        }
+        card.appendChild(cmdRow);
+
+        // 4. Tools row
+        if (tools.length > 0) {
+          const toolsWrap = el('div', 'flex flex-col gap-1.5 pt-0.5');
+          const toolsToggle = el('button', 'flex items-center gap-1.5 text-[11.5px] text-secondary hover:text-primary transition-colors cursor-pointer self-start select-none');
+          toolsToggle.type = 'button';
+          toolsToggle.innerHTML = CHEVRON + '<span>' + escapeHtml(tr('settings.mcp.toolsCount', { count: tools.length })) + '</span>';
+
+          const drawer = el('div', 'flex flex-wrap gap-1.5 pt-1');
+          drawer.hidden = true;
+
+          for (const tool of tools) {
+            const toolPill = el('span', 'siu-mcp-tool-pill');
+            toolPill.title = tool.description || tool.name;
+            const toolName = el('span', 'font-medium text-primary', tool.name);
+            toolPill.appendChild(toolName);
+            if (tool.description) {
+              const toolDesc = el('span', 'text-[10px] text-muted truncate max-w-[200px]', '— ' + tool.description);
+              toolPill.appendChild(toolDesc);
+            }
+            drawer.appendChild(toolPill);
+          }
+
+          toolsToggle.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const open = !drawer.hidden;
+            drawer.hidden = open;
+            const chev = toolsToggle.querySelector('.siu-chev');
+            if (chev) chev.dataset.open = String(!open);
+          });
+
+          toolsWrap.appendChild(toolsToggle);
+          toolsWrap.appendChild(drawer);
+          card.appendChild(toolsWrap);
+        } else if (isEnabled && !errorMsg) {
+          const noTools = el('span', 'text-[11px] text-muted italic', tr('settings.mcp.noTools'));
+          card.appendChild(noTools);
+        }
+
+        return card;
+      }
+
+      function openMcpEditForm(name) {
+        mcpState.editingServerName = name;
+        const card = $('mcp-edit-card');
+        const title = $('mcp-edit-form-title');
+        const nameInput = $('mcp-input-name');
+        const enabledSwitch = $('mcp-input-enabled');
+        const cmdInput = $('mcp-input-command');
+        const argsInput = $('mcp-input-args');
+        const cwdInput = $('mcp-input-cwd');
+        const envInput = $('mcp-input-env');
+        const urlInput = $('mcp-input-url');
+        const headersInput = $('mcp-input-headers');
+        if (!card || !nameInput) return;
+
+        if (name) {
+          if (title) title.textContent = tr('settings.mcp.formEditTitle');
+          nameInput.value = name;
+          nameInput.disabled = true;
+          const cfg = mcpState.servers[name] || {};
+          const transport = cfg.transport || (cfg.url ? 'sse' : 'stdio');
+          setMcpFormTransport(transport);
+          const isEnabled = cfg.enabled !== false;
+          if (enabledSwitch) {
+            enabledSwitch.dataset.on = String(isEnabled);
+            enabledSwitch.setAttribute('aria-checked', String(isEnabled));
+          }
+          if (cmdInput) cmdInput.value = cfg.command || '';
+          if (argsInput) argsInput.value = Array.isArray(cfg.args) ? cfg.args.join(' ') : (cfg.args || '');
+          if (cwdInput) cwdInput.value = cfg.cwd || '';
+          if (envInput) envInput.value = formatKeyValueString(cfg.env);
+          if (urlInput) urlInput.value = cfg.url || '';
+          if (headersInput) headersInput.value = formatKeyValueString(cfg.headers);
+        } else {
+          if (title) title.textContent = tr('settings.mcp.formAddTitle');
+          nameInput.value = '';
+          nameInput.disabled = false;
+          setMcpFormTransport('stdio');
+          if (enabledSwitch) {
+            enabledSwitch.dataset.on = 'true';
+            enabledSwitch.setAttribute('aria-checked', 'true');
+          }
+          if (cmdInput) cmdInput.value = '';
+          if (argsInput) argsInput.value = '';
+          if (cwdInput) cwdInput.value = '';
+          if (envInput) envInput.value = '';
+          if (urlInput) urlInput.value = '';
+          if (headersInput) headersInput.value = '';
+        }
+
+        card.hidden = false;
+        card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        nameInput.focus();
+      }
+
+      function closeMcpEditForm() {
+        const card = $('mcp-edit-card');
+        if (card) card.hidden = true;
+        mcpState.editingServerName = null;
+      }
+
+      function setMcpFormTransport(transport) {
+        mcpState.transport = transport;
+        const btnStdio = $('mcp-transport-stdio');
+        const btnSse = $('mcp-transport-sse');
+        const fieldsStdio = $('mcp-fields-stdio');
+        const fieldsSse = $('mcp-fields-sse');
+
+        if (btnStdio) btnStdio.setAttribute('aria-selected', String(transport === 'stdio'));
+        if (btnSse) btnSse.setAttribute('aria-selected', String(transport === 'sse'));
+        if (fieldsStdio) fieldsStdio.hidden = transport !== 'stdio';
+        if (fieldsSse) fieldsSse.hidden = transport !== 'sse';
+      }
+
+      async function saveMcpServer() {
+        const saveBtn = $('btn-mcp-form-save');
+        const nameInput = $('mcp-input-name');
+        const name = nameInput ? nameInput.value.trim() : '';
+        if (!name) {
+          toast(tr('settings.mcp.nameRequired'), 'error');
+          nameInput?.focus();
+          return;
+        }
+
+        const enabledSwitch = $('mcp-input-enabled');
+        const enabled = enabledSwitch ? enabledSwitch.dataset.on === 'true' : true;
+        const transport = mcpState.transport;
+
+        let payload = { name, enabled, transport };
+        if (transport === 'stdio') {
+          const cmdInput = $('mcp-input-command');
+          const command = cmdInput ? cmdInput.value.trim() : '';
+          if (!command) {
+            toast(tr('settings.mcp.commandRequired'), 'error');
+            cmdInput?.focus();
+            return;
+          }
+          const args = parseArgsString($('mcp-input-args')?.value);
+          const cwd = $('mcp-input-cwd')?.value?.trim() || undefined;
+          const env = parseKeyValueString($('mcp-input-env')?.value);
+          payload = { ...payload, command, args, cwd, env };
+        } else {
+          const urlInput = $('mcp-input-url');
+          const url = urlInput ? urlInput.value.trim() : '';
+          if (!url) {
+            toast(tr('settings.mcp.urlRequired'), 'error');
+            urlInput?.focus();
+            return;
+          }
+          const headers = parseKeyValueString($('mcp-input-headers')?.value);
+          payload = { ...payload, url, headers };
+        }
+
+        if (saveBtn) saveBtn.disabled = true;
+        try {
+          await api('/api/mcp/server', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          closeMcpEditForm();
+          await loadMcpData();
+          toast(tr('settings.mcp.saved'), 'ok');
+        } catch (err) {
+          toast(err.message, 'error');
+        } finally {
+          if (saveBtn) saveBtn.disabled = false;
+        }
+      }
+
+      async function deleteMcpServer(name) {
+        if (!confirm(tr('settings.mcp.confirmDelete', { name }))) return;
+        try {
+          await api('/api/mcp/delete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+          });
+          await loadMcpData();
+          toast(tr('settings.mcp.deleted'), 'ok');
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      }
+
+      async function toggleMcpServer(name, enabled) {
+        try {
+          await api('/api/mcp/toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, enabled })
+          });
+          await loadMcpData();
+          toast(tr('settings.mcp.saved'), 'ok');
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      }
+
+      async function reloadMcpConfig() {
+        const btn = $('btn-mcp-reload');
+        if (btn) btn.disabled = true;
+        try {
+          await api('/api/mcp/reload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({})
+          });
+          await loadMcpData();
+          toast(tr('settings.mcp.reloaded'), 'ok');
+        } catch (err) {
+          toast(err.message, 'error');
+        } finally {
+          if (btn) btn.disabled = false;
+        }
+      }
+
+      function toggleMcpRawJson() {
+        const wrap = $('mcp-raw-wrap');
+        const toggleText = $('mcp-raw-toggle-text');
+        if (!wrap) return;
+        const nextOpen = wrap.hidden;
+        wrap.hidden = !nextOpen;
+        if (nextOpen) {
+          closeMcpEditForm();
+          const jsonArea = $('mcp-raw-json');
+          if (jsonArea) jsonArea.value = JSON.stringify({ mcpServers: mcpState.servers }, null, 2);
+          if (toggleText) toggleText.textContent = tr('settings.mcp.hideRaw');
+        } else {
+          if (toggleText) toggleText.textContent = tr('settings.mcp.editRaw');
+        }
+      }
+
+      function formatMcpRawJson() {
+        const textarea = $('mcp-raw-json');
+        if (!textarea) return;
+        try {
+          const parsed = JSON.parse(textarea.value);
+          textarea.value = JSON.stringify(parsed, null, 2);
+        } catch {
+          toast(tr('settings.mcp.invalidJson'), 'error');
+        }
+      }
+
+      async function saveMcpRawJson() {
+        const saveBtn = $('btn-mcp-raw-save');
+        const textarea = $('mcp-raw-json');
+        if (!textarea) return;
+        try {
+          JSON.parse(textarea.value);
+        } catch {
+          toast(tr('settings.mcp.invalidJson'), 'error');
+          return;
+        }
+
+        if (saveBtn) saveBtn.disabled = true;
+        try {
+          await api('/api/mcp/raw', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ raw: textarea.value })
+          });
+          const wrap = $('mcp-raw-wrap');
+          if (wrap) wrap.hidden = true;
+          const toggleText = $('mcp-raw-toggle-text');
+          if (toggleText) toggleText.textContent = tr('settings.mcp.editRaw');
+          await loadMcpData();
+          toast(tr('settings.mcp.rawSaved'), 'ok');
+        } catch (err) {
+          toast(err.message, 'error');
+        } finally {
+          if (saveBtn) saveBtn.disabled = false;
+        }
+      }
+
+      async function renderMcpPane() {
+        await loadMcpData();
+      }
+
+      $('btn-mcp-add')?.addEventListener('click', () => openMcpEditForm(null));
+      $('btn-mcp-empty-add')?.addEventListener('click', () => openMcpEditForm(null));
+      $('btn-mcp-form-close')?.addEventListener('click', () => closeMcpEditForm());
+      $('btn-mcp-form-cancel')?.addEventListener('click', () => closeMcpEditForm());
+      $('btn-mcp-form-save')?.addEventListener('click', () => void saveMcpServer());
+      $('btn-mcp-reload')?.addEventListener('click', () => void reloadMcpConfig());
+      $('btn-mcp-raw-toggle')?.addEventListener('click', () => toggleMcpRawJson());
+      $('btn-mcp-raw-format')?.addEventListener('click', () => formatMcpRawJson());
+      $('btn-mcp-raw-save')?.addEventListener('click', () => void saveMcpRawJson());
+      $('mcp-transport-stdio')?.addEventListener('click', () => setMcpFormTransport('stdio'));
+      $('mcp-transport-sse')?.addEventListener('click', () => setMcpFormTransport('sse'));
+      $('mcp-input-enabled')?.addEventListener('click', () => {
+        const sw = $('mcp-input-enabled');
+        if (!sw) return;
+        const on = sw.dataset.on !== 'true';
+        sw.dataset.on = String(on);
+        sw.setAttribute('aria-checked', String(on));
+      });
+
       $('btn-net-retry')?.addEventListener('click', () => {
         void refreshStatus();
         void refreshSessions();
@@ -11466,6 +12186,7 @@
         if (state.transcriptDirty) return;
         renderMessages(state.messages);
         if (state.settingsPane === 'pairing') void renderPairingPane();
+        if (state.settingsPane === 'mcp') void renderMcpPane();
         if (netState.status !== 'online') renderNetworkBanner();
       }
 
