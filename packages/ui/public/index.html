@@ -8455,6 +8455,7 @@
       let remoteUpdateInfo = null;
       let remoteUpdateChecking = false;
       let dualChecking = false;
+      let autoRestartLocalOnReady = false;
       let lastAboutCheckTs = 0;
 
       async function checkBothUpdates(opts = {}) {
@@ -8643,6 +8644,14 @@
                   void window.superiuDesktop?.installUpdate?.();
                 };
                 break;
+              case 'installing':
+                statusEl.textContent = tr('settings.about.installing');
+                setDotTone(localDot, 'busy');
+                actionBtn.textContent = tr('settings.about.installing');
+                actionBtn.classList.remove('hidden');
+                actionBtn.hidden = false;
+                actionBtn.disabled = true;
+                break;
               case 'error':
                 statusEl.textContent = `${tr('settings.about.updateError')}: ${statePayload.error || ''}`;
                 setDotTone(localDot, 'error');
@@ -8795,6 +8804,18 @@
             dualBtn.className = 'siu-btn text-[12px] py-1 px-3 shrink-0';
             dualBtn.textContent = statusText;
             dualBtn.onclick = null;
+          } else if (autoRestartLocalOnReady && (localIsDownloading || lastUpdatePayload?.phase === 'installing')) {
+            const isInstalling = lastUpdatePayload?.phase === 'installing';
+            dualWrap.classList.remove('hidden');
+            dualHint.textContent = isInstalling
+              ? tr('settings.about.installing')
+              : tr('settings.about.autoRestartDownloading');
+            dualBtn.disabled = true;
+            dualBtn.className = 'siu-btn text-[12px] py-1 px-3 shrink-0';
+            dualBtn.textContent = isInstalling
+              ? tr('settings.about.installing')
+              : tr('settings.about.autoRestartPending');
+            dualBtn.onclick = null;
           } else if (remoteIsDone && localIsReady) {
             dualWrap.classList.remove('hidden');
             dualHint.textContent = tr('settings.about.remoteUpgraded');
@@ -8814,10 +8835,18 @@
             dualBtn.onclick = () => {
               void (async () => {
                 dualBtn.disabled = true;
+                autoRestartLocalOnReady = true;
                 if (window.superiuDesktop?.checkForUpdate && !localIsReady && !localIsDownloading) {
                   void window.superiuDesktop.checkForUpdate({ interactive: false });
                 }
-                await applyRemoteUpdate();
+                try {
+                  await applyRemoteUpdate();
+                } finally {
+                  if (autoRestartLocalOnReady && lastUpdatePayload?.phase === 'ready') {
+                    autoRestartLocalOnReady = false;
+                    void window.superiuDesktop?.installUpdate?.();
+                  }
+                }
               })();
             };
           } else if (remoteHasUpdate) {
@@ -8860,7 +8889,7 @@
         }
 
         const statePayload = lastUpdatePayload;
-        if (!statePayload || !['downloading', 'ready'].includes(statePayload.phase)) {
+        if (!statePayload || !['downloading', 'ready', 'installing'].includes(statePayload.phase)) {
           btn.hidden = true;
           btn.classList.add('hidden');
           btn.dataset.phase = '';
@@ -8910,11 +8939,36 @@
           };
           return;
         }
+
+        if (statePayload.phase === 'installing') {
+          btn.hidden = false;
+          btn.classList.remove('hidden');
+          btn.dataset.phase = 'installing';
+          btn.disabled = true;
+          const tooltip = tr('settings.about.installing');
+          btn.title = tooltip;
+          btn.setAttribute('aria-label', tooltip);
+          if (iconDownloading) iconDownloading.classList.remove('hidden');
+          if (iconReady) iconReady.classList.add('hidden');
+          if (textEl) {
+            textEl.textContent = tr('settings.about.installing');
+          }
+          btn.onclick = null;
+          return;
+        }
       }
 
       if (window.superiuDesktop?.onUpdateState) {
         window.superiuDesktop.onUpdateState((payload) => {
           lastUpdatePayload = payload;
+          if (payload.phase === 'error') {
+            autoRestartLocalOnReady = false;
+          } else if (payload.phase === 'ready' && autoRestartLocalOnReady) {
+            if (!remoteUpdateInfo || remoteUpdateInfo.phase !== 'upgrading') {
+              autoRestartLocalOnReady = false;
+              void window.superiuDesktop?.installUpdate?.();
+            }
+          }
           renderAboutUpdate();
           renderTitlebarUpdate();
         });
