@@ -14,6 +14,20 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.40 (2026-10-10)
+
+### 中文
+
+- 修复网关交接便签构建类型安全与全平台流水线对齐：
+  - 规范 `pending_resume.json` 中的 `leafId` 字段类型处理（`runner.getLeafId() ?? undefined`），解决 TypeScript 严格模式编译告警；
+  - 确保 Linux（x64 / arm64）无头服务与 macOS 桌面客户端全目标自动化构建与发布顺利通过。
+
+### English
+
+- Fix resume marker type safety and align cross-platform release builds:
+  - Normalize `leafId` field typing (`runner.getLeafId() ?? undefined`) in `pending_resume.json` to satisfy strict TypeScript compilation;
+  - Ensure Linux (x64 / arm64) headless server and macOS desktop automated release builds pass cleanly across all targets.
+
 ## v0.2.39 (2026-10-10)
 
 ### 中文
