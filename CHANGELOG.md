@@ -14,6 +14,20 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.46 (2026-10-10)
+
+### 中文
+
+- 修复设置关于面板单端远程升级按钮被隐藏的问题：
+  - **修复按钮原生 DOM 隐藏属性残留**：修正更新动作按钮在移除 `hidden` CSS 类时未同步将 HTML 原生 `hidden` 属性设为 `false` 的问题，确保远程网关有新版本时卡片右侧的「立即升级」按钮正常展示并可点击；
+  - **双端联动栏适配仅远程有更新场景**：当本地客户端已是最新版本、仅远程网关发现新版本时，底部主操作栏自动浮现「⚡ 升级远程网关」操作按钮，消灭全屏无处可点升级的盲区。
+
+### English
+
+- Fix missing remote upgrade action button on About settings panel:
+  - **Synchronize native DOM hidden attribute**: fixed an issue where removing the `hidden` CSS class failed to set the native HTML `hidden` property to `false`, ensuring the "Upgrade Remote" button on the remote gateway card is visible and clickable when an update is available;
+  - **Surface dual-action bar on remote-only updates**: added dedicated rendering for cases where the local client is already up-to-date while the remote gateway has a pending release, rendering the "⚡ Upgrade Remote Gateway" master button.
+
 ## v0.2.45 (2026-10-10)
 
 ### 中文
