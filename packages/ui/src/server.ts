@@ -1930,7 +1930,7 @@ async function handleApi(
           if (runner?.getSessionId()) {
             writePendingResumeMarker(activeWorkspaceDir, {
               sessionId: runner.getSessionId(),
-              leafId: runner.getLeafId(),
+              leafId: runner.getLeafId() ?? undefined,
               timestamp: Date.now(),
               reason: 'server_update'
             });
