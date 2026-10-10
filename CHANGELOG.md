@@ -14,6 +14,24 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.38 (2026-10-10)
+
+### 中文
+
+- 桌面端首次启动向导重构与外部服务访问地址绑定支持：
+  - **首次启动向导全新三卡片切换布局**：重构桌面端初始化向导 (`onboarding.html`) 为横向三卡片 Tab 栏设计（本地单机模式 / SSH 远程连接 / 自定义服务地址），支持一键直达对应配置表单，并新增自定义地址与 Token 直连支持（无需 SSH 隧道即可连通局域网或公网服务）；
+  - **外部访问服务地址 (URL) 绑定与持久化**：在设置面板（远程 VPS 与设备配对）中新增「外部访问服务地址 (Web / iOS)」配置项，支持保存并在服务网关或 SSH 部署中同步；
+  - **配对链接公网前缀优先注入**：生成一次性配对链接 (`/api/pairing/code`) 时，自动优先采用配置的外部服务地址（如公网 IP、反向代理域名或 Cloudflare Tunnel）作为 URL 前缀，彻底解决 SSH 隧道模式下因本地回环转发导致手机扫码或浏览器链接解析为 `127.0.0.1` 无法在外部设备打开的痛点；
+  - **双语与本地化完全对齐**：新增中英文字典项并严格通过 UI 与双语一致性断言测试。
+
+### English
+
+- Desktop first-run onboarding redesign and external public service address binding:
+  - **3-card tabbed onboarding layout**: redesigned the Desktop first-run wizard (`onboarding.html`) into a horizontal 3-card tabbed selector (Local / SSH Remote / Custom URL), allowing users to switch configuration panels in place, and added direct Custom URL and Token connection without requiring an SSH tunnel;
+  - **External Service Address (URL) configuration & persistence**: added an "External Service URL (Web / iOS)" configuration field in Remote VPS and Pairing settings panes, persisting to gateway settings and runtime auth configuration;
+  - **Public origin prefix injection for pairing links**: minted one-time pairing codes (`/api/pairing/code`) now prioritize the configured external public address (public IP, reverse proxy domain, or Cloudflare Tunnel) over local request hosts, resolving the issue where SSH-tunneled gateways minted `127.0.0.1` links unreachable from external iPhones or browsers;
+  - **Bilingual localization & test alignment**: full English and Chinese dictionary coverage passing all static localization and consistency guards.
+
 ## v0.2.37 (2026-10-10)
 
 ### 中文
