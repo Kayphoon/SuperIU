@@ -78,6 +78,7 @@ interface PersistedProvider {
   description: string;
   helpUrl: string;
   custom: boolean;
+  apiType?: string;
 }
 
 interface PersistedSettings {
@@ -898,6 +899,30 @@ async function runWireTests() {
       const persisted = await readSettingsFile();
       assert(persisted.activeProviderId === '', `persisted id is '${persisted.activeProviderId}'`);
       assert(persisted.apiKey === '', `persisted apiKey is '${persisted.apiKey}'`);
+    });
+
+    await test('POST /api/settings persists apiType for providers and reflects in settingsView', async () => {
+      const view = await postJson(`${handle.url}/api/settings`, {
+        providers: [
+          {
+            ...providerEntry('alpha', `${probe.origin}/alpha`, ''),
+            apiType: 'anthropic'
+          },
+          {
+            ...providerEntry('beta', `${probe.origin}/beta`, ''),
+            apiType: 'google'
+          }
+        ]
+      });
+      const alpha = view.providers.find((p: { id: string; apiType?: string }) => p.id === 'alpha');
+      assert(alpha?.apiType === 'anthropic', `expected anthropic apiType, got '${alpha?.apiType}'`);
+      const beta = view.providers.find((p: { id: string; apiType?: string }) => p.id === 'beta');
+      assert(beta?.apiType === 'google', `expected google apiType, got '${beta?.apiType}'`);
+      const persisted = await readSettingsFile();
+      assert(
+        persisted.providers.find((p) => p.id === 'alpha')?.apiType === 'anthropic',
+        'persisted file did not save apiType'
+      );
     });
 
     // -------------------------------------------------------------------------

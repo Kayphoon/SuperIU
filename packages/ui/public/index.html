@@ -4962,6 +4962,16 @@
                     <p class="siu-field-hint" data-i18n="settings.baseURL.hint">服务商 API 基础地址（Base URL），留空使用默认地址。</p>
                   </div>
 
+                  <div>
+                    <label class="siu-field-label" for="provider-api-type" data-i18n="settings.providers.apiType">API 协议格式</label>
+                    <select id="provider-api-type" class="siu-field">
+                      <option value="openai" data-i18n="settings.providers.apiType.openai">OpenAI 兼容 (Chat Completions)</option>
+                      <option value="anthropic" data-i18n="settings.providers.apiType.anthropic">Anthropic (Messages)</option>
+                      <option value="google" data-i18n="settings.providers.apiType.google">Google Gemini (Generative AI)</option>
+                    </select>
+                    <p class="siu-field-hint" data-i18n="settings.providers.apiType.hint">指定向该服务商发送请求时所采用的 API 协议与端点格式。</p>
+                  </div>
+
                   <div class="siu-provider-fetch">
                     <button id="provider-fetch" type="button" class="siu-btn siu-btn--mono" data-i18n="settings.providers.fetch"></button>
                     <span id="provider-fetch-msg" class="siu-provider-fetch-msg"></span>
@@ -7878,8 +7888,20 @@
           models: Array.isArray(viewProvider?.models) ? viewProvider.models.map(String) : [],
           description: String(viewProvider?.description ?? ''),
           helpUrl: String(viewProvider?.helpUrl ?? ''),
-          custom: Boolean(viewProvider?.custom)
+          custom: Boolean(viewProvider?.custom),
+          apiType: String(viewProvider?.apiType ?? '')
         };
+      }
+
+      function defaultApiType(provider) {
+        if (provider?.apiType) return provider.apiType;
+        const id = String(provider?.id ?? '');
+        if (id.startsWith('anthropic')) return 'anthropic';
+        if (id.startsWith('gemini') || id.startsWith('google')) {
+          if (provider?.baseURL && /\/openai\/?$/i.test(provider.baseURL)) return 'openai';
+          return 'google';
+        }
+        return 'openai';
       }
 
       /**
@@ -8036,7 +8058,8 @@
           provider.models.join('\u0000'),
           provider.description,
           provider.helpUrl,
-          Boolean(provider.custom)
+          Boolean(provider.custom),
+          provider.apiType || defaultApiType(provider)
         ]);
       }
 
@@ -8189,6 +8212,10 @@
         delete keyToggle.dataset.i18nAriaLabel;
         renderProviderKeyToggle();
         $('set-base-url').value = provider.baseURL;
+        const apiTypeSelect = $('provider-api-type');
+        if (apiTypeSelect) {
+          apiTypeSelect.value = provider.apiType || defaultApiType(provider);
+        }
 
         const toggle = $('provider-enabled');
         toggle.dataset.on = String(provider.enabled);
@@ -9073,7 +9100,8 @@
           helpUrl: template.helpUrl || '',
           custom: Boolean(template.custom),
           apiKey: '',
-          models: []
+          models: [],
+          apiType: template.apiType || defaultApiType(template)
         });
 
         state.providersDraft.push(provider);
@@ -9158,6 +9186,13 @@
         renderSettingsDirty();
       });
 
+      $('provider-api-type')?.addEventListener('change', (event) => {
+        const provider = findDraftProvider(state.selectedProviderId);
+        if (!provider) return;
+        provider.apiType = event.target.value;
+        renderSettingsDirty();
+      });
+
       $('provider-enabled').addEventListener('click', () => {
         const provider = findDraftProvider(state.selectedProviderId);
         if (!provider) return;
@@ -9200,7 +9235,8 @@
           // the URL against the saved providers.
           const result = await postJson('/api/models/fetch', {
             baseURL: provider.baseURL,
-            apiKey: provider.apiKey
+            apiKey: provider.apiKey,
+            apiType: provider.apiType || defaultApiType(provider)
           });
           if (result.ok) {
             // Preserve the order the user already has; append what is new.

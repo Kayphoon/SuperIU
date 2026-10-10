@@ -331,6 +331,8 @@ export interface ProviderConfig {
   description: string;
   helpUrl: string;
   custom: boolean;
+  /** Protocol format: 'openai' | 'anthropic' | 'google'. Defaults to 'openai' or inferred from id/baseURL. */
+  apiType?: string;
 }
 export interface ModelOptionConfig {
   /** false hides the model from the composer picker. Absent = enabled. */
@@ -365,15 +367,25 @@ export interface ProviderTemplate {
   name: string;
   baseURL: string;
   helpUrl: string;
+  apiType?: string;
+}
+
+export function defaultApiTypeFor(id: string, baseURL?: string): string {
+  if (id.startsWith('anthropic')) return 'anthropic';
+  if (id.startsWith('gemini') || id.startsWith('google')) {
+    if (baseURL && /\/openai\/?$/i.test(baseURL)) return 'openai';
+    return 'google';
+  }
+  return 'openai';
 }
 
 export const PROVIDER_TEMPLATES: ReadonlyArray<ProviderTemplate> = [
-  { id: 'openai', name: 'OpenAI', baseURL: 'https://api.openai.com/v1', helpUrl: 'https://platform.openai.com/api-keys' },
-  { id: 'deepseek', name: 'DeepSeek', baseURL: 'https://api.deepseek.com/v1', helpUrl: 'https://platform.deepseek.com/api_keys' },
-  { id: 'gemini', name: 'Google Gemini', baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/', helpUrl: 'https://aistudio.google.com/app/apikey' },
-  { id: 'anthropic', name: 'Anthropic', baseURL: 'https://api.anthropic.com/v1', helpUrl: 'https://console.anthropic.com/settings/keys' },
-  { id: 'ollama', name: 'Ollama', baseURL: 'http://localhost:11434/v1', helpUrl: 'https://ollama.com' },
-  { id: 'openrouter', name: 'OpenRouter', baseURL: 'https://openrouter.ai/api/v1', helpUrl: 'https://openrouter.ai/keys' }
+  { id: 'openai', name: 'OpenAI', baseURL: 'https://api.openai.com/v1', helpUrl: 'https://platform.openai.com/api-keys', apiType: 'openai' },
+  { id: 'deepseek', name: 'DeepSeek', baseURL: 'https://api.deepseek.com/v1', helpUrl: 'https://platform.deepseek.com/api_keys', apiType: 'openai' },
+  { id: 'gemini', name: 'Google Gemini', baseURL: 'https://generativelanguage.googleapis.com/v1beta/openai/', helpUrl: 'https://aistudio.google.com/app/apikey', apiType: 'openai' },
+  { id: 'anthropic', name: 'Anthropic', baseURL: 'https://api.anthropic.com/v1', helpUrl: 'https://console.anthropic.com/settings/keys', apiType: 'anthropic' },
+  { id: 'ollama', name: 'Ollama', baseURL: 'http://localhost:11434/v1', helpUrl: 'https://ollama.com', apiType: 'openai' },
+  { id: 'openrouter', name: 'OpenRouter', baseURL: 'https://openrouter.ai/api/v1', helpUrl: 'https://openrouter.ai/keys', apiType: 'openai' }
 ];
 
 /** The custom slot's id; it has no preset row and is the user's to name. */
@@ -563,7 +575,7 @@ function loadSettings(): UiSettings {
     const effectiveKey = typeof raw.apiKey === 'string' ? raw.apiKey : defaults.apiKey;
     const effectiveBaseURL = typeof raw.baseURL === 'string' ? raw.baseURL : defaults.baseURL;
 
-    let providers = Array.isArray(raw.providers) && raw.providers.length > 0
+    let providers: ProviderConfig[] = Array.isArray(raw.providers) && raw.providers.length > 0
       ? raw.providers.map((p) => ({
           id: String(p.id || '').trim(),
           name: String(p.name || '').trim(),
@@ -573,7 +585,10 @@ function loadSettings(): UiSettings {
           models: Array.isArray(p.models) ? p.models.map(String) : [],
           description: typeof p.description === 'string' ? p.description : '',
           helpUrl: typeof p.helpUrl === 'string' ? p.helpUrl : '',
-          custom: Boolean(p.custom)
+          custom: Boolean(p.custom),
+          apiType: typeof p.apiType === 'string' && p.apiType.trim()
+            ? p.apiType.trim()
+            : defaultApiTypeFor(String(p.id || '').trim(), typeof p.baseURL === 'string' ? p.baseURL : '')
         })).filter((p) => p.id)
       : [];
 
@@ -874,11 +889,14 @@ function runnerOptions(sessionReference?: string, historyDbPath?: string, newSes
       modelRoutes[role] = { model, ...(level ? { reasoningEffort: level } : {}) };
     }
   }
+  const activeProvider = settings.providers?.find((p) => p.id === settings.activeProviderId);
+  const effectiveProvider = activeProvider?.apiType || defaultApiTypeFor(activeProvider?.id ?? '', activeProvider?.baseURL) || settings.activeProviderId;
+
   return {
     workspaceDir: activeWorkspaceDir,
     apiKey: settings.apiKey || undefined,
     baseURL: settings.baseURL || undefined,
-    provider: settings.activeProviderId || undefined,
+    provider: effectiveProvider || undefined,
     modelName: settings.modelName || undefined,
     reviewModelName: settings.reviewModelName || undefined,
     autoReview: settings.autoReview,
@@ -1340,7 +1358,8 @@ function settingsView() {
     models: p.models ?? [],
     description: p.description ?? '',
     helpUrl: p.helpUrl ?? '',
-    custom: Boolean(p.custom)
+    custom: Boolean(p.custom),
+    apiType: p.apiType || defaultApiTypeFor(p.id, p.baseURL)
   }));
 
   return {
@@ -1502,7 +1521,10 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
           : (prev?.models ?? []),
         description: typeof item.description === 'string' ? item.description : (prev?.description ?? ''),
         helpUrl: typeof item.helpUrl === 'string' ? item.helpUrl : (prev?.helpUrl ?? ''),
-        custom: typeof item.custom === 'boolean' ? item.custom : (prev?.custom ?? false)
+        custom: typeof item.custom === 'boolean' ? item.custom : (prev?.custom ?? false),
+        apiType: typeof item.apiType === 'string' && item.apiType.trim()
+          ? item.apiType.trim()
+          : (prev?.apiType || defaultApiTypeFor(id, typeof item.baseURL === 'string' ? item.baseURL : (prev?.baseURL ?? '')))
       });
     }
     next.providers = updated;
@@ -1553,9 +1575,17 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
     next.baseURL = activeProvider?.baseURL ?? '';
   }
 
+  const prevActive = (settings.providers ?? []).find((p) => p.id === settings.activeProviderId);
+  const nextActive = (next.providers ?? []).find((p) => p.id === next.activeProviderId);
+  const prevApiType = prevActive?.apiType || defaultApiTypeFor(prevActive?.id ?? '', prevActive?.baseURL);
+  const nextApiType = nextActive?.apiType || defaultApiTypeFor(nextActive?.id ?? '', nextActive?.baseURL);
+  const apiTypeChanged = prevApiType !== nextApiType;
+
   const runnerChanged =
     next.apiKey !== settings.apiKey ||
     next.baseURL !== settings.baseURL ||
+    next.activeProviderId !== settings.activeProviderId ||
+    apiTypeChanged ||
     next.modelName !== settings.modelName ||
     next.reviewModelName !== settings.reviewModelName ||
     next.tinyModelName !== settings.tinyModelName ||
@@ -1722,6 +1752,10 @@ async function handleApi(
     const endpoint = typeof body.baseURL === 'string' && body.baseURL.trim()
       ? body.baseURL.trim()
       : settings.baseURL || 'https://api.openai.com/v1';
+
+    const apiType = typeof body.apiType === 'string' && body.apiType.trim()
+      ? body.apiType.trim()
+      : '';
 
     let targetKey = typeof body.apiKey === 'string' ? body.apiKey.trim() : '';
     if (targetKey.includes('••••')) targetKey = '';

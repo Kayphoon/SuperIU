@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.52 (2026-10-10)
+
+### 中文
+
+- 支持在服务商配置中显式选择 API 协议格式（Endpoint Format / Protocol Type）：
+  - **服务商表单新增 API 协议格式选择**：在设置面板的每个服务商（包括预设与自定义服务商）中增加「API 协议格式」下拉选择，支持「OpenAI 兼容 (Chat Completions)」、「Anthropic (Messages)」与「Google Gemini (Generative AI)」，用户可为任意自定义端点或第三方中转代理明确指定其所遵循的 API 协议标准；
+  - **数据层与运行时联动重载**：在 `ProviderConfig` 中引入 `apiType` 字段，服务端持久化并在切换格式时自动触发 Runner 重新构建，确保主会话与辅助任务即时按指定格式协议发起调用；
+  - **双语本地化与线上凭据守卫覆盖**：补齐中英文双语字典，通过 `check-ui-i18n`、`check-dict-parity` 严格无死角守卫，并在 `provider-settings-wire` 中增加 `apiType` 持久化与投射的完整端到端测试。
+
+### English
+
+- Support explicit API protocol format (Endpoint Format / Protocol Type) selection per provider:
+  - **Add API protocol format selector in provider settings**: Added an "API Protocol Format" dropdown to each provider row (both preset templates and custom providers), allowing users to explicitly choose between "OpenAI Compatible (Chat Completions)", "Anthropic (Messages)", and "Google Gemini (Generative AI)" for any direct endpoint or custom relay gateway;
+  - **Data layer persistence & dynamic runtime reload**: Added `apiType` to `ProviderConfig`, persisted on the server, and automatically triggers an agent runner rebuild when modified so conversation and tool steps immediately use the selected protocol format;
+  - **Bilingual localization & wire credential guards**: Added comprehensive Chinese and English dictionary keys, verified by `check-ui-i18n` and `check-dict-parity`, and added end-to-end wire tests for `apiType` persistence in `provider-settings-wire`.
+
 ## v0.2.51 (2026-10-10)
 
 ### 中文
@@ -44,7 +60,7 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 ### English
 
 - Full support for Model Context Protocol (MCP) configuration and tool management in the Web Console Settings:
-  - **Dedicated \"MCP Servers\" Settings Pane**: Added MCP Servers to the settings navigation, providing intuitive card-based server listings with live connection status indicators (Connected, Disabled, Error with failure cause), transport badges (`stdio` / `sse`), and command / URL summaries;
+  - **Dedicated "MCP Servers" Settings Pane**: Added MCP Servers to the settings navigation, providing intuitive card-based server listings with live connection status indicators (Connected, Disabled, Error with failure cause), transport badges (`stdio` / `sse`), and command / URL summaries;
   - **Discovered Tools Disclosure**: Each server card features an expandable tool drawer displaying all external tools exposed to the agent along with their descriptions;
   - **Visual Add / Edit Form**: Inline form supporting both `stdio` local processes (command, arguments, working directory, environment variables) and `sse` remote endpoints (URL, custom request headers) with instant validation and per-card enable/disable switches;
   - **Raw JSON Advanced Mode**: Toggleable code editor allowing users to directly inspect, edit, and paste standard `mcpServers` JSON configurations compatible with Claude Desktop and Cursor, complete with one-click formatting and syntax checking;
