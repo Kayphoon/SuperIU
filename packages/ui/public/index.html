@@ -588,9 +588,48 @@
       }
       .siu-divider {
         width: 1px;
-        height: 18px;
+        height: 12px;
         flex: none;
         background: var(--siu-border);
+        opacity: 0.7;
+      }
+      .siu-latency-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-micro);
+        line-height: 1;
+        font-weight: 500;
+        font-variant-numeric: tabular-nums;
+        padding: 1.5px 5px;
+        border-radius: var(--siu-radius-full);
+        background: var(--siu-bg-hover);
+        border: 1px solid var(--siu-border-subtle);
+        color: var(--siu-text-muted);
+        letter-spacing: -0.01em;
+        white-space: nowrap;
+        user-select: none;
+        transition: background var(--siu-dur-fast) var(--siu-ease-out),
+          border-color var(--siu-dur-fast) var(--siu-ease-out),
+          color var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-latency-badge[data-quality='warn'] {
+        color: var(--siu-warn-fg);
+        background: var(--siu-warn-bg);
+        border-color: var(--siu-warn-bd);
+      }
+      .siu-latency-badge[data-quality='poor'] {
+        color: var(--siu-danger-fg);
+        background: var(--siu-danger-bg);
+        border-color: var(--siu-danger-bd);
+      }
+      #connection-badge:hover #connection-label {
+        color: var(--siu-text-secondary);
+      }
+      #connection-badge:hover .siu-latency-badge:not([data-quality]) {
+        background: var(--siu-bg-active);
+        border-color: var(--siu-border);
       }
       /* `hiddenInset` draws the native lights at x = 20/40/60 (right edge 72px);
          84px clears them with a 12px gutter. */
@@ -4289,10 +4328,11 @@
           <div class="siu-titlebar-center">
             <span class="text-[12.5px] font-medium text-primary">SuperIU</span>
             <span class="siu-divider"></span>
-            <div id="connection-badge" class="inline-flex items-center gap-1.5 min-w-0" hidden>
+            <div id="connection-badge" class="inline-flex items-center gap-1.5 min-w-0 no-drag pointer-events-auto cursor-default" hidden>
               <span id="connection-dot" class="siu-status-dot"></span>
-              <span id="connection-label" class="font-mono text-[11px] text-muted"></span>
-              <span class="siu-divider"></span>
+              <span id="connection-label" class="font-mono text-[11px] text-muted max-w-[120px] truncate inline-block"></span>
+              <span id="connection-latency" class="siu-latency-badge" hidden></span>
+              <span class="siu-divider ml-0.5"></span>
             </div>
             <span id="title-status" class="font-mono text-[11px] text-muted" data-i18n="status.idle">空闲</span>
             <span id="stale-indicator" class="siu-stale-badge" data-i18n="net.stale" hidden>数据可能滞后</span>
@@ -9241,29 +9281,66 @@
         const badge = $('connection-badge');
         const dot = $('connection-dot');
         const label = $('connection-label');
+        const latencyBadge = $('connection-latency');
         if (!badge || !dot || !label) return;
 
         if (!info || !window.superiuDesktop) {
           badge.hidden = true;
+          if (latencyBadge) {
+            latencyBadge.hidden = true;
+            latencyBadge.textContent = '';
+            delete latencyBadge.dataset.quality;
+          }
+          badge.removeAttribute('title');
           return;
         }
+
+        const updateLatencyBadge = (rttMs) => {
+          if (!latencyBadge) return;
+          if (typeof rttMs === 'number' && !Number.isNaN(rttMs) && rttMs >= 0) {
+            const rounded = Math.round(rttMs);
+            latencyBadge.textContent = `${rounded}ms`;
+            latencyBadge.hidden = false;
+            if (rounded > 800) {
+              latencyBadge.dataset.quality = 'poor';
+            } else if (rounded > 250) {
+              latencyBadge.dataset.quality = 'warn';
+            } else {
+              delete latencyBadge.dataset.quality;
+            }
+          } else {
+            latencyBadge.hidden = true;
+            latencyBadge.textContent = '';
+            delete latencyBadge.dataset.quality;
+          }
+        };
 
         badge.hidden = false;
         if (info.mode === 'local') {
           dot.dataset.status = 'idle';
           label.textContent = tr('connection.local');
+          updateLatencyBadge(null);
+          badge.title = tr('connection.local');
         } else if (info.mode === 'remote') {
           const alias = info.alias || tr('connection.remote');
           if (info.state === 'reconnecting') {
             dot.dataset.status = 'tool_calling';
             label.textContent = `${alias} · ${tr('connection.reconnecting')}`;
+            updateLatencyBadge(null);
+            badge.title = `${alias} (${tr('connection.reconnecting')})`;
           } else if (info.state === 'connected') {
             dot.dataset.status = 'completed';
-            const latency = typeof info.rttMs === 'number' ? ` · ${info.rttMs}ms` : '';
-            label.textContent = `${alias}${latency}`;
+            label.textContent = alias;
+            updateLatencyBadge(info.rttMs);
+            const rttSuffix = typeof info.rttMs === 'number' && !Number.isNaN(info.rttMs)
+              ? ` (${Math.round(info.rttMs)}ms)`
+              : '';
+            badge.title = `${alias}${rttSuffix}`;
           } else {
             dot.dataset.status = 'error';
             label.textContent = `${alias} · ${tr('connection.closed')}`;
+            updateLatencyBadge(null);
+            badge.title = `${alias} (${tr('connection.closed')})`;
           }
         } else if (info.mode === 'custom_url') {
           let hostName = tr('connection.customUrl');
@@ -9274,19 +9351,30 @@
               hostName = info.customUrl.replace(/^https?:\/\//, '').split('/')[0] || info.customUrl;
             }
           }
+          const fullTarget = info.customUrl || hostName;
           if (info.state === 'reconnecting') {
             dot.dataset.status = 'tool_calling';
             label.textContent = `${hostName} · ${tr('connection.reconnecting')}`;
+            updateLatencyBadge(null);
+            badge.title = `${fullTarget} (${tr('connection.reconnecting')})`;
           } else if (info.state === 'closed') {
             dot.dataset.status = 'error';
             label.textContent = `${hostName} · ${tr('connection.closed')}`;
+            updateLatencyBadge(null);
+            badge.title = `${fullTarget} (${tr('connection.closed')})`;
           } else {
             dot.dataset.status = 'completed';
-            const latency = typeof info.rttMs === 'number' ? ` · ${info.rttMs}ms` : '';
-            label.textContent = `${hostName}${latency}`;
+            label.textContent = hostName;
+            updateLatencyBadge(info.rttMs);
+            const rttSuffix = typeof info.rttMs === 'number' && !Number.isNaN(info.rttMs)
+              ? ` (${Math.round(info.rttMs)}ms)`
+              : '';
+            badge.title = `${fullTarget}${rttSuffix}`;
           }
         } else {
           badge.hidden = true;
+          updateLatencyBadge(null);
+          badge.removeAttribute('title');
         }
 
         if (info.state === 'connected' && remoteUpdateInfo?.phase === 'restarting') {
