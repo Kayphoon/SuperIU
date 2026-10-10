@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.37 (2026-10-10)
+
+### 中文
+
+- 配对界面支持自定义服务地址与移动端 PWA / iOS Safari 独立应用适配：
+  - **配对界面支持自定义 URL**：在控制台配对卡片中新增「服务地址 (URL)」专属输入框，支持直接指定远端服务（如局域网 IP、Docker 或穿透域名）；直接粘贴包含域名的完整配对链接时，自动将服务地址与凭据拆分填入；
+  - **移动端与跨端无缝跳转**：在手机浏览器或 Web 端提交自定义地址时，自动通过顶级导航直达目标服务器完成验证并写入会话 Cookie，免受跨域限制；桌面端自动通过桌面桥接建立直连；
+  - **iOS Safari PWA 独立应用适配**：新增 `apple-mobile-web-app-capable` 等元信息、深浅主题色与 Web App Manifest，支持从 Safari「添加到主屏幕」作为独立原生全屏 Web App 运行；补充 `favicon.ico` 根目录图标。
+
+### English
+
+- Pairing screen custom server URL input and mobile PWA / iOS Safari standalone web app adaptation:
+  - **Custom Server URL on pairing card**: added a dedicated "Server URL" input to the console pairing card, enabling direct connection to remote instances (LAN IP, Docker, or reverse proxy domains); automatically splits origin and credential when pasting full pairing links;
+  - **Seamless mobile & cross-origin navigation**: submitting a custom URL in browsers/mobile directly navigates to the target server to exchange tokens and establish cookies without CORS friction; desktop automatically connects and persists via the desktop bridge;
+  - **iOS Safari PWA standalone web app support**: added `apple-mobile-web-app-capable` meta tags, adaptive theme colors, and Web App Manifest for running as a standalone fullscreen app when added to the home screen; provided root `favicon.ico`.
+
 ## v0.2.36 (2026-10-10)
 
 ### 中文
