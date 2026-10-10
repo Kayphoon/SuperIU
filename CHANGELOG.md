@@ -14,6 +14,24 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.45 (2026-10-10)
+
+### 中文
+
+- 支持设备配对自定义命名与已授权设备重命名：
+  - **连接屏支持设备命名**：控制台配对登录屏新增「设备名称」（可选）输入框，连接时可输入自定义设备名（例如：“MacBook Air”、“办公室电脑”）；留空时优先继承发码者预设的目标名称，或根据 User-Agent 智能识别系统类型（`Mac`、`iPhone`、`Windows` 等），摆脱单一默认标识；
+  - **为他机发码支持预设目标设备名**：设置第 8 面板“为其他设备发码”新增「目标设备名称 / 备注」输入项，生成的配对码将绑定该名称，配对单次链接卡片展示目标设备徽标，被授权设备连接后自动继承；
+  - **已授权设备列表支持随时重命名**：设备管理列表各设备项新增「重命名」操作入口，配合 `PATCH /api/pairing/:id` 接口实现名称持久化修改；
+  - **CLI 命令行扩展**：`superiu-server pair` 支持 `--name <label>` 预设配对设备名，以及 `--rename <id> --name <new-name>` 在终端直接重命名已有设备。
+
+### English
+
+- Support custom device naming during pairing and device renaming:
+  - **Device naming on connect screen**: added optional "Device Name" input to the console pairing form, allowing users to label new connections (e.g., "MacBook Air", "Office PC"); defaults to pre-assigned target name or intelligently infers platform via User-Agent (`Mac`, `iPhone`, `Windows`, etc.) instead of generic labels;
+  - **Pre-assigned target device name when minting codes**: added "Target Device Name" input to the pairing code generator in Settings panel 8, associating minted codes with target names and displaying a target badge on the one-time link card;
+  - **Device renaming in authorized devices list**: added a "Rename" action button for each entry in the authorized devices list backed by `PATCH /api/pairing/:id` for persistent updates;
+  - **CLI command additions**: extended `superiu-server pair` with `--name <label>` to name new pairing codes and `--rename <id> --name <new-name>` to rename existing keys directly from the terminal.
+
 ## v0.2.44 (2026-10-10)
 
 ### 中文
