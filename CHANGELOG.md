@@ -14,6 +14,21 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.54 (2026-10-10)
+
+### 中文
+
+- 对话框与输入区域全面对齐 OpenCode v2 设计风格：底栏重构为 12px 圆角面板卡片，内嵌多行文本输入，左侧整合紧凑型模型选择与推理强度下拉，右侧采用紧凑型 28x28 方形图标按钮（闲置发送箭头、执行中停止方块）；
+- 聊天记录与消息流对齐 OpenCode v2 体验：用户消息采用 10px 圆角经典蓝（#3b5cf6）右对齐气泡与元信息栏；助手消息直接画布渲染（去除多余灰色卡片外边框）；工具调用聚合为「使用了 N 个 [工具列表] ▼」可折叠汇总栏，历史会话默认折叠收起工具细节；
+- 完善全流程状态机与双语本地化，通过全套双语与版本一致性安全守卫。
+
+### English
+
+- Align composer dialog and transcript display directly with OpenCode v2 UX:
+  - Refactor bottom composer into an OpenCode v2 style 12px rounded card with compact toolbar, housing model and reasoning effort pickers on the left, and a 28x28 square icon submit/abort button on the right;
+  - Align chat transcript: right-aligned signature blue (#3b5cf6) user bubble with metadata row, direct canvas markdown rendering for assistant answers, and unified collapsible tool group summaries ("Used N tools ▼") that stay folded in historical turns;
+  - Robust lifecycle state machine settlement across all execution paths and complete bilingual dictionary coverage.
+
 ## v0.2.53 (2026-10-10)
 
 ### 中文

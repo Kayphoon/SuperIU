@@ -1,6 +1,6 @@
 {
   "name": "@agent/core",
-  "version": "0.2.53",
+  "version": "0.2.54",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
