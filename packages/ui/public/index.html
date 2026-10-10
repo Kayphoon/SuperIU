@@ -5132,14 +5132,9 @@
           <section id="settings-pane-models" class="siu-prefs-pane" role="tabpanel" data-pane="models" data-active="false">
             <header class="siu-prefs-head">
               <h3 class="siu-prefs-title" data-i18n="settings.modelRoles.title">模型角色</h3>
-              <p class="siu-prefs-subtitle" data-i18n="settings.modelRoles.subtitle">独立配置主对话模型与各类后台轻量小模型</p>
+              <p class="siu-prefs-subtitle" data-i18n="settings.modelRoles.subtitle">独立配置各类后台轻量小模型</p>
             </header>
             <div class="siu-prefs-pane-body flex flex-col gap-4">
-              <div>
-                <label class="siu-field-label" for="role-main-model" data-i18n="settings.modelRoles.main">主对话模型（Main）</label>
-                <select id="role-main-model" class="siu-field"></select>
-                <p class="siu-field-hint" data-i18n="settings.modelRoles.mainHint">负责主聊天界面的深度思考、规划与核心回复。</p>
-              </div>
               <div>
                 <label class="siu-field-label" for="role-tiny-model" data-i18n="settings.modelRoles.tiny">Tiny model</label>
                 <select id="role-tiny-model" class="siu-field"></select>
@@ -5844,7 +5839,6 @@
         activeProviderId: '',
         selectedProviderId: '',
         // Model routing is chosen per model row rather than by typing a name.
-        draftMainModel: '',
         draftReviewModel: '',
         // Last pane the user looked at, so reopening lands where they left.
         settingsPane: 'general',
@@ -7997,6 +7991,8 @@
           const payload = await postJson('/api/sessions/new', {});
           renderStatus(payload.status);
           renderMessages(payload.messages || []);
+          await refreshComposerSettings();
+          if (state.lastStatus) renderComposerControls(state.lastStatus);
           await refreshSessions();
           toast(tr('toast.newSession'), 'ok');
         } catch (err) {
@@ -8271,12 +8267,12 @@
         return state.providersDraft.find((provider) => provider.id === id);
       }
 
-      /** The single active provider is the only one the runner can use. */
+      /** The active provider is the primary fallback for the runner. */
       function setActiveProvider(id) {
-        state.activeProviderId = id || '';
-        for (const provider of state.providersDraft) {
-          provider.enabled = Boolean(state.activeProviderId) && provider.id === state.activeProviderId;
-        }
+        if (!findDraftProvider(id)) return;
+        state.activeProviderId = id;
+        const target = findDraftProvider(id);
+        if (target) target.enabled = true;
       }
 
       function setSettingsPane(name) {
@@ -8293,6 +8289,9 @@
           renderProviderList();
           renderProviderDetail();
           renderProviderAddMenu();
+        }
+        if (pane === 'models' || pane === 'autoreview') {
+          renderModelRoles();
         }
         if (pane === 'remote') {
           renderRemotePane();
@@ -8478,7 +8477,7 @@
         for (const model of models) {
           const item = el('div', 'siu-model-item');
           item.dataset.model = model;
-          item.dataset.main = String(model === state.draftMainModel);
+          item.dataset.main = String(model === state.currentModel);
           item.dataset.review = String(model === state.draftReviewModel);
           // What the `auto` row of the select below resolves to: the server's
           // built-in detector verdict for this id, as `data-auto-reasoning`
@@ -8517,12 +8516,21 @@
         $('provider-models-empty').hidden = models.length > 0;
       }
 
+      /**
+       * Populate the helper model select dropdowns (Tiny, Review, Title, Memory).
+       * Draft-sourced: filters to models that are enabled on currently enabled providers.
+       * Re-rendered whenever providers or model configurations change.
+       */
       function renderModelRoles() {
         const choices = new Set();
         for (const provider of state.providersDraft || []) {
-          for (const m of provider.models || []) choices.add(m);
+          if (!provider.enabled) continue;
+          for (const m of provider.models || []) {
+            if (state.modelConfigsDraft[m]?.enabled !== false) {
+              choices.add(m);
+            }
+          }
         }
-        for (const m of state.settings?.modelChoices || []) choices.add(m);
         const sorted = [...choices].sort();
 
         const populate = (selectId, currentVal, emptyLabelKey) => {
@@ -8547,10 +8555,6 @@
           sel.value = currentVal || '';
         };
 
-        // With nothing configured the main role select would render as an empty
-        // box; name the state instead of leaving a blank control. Only then —
-        // with models present the select keeps its plain option list.
-        populate('role-main-model', state.draftMainModel, sorted.length ? null : 'model.unset');
         populate('role-tiny-model', state.draftTinyModel, 'settings.modelRoles.followMain');
         populate('role-review-model', state.draftReviewModel, 'settings.modelRoles.followTiny');
         populate('role-title-model', state.draftTitleModel, 'settings.modelRoles.followTiny');
@@ -8565,7 +8569,6 @@
         return JSON.stringify([
           state.providersDraft.map(providerFingerprint),
           state.activeProviderId,
-          state.draftMainModel,
           state.draftTinyModel,
           state.draftReviewModel,
           state.draftTitleModel,
@@ -8582,11 +8585,11 @@
         return JSON.stringify([
           state.savedProviders.map(providerFingerprint),
           state.activeProviderId,
-          view.modelName || '',
           view.tinyModelName || '',
           view.reviewModelName || '',
           view.titleModelName || '',
           view.memoryModelName || '',
+          Boolean(view.autoReview),
           modelConfigsFingerprint(state.savedModelConfigs)
         ]);
       }
@@ -8609,18 +8612,11 @@
         // form comparing the draft against what was merely *sent*.
         state.modelConfigsDraft = modelConfigsFromView(view);
         state.savedModelConfigs = modelConfigsFromView(view);
-        state.activeProviderId = view.activeProviderId || '';
-        for (const provider of state.providersDraft) {
-          provider.enabled = Boolean(state.activeProviderId) && provider.id === state.activeProviderId;
-        }
-        for (const provider of state.savedProviders) {
-          provider.enabled = Boolean(state.activeProviderId) && provider.id === state.activeProviderId;
-        }
+        state.activeProviderId = view.activeProviderId || state.providersDraft.find((p) => p.enabled)?.id || state.providersDraft[0]?.id || '';
         // Keep looking at the same provider across a refresh, unless it is gone.
         if (!findDraftProvider(state.selectedProviderId)) {
           state.selectedProviderId = state.activeProviderId || state.providersDraft[0]?.id || '';
         }
-        state.draftMainModel = view.modelName || '';
         state.draftTinyModel = view.tinyModelName || '';
         state.draftReviewModel = view.reviewModelName || '';
         state.draftTitleModel = view.titleModelName || '';
@@ -9400,13 +9396,16 @@
       $('provider-enabled').addEventListener('click', () => {
         const provider = findDraftProvider(state.selectedProviderId);
         if (!provider) return;
-        if (provider.enabled) {
-          setActiveProvider('');
-        } else {
-          setActiveProvider(provider.id);
+        provider.enabled = !provider.enabled;
+        const enabledProviders = state.providersDraft.filter((p) => p.enabled);
+        if (provider.enabled && (!state.activeProviderId || !findDraftProvider(state.activeProviderId)?.enabled)) {
+          state.activeProviderId = provider.id;
+        } else if (!provider.enabled && state.activeProviderId === provider.id) {
+          state.activeProviderId = enabledProviders[0]?.id || state.providersDraft[0]?.id || '';
         }
         renderProviderList();
         renderProviderDetail();
+        renderModelRoles();
         renderSettingsDirty();
       });
 
@@ -9453,6 +9452,7 @@
             message.dataset.tone = 'ok';
             message.textContent = tr('settings.providers.fetchOk', { count: (result.models || []).length });
             renderProviderModels();
+            renderModelRoles();
             renderSettingsDirty();
           } else {
             message.dataset.tone = 'error';
@@ -9507,6 +9507,7 @@
         }
         input.value = '';
         renderProviderModels();
+        renderModelRoles();
         renderSettingsDirty();
       });
 
@@ -9534,6 +9535,7 @@
           // composer picker does not change out from under a half-finished edit.
           writeModelConfig(model, { enabled: !modelEnabled(model) });
           renderProviderModels();
+          renderModelRoles();
           if (hadFocus) refocusModelControl(model, 'data-toggle-enabled');
           renderSettingsDirty();
           return;
@@ -9586,10 +9588,6 @@
         $('model-config-efforts-group').style.opacity = isAuto ? '0.4' : '1';
         $('model-config-efforts-group').style.pointerEvents = isAuto ? 'none' : 'auto';
       });
-      $('role-main-model')?.addEventListener('change', (e) => {
-        state.draftMainModel = e.target.value;
-        renderSettingsDirty();
-      });
       $('role-tiny-model')?.addEventListener('change', (e) => {
         state.draftTinyModel = e.target.value;
         renderSettingsDirty();
@@ -9616,6 +9614,7 @@
         state.selectedProviderId = state.activeProviderId || state.providersDraft[0]?.id || '';
         renderProviderList();
         renderProviderDetail();
+        renderModelRoles();
         renderSettingsDirty();
       });
 
@@ -9630,11 +9629,11 @@
         const patch = {
           providers: state.providersDraft,
           activeProviderId: state.activeProviderId,
-          modelName: state.draftMainModel,
           tinyModelName: state.draftTinyModel,
           reviewModelName: state.draftReviewModel,
           titleModelName: state.draftTitleModel,
           memoryModelName: state.draftMemoryModel,
+          autoReview: $('set-auto-review').dataset.on === 'true',
           language: $('set-language').value,
           // A full replacement of the map, so every default-only entry is
           // pruned first: the draft accumulates an object for every model the
@@ -12302,6 +12301,8 @@
           const payload = await postJson('/api/sessions/load', { sessionIdOrPath: reference });
           renderStatus(payload.status);
           renderMessages(payload.messages || []);
+          await refreshComposerSettings();
+          if (state.lastStatus) renderComposerControls(state.lastStatus);
           toast(tr('toast.loadedSession', { id: reference.slice(0, 8) }), 'ok');
           await refreshSessions();
         } catch (err) {

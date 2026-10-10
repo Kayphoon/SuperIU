@@ -854,6 +854,34 @@ function resolvedCredentials(target: AgentRunner): string[] {
   return found;
 }
 
+/** Placeholder credential for keyless provider endpoints, matching AgentRunner defaults. */
+const PLACEHOLDER_KEY = 'placeholder-key';
+
+/**
+ * Resolve the provider configuration for a given model id.
+ *
+ * Priority order:
+ * 1. An enabled provider matching `activeProviderId` that carries the model
+ * 2. Any other enabled provider that carries the model (in configured order)
+ * 3. Fallback to an enabled provider matching `activeProviderId`
+ * 4. Fallback to the first enabled provider
+ *
+ * If no enabled providers exist, returns undefined so caller falls back to settings/env.
+ */
+function providerForModel(modelName?: string): ProviderConfig | undefined {
+  if (!modelName) return undefined;
+  const trimmed = modelName.trim();
+  const enabledProviders = (settings.providers ?? []).filter((p) => p.enabled);
+  if (enabledProviders.length === 0) return undefined;
+  const active = enabledProviders.find((p) => p.id === settings.activeProviderId && p.models?.includes(trimmed));
+  if (active) return active;
+  const matching = enabledProviders.find((p) => p.models?.includes(trimmed));
+  if (matching) return matching;
+  const activeFallback = enabledProviders.find((p) => p.id === settings.activeProviderId);
+  if (activeFallback) return activeFallback;
+  return enabledProviders[0];
+}
+
 function runnerOptions(sessionReference?: string, historyDbPath?: string, newSession = false) {
   // A model the user has declared a level set for gets an EXPLICIT route, so the
   // level is a decision the router cannot second-guess: the capability gate only
@@ -888,17 +916,26 @@ function runnerOptions(sessionReference?: string, historyDbPath?: string, newSes
     const hasExplicitModel =
       (role === 'title' && Boolean(settings.titleModelName)) ||
       (role === 'memory' && Boolean(settings.memoryModelName));
-    if (level !== undefined || hasExplicitModel) {
-      modelRoutes[role] = { model, ...(level ? { reasoningEffort: level } : {}) };
+    const provider = providerForModel(model);
+    if (level !== undefined || hasExplicitModel || provider) {
+      modelRoutes[role] = {
+        model,
+        provider: provider?.id,
+        apiKey: provider ? (provider.apiKey || PLACEHOLDER_KEY) : undefined,
+        baseURL: provider?.baseURL || undefined,
+        ...(level ? { reasoningEffort: level } : {})
+      };
     }
   }
-  const activeProvider = settings.providers?.find((p) => p.id === settings.activeProviderId);
-  const effectiveProvider = activeProvider?.apiType || defaultApiTypeFor(activeProvider?.id ?? '', activeProvider?.baseURL) || settings.activeProviderId;
+  const mainProvider = providerForModel(settings.modelName);
+  const effectiveApiKey = mainProvider?.apiKey || settings.apiKey || undefined;
+  const effectiveBaseURL = mainProvider?.baseURL || settings.baseURL || undefined;
+  const effectiveProvider = mainProvider?.apiType || defaultApiTypeFor(mainProvider?.id ?? '', mainProvider?.baseURL) || mainProvider?.id || settings.activeProviderId;
 
   return {
     workspaceDir: activeWorkspaceDir,
-    apiKey: settings.apiKey || undefined,
-    baseURL: settings.baseURL || undefined,
+    apiKey: effectiveApiKey,
+    baseURL: effectiveBaseURL,
     provider: effectiveProvider || undefined,
     modelName: settings.modelName || undefined,
     reviewModelName: settings.reviewModelName || undefined,
@@ -1553,22 +1590,21 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
   if (patch.providers !== undefined || patch.activeProviderId !== undefined) {
     const providers = next.providers ?? [];
     next.providers = providers;
-    // A patch may name the id to activate. An empty string is a legitimate
-    // "nothing active"; a non-string is ignored and the stored id stands.
     if (typeof patch.activeProviderId === 'string') {
       next.activeProviderId = patch.activeProviderId;
     }
-    // A patch may name an id no entry carries — the user deleted the active
-    // provider, or the renderer sent a stale one. Re-point at the first survivor,
-    // or the id dangles: the UI highlights nothing and the runner keeps the
-    // previous provider's credentials in force.
-    if (!providers.some((provider) => provider.id === next.activeProviderId)) {
-      next.activeProviderId = providers[0]?.id ?? '';
+    if (patch.providers === undefined && patch.activeProviderId !== undefined) {
+      for (const provider of providers) {
+        provider.enabled = provider.id === next.activeProviderId;
+      }
     }
-    // `enabled` is a projection of the active id: exactly the active provider is
-    // enabled, and none is when nothing is active.
-    for (const provider of providers) {
-      provider.enabled = Boolean(next.activeProviderId) && provider.id === next.activeProviderId;
+    // A patch may name an id no entry carries — the user deleted the active
+    // provider, or the renderer sent a stale one. Re-point at the first enabled
+    // survivor (or first provider) so the id never dangles or pins a disabled provider.
+    const activeEntry = providers.find((p) => p.id === next.activeProviderId);
+    const enabledSurvivor = providers.find((p) => p.enabled);
+    if (!activeEntry || (!activeEntry.enabled && enabledSurvivor)) {
+      next.activeProviderId = enabledSurvivor?.id ?? providers[0]?.id ?? '';
     }
     // Promote the active provider's credential to the top-level pair. When
     // nothing is active the projection is empty, so the app is explicitly
@@ -1584,6 +1620,18 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
   const nextApiType = nextActive?.apiType || defaultApiTypeFor(nextActive?.id ?? '', nextActive?.baseURL);
   const apiTypeChanged = prevApiType !== nextApiType;
 
+  const providerFingerprint = (list?: ProviderConfig[]) =>
+    JSON.stringify(
+      (list ?? []).map((p) => ({
+        id: p.id,
+        enabled: p.enabled,
+        apiKey: p.apiKey,
+        baseURL: p.baseURL,
+        apiType: p.apiType,
+        models: p.models
+      }))
+    );
+
   const runnerChanged =
     next.apiKey !== settings.apiKey ||
     next.baseURL !== settings.baseURL ||
@@ -1595,6 +1643,7 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
     next.titleModelName !== settings.titleModelName ||
     next.memoryModelName !== settings.memoryModelName ||
     next.autoReview !== settings.autoReview ||
+    providerFingerprint(next.providers) !== providerFingerprint(settings.providers) ||
     // scan canonicalizes `efforts`, so an entry written as ['high','low'] is not
     // a change against one stored as ['low','high'].
     JSON.stringify(next.modelConfigs ?? {}) !== JSON.stringify(settings.modelConfigs ?? {});
@@ -1852,7 +1901,14 @@ async function handleApi(
     // router cannot second-guess — to a model that may reject the parameter
     // outright. `undefined` clears it back to the inherited default, which is what
     // an unconstrained model is supposed to get.
-    runner.setModel(role, { model, reasoningEffort: levelFor(model) });
+    const provider = providerForModel(model);
+    runner.setModel(role, {
+      model,
+      provider: provider?.id,
+      apiKey: provider ? (provider.apiKey || PLACEHOLDER_KEY) : undefined,
+      baseURL: provider?.baseURL || undefined,
+      reasoningEffort: levelFor(model)
+    });
 
     // Mirror into persisted settings so the selection survives a restart. This
     // writes the file only — the runner is NOT rebuilt, so the active session
@@ -1915,6 +1971,8 @@ async function handleApi(
       cwd: session.cwd,
       filePath: session.filePath,
       mtimeMs: session.mtimeMs,
+      model: session.model,
+      reasoningEffort: session.reasoningEffort,
       active: session.id === runner.getSessionId()
     }));
     sendJson(res, 200, sessions);
@@ -1928,6 +1986,13 @@ async function handleApi(
 
   if (pathname === '/api/sessions/new' && method === 'POST') {
     runner.createSession();
+    const currentRoute = runner.getModelRoutes().main;
+    settings.modelName = currentRoute.model;
+    const headerEffort = parseReasoningEffort(runner.session.header.reasoningEffort);
+    if (headerEffort !== undefined) {
+      settings.reasoningEffort = headerEffort;
+    }
+    persistSettings(settings);
     sendJson(res, 200, { status: buildStatus(), messages: serializeMessages(runner.getMessages()) });
     return true;
   }
@@ -1949,6 +2014,21 @@ async function handleApi(
 
     try {
       runner.loadSession(reference);
+      const currentRoute = runner.getModelRoutes().main;
+      const provider = providerForModel(currentRoute.model);
+      runner.setModel('main', {
+        model: currentRoute.model,
+        provider: provider?.id,
+        apiKey: provider ? (provider.apiKey || PLACEHOLDER_KEY) : undefined,
+        baseURL: provider?.baseURL || undefined,
+        reasoningEffort: currentRoute.reasoningEffort
+      });
+      settings.modelName = currentRoute.model;
+      const headerEffort = parseReasoningEffort(runner.session.header.reasoningEffort);
+      if (headerEffort !== undefined) {
+        settings.reasoningEffort = headerEffort;
+      }
+      persistSettings(settings);
     } catch (err) {
       // The client gets a sentence built from the reference it supplied, never
       // the core message, so no host-filesystem detail can leak. The core error

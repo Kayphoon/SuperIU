@@ -251,7 +251,7 @@ export class AgentRunner {
     const baseURL = this.config.baseURL || process.env.OPENAI_BASE_URL;
     const provider = this.config.provider || process.env.OPENAI_PROVIDER;
     const modelName =
-      this.config.modelName || process.env.OPENAI_MODEL_NAME || DEFAULT_MAIN_MODEL;
+      this.config.modelName || this.session.header.model || process.env.OPENAI_MODEL_NAME || DEFAULT_MAIN_MODEL;
     const reviewModelName =
       this.config.reviewModelName ||
       process.env.OPENAI_REVIEW_MODEL_NAME ||
@@ -270,7 +270,9 @@ export class AgentRunner {
     // An explicit option (the console settings surface) wins over the
     // environment, matching how `modelName` and `apiKey` are resolved.
     const configuredEffort =
-      options.defaultReasoningEffort ?? parseReasoningEffort(process.env.OPENAI_REASONING_EFFORT);
+      options.defaultReasoningEffort ??
+      parseReasoningEffort(this.session.header.reasoningEffort) ??
+      parseReasoningEffort(process.env.OPENAI_REASONING_EFFORT);
 
     // Role→route registry. The main model is the one the chat UI selects at
     // runtime; every other role is a tool/auxiliary model configured in
@@ -298,6 +300,10 @@ export class AgentRunner {
       // defers to the built-in detector.
       modelReasoningCapable: options.modelReasoningCapable
     });
+    const mainRoute = this.models.resolve('main');
+    if (!this.session.header.model && !this.session.materialized) {
+      this.session.updateModel(mainRoute.model, mainRoute.reasoningEffort);
+    }
     this.providerDefaults = { apiKey, baseURL, provider };
 
     // A route may name its own credentials/endpoint; otherwise it inherits the
@@ -685,6 +691,10 @@ export class AgentRunner {
    */
   public setModel(role: ModelRole, route: Partial<ModelRoute>): void {
     this.models.setRoute(role, route);
+    if (role === 'main') {
+      const resolved = this.models.resolve('main');
+      this.session.updateModel(resolved.model, resolved.reasoningEffort);
+    }
 
     if (role === 'main') {
       this.stepCaller = this.buildCaller(this.models.resolve('main'));
@@ -748,13 +758,28 @@ export class AgentRunner {
 
     this.session.close();
     this.bindSession(SessionManager.open(resolved));
+    if (this.session.header.model) {
+      this.setModel('main', {
+        model: this.session.header.model,
+        reasoningEffort: parseReasoningEffort(this.session.header.reasoningEffort)
+      });
+    }
     return this.session;
   }
 
   public createSession(title?: string): SessionManager {
     const workspaceDir = this.config.workspaceDir ?? process.cwd();
+    const currentRoute = this.models.resolve('main');
     this.session.close();
-    this.bindSession(SessionManager.create({ workspaceDir, cwd: workspaceDir, title }));
+    this.bindSession(
+      SessionManager.create({
+        workspaceDir,
+        cwd: workspaceDir,
+        title,
+        model: currentRoute.model,
+        reasoningEffort: currentRoute.reasoningEffort
+      })
+    );
     return this.session;
   }
 

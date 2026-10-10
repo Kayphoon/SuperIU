@@ -22,6 +22,8 @@ export interface SessionManagerOptions {
   title?: string;
   /** In-memory only: skip all disk I/O (used by tests). */
   inMemory?: boolean;
+  model?: string;
+  reasoningEffort?: string;
 }
 
 export interface SessionAppendMessage {
@@ -67,7 +69,7 @@ export class SessionManager {
    * Whether `filePath` already holds this session's header on disk.
    *
    * False for a draft: it owns its planned path but has written nothing, so
-   * anything that reads the file (`updateTitle`) branches on this instead of
+   * anything that reads the file (`updateTitle`, `updateModel`) branches on this instead of
    * assuming the header exists. Public so a shell can tell a human that the
    * log path it is displaying is planned rather than real.
    */
@@ -105,6 +107,10 @@ export class SessionManager {
     // each shell renders its own localized label for that state. Baking an
     // English string in here leaks English into every other language.
     if (options.title !== undefined) header.title = options.title;
+    if (options.model !== undefined && options.model.trim()) header.model = options.model.trim();
+    if (options.reasoningEffort !== undefined && options.reasoningEffort.trim()) {
+      header.reasoningEffort = options.reasoningEffort.trim();
+    }
 
     const inMemory = options.inMemory === true;
     const filePath = inMemory
@@ -405,6 +411,21 @@ export class SessionManager {
 
     // A draft has no header on disk yet; the title is already in `this.header`,
     // which `persist` serializes when the draft materializes.
+    if (!this.materialized) return;
+
+    const content = fs.readFileSync(this.filePath, 'utf-8');
+    const newlineIndex = content.indexOf('\n');
+    const rest = newlineIndex === -1 ? '' : content.slice(newlineIndex);
+    fs.writeFileSync(this.filePath, `${JSON.stringify(this.header)}${rest}`, 'utf-8');
+  }
+
+  public updateModel(model: string, reasoningEffort?: string): void {
+    if (model) this.header.model = model.trim();
+    if (reasoningEffort !== undefined) {
+      if (reasoningEffort.trim()) this.header.reasoningEffort = reasoningEffort.trim();
+      else delete this.header.reasoningEffort;
+    }
+    if (!this.filePath) return;
     if (!this.materialized) return;
 
     const content = fs.readFileSync(this.filePath, 'utf-8');

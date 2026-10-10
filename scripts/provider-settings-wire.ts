@@ -274,6 +274,10 @@ function postJson(url: string, body: unknown): Promise<Record<string, unknown>> 
   });
 }
 
+function getJson(url: string): Promise<Record<string, unknown>> {
+  return requestJson(url);
+}
+
 /** The last probe whose path ends with `suffix` — one per fetch call. */
 function lastProbe(probes: Probe[], suffix: string): Probe {
   const hit = [...probes].reverse().find((probe) => probe.path.endsWith(suffix));
@@ -283,14 +287,14 @@ function lastProbe(probes: Probe[], suffix: string): Probe {
   return hit;
 }
 
-function providerEntry(id: string, baseURL: string, apiKey: string, enabled = false) {
+function providerEntry(id: string, baseURL: string, apiKey: string, enabled = false, models: string[] = []) {
   return {
     id,
     name: id,
     enabled,
     apiKey,
     baseURL,
-    models: [],
+    models,
     description: '',
     helpUrl: '',
     custom: id === 'keyless'
@@ -932,6 +936,152 @@ async function runWireTests() {
       assert(
         persisted.providers.find((p) => p.id === 'gamma')?.apiType === 'responses',
         'persisted file did not save responses apiType'
+      );
+    });
+
+    await test('multiple providers can be enabled simultaneously and persist', async () => {
+      const view = await postJson(`${handle.url}/api/settings`, {
+        activeProviderId: 'alpha',
+        providers: [
+          providerEntry('alpha', `${probe.origin}/alpha`, '', true),
+          providerEntry('beta', `${probe.origin}/beta`, '', true),
+          providerEntry('keyless', `${probe.origin}/keyless`, '', false)
+        ]
+      });
+      const alpha = (view.providers as ProviderView[]).find((p) => p.id === 'alpha');
+      const beta = (view.providers as ProviderView[]).find((p) => p.id === 'beta');
+      const keyless = (view.providers as ProviderView[]).find((p) => p.id === 'keyless');
+      assert(alpha?.enabled === true, 'alpha was not enabled');
+      assert(beta?.enabled === true, 'beta was not enabled');
+      assert(keyless?.enabled === false, 'keyless should be disabled');
+      const persisted = await readSettingsFile();
+      const enabledIds = persisted.providers.filter((p) => p.enabled).map((p) => p.id);
+      assert(
+        enabledIds.includes('alpha') && enabledIds.includes('beta') && !enabledIds.includes('keyless'),
+        `expected alpha and beta enabled, saw: ${JSON.stringify(enabledIds)}`
+      );
+    });
+
+    await test('multi-provider per-role routes isolate credentials and keyless routes do not leak', async () => {
+      const beforeCount = probes.length;
+      await postJson(`${handle.url}/api/settings`, {
+        activeProviderId: 'alpha',
+        modelName: 'alpha-model',
+        reviewModelName: 'beta-model',
+        titleModelName: 'keyless-model',
+        providers: [
+          providerEntry('alpha', `${probe.origin}/alpha`, ALPHA_KEY, true, ['alpha-model']),
+          providerEntry('beta', `${probe.origin}/beta`, BETA_KEY, true, ['beta-model']),
+          providerEntry('keyless', `${probe.origin}/keyless`, '', true, ['keyless-model'])
+        ]
+      });
+
+      // 1. Run a main turn: goes to alpha endpoint with alpha key
+      await runTurnAndReadDone(handle.url, 'hello alpha');
+      const alphaProbe = probes.slice(beforeCount).find((p) => p.path.includes('/alpha'));
+      assert(alphaProbe, 'turn did not reach alpha endpoint');
+      assert(
+        alphaProbe.authorization === `Bearer ${ALPHA_KEY}`,
+        `alpha probe got unexpected auth: ${alphaProbe.authorization}`
+      );
+
+      // 2. Switch main model at runtime via POST /api/model to keyless-model:
+      // must reach keyless endpoint with placeholder-key, NEVER ALPHA_KEY or BETA_KEY!
+      const countBeforeSwitch = probes.length;
+      await postJson(`${handle.url}/api/model`, { role: 'main', model: 'keyless-model' });
+      await runTurnAndReadDone(handle.url, 'hello keyless');
+      const keylessProbe = probes.slice(countBeforeSwitch).find((p) => p.path.includes('/keyless'));
+      assert(keylessProbe, 'turn did not reach keyless endpoint');
+      assert(
+        keylessProbe.authorization === 'Bearer placeholder-key',
+        `keyless probe received leaked credential! saw: ${keylessProbe.authorization}`
+      );
+      assert(
+        keylessProbe.authorization !== `Bearer ${ALPHA_KEY}` &&
+        keylessProbe.authorization !== `Bearer ${BETA_KEY}`,
+        'keyless probe received alpha or beta credential!'
+      );
+    });
+
+    await test('POST /api/sessions/new and /api/sessions/load maintain model and reasoningEffort continuity', async () => {
+      // 1. Set model to o3-mini with reasoning effort via /api/settings
+      await postJson(`${handle.url}/api/settings`, {
+        activeProviderId: 'beta',
+        modelName: 'o3-mini',
+        reasoningEffort: 'low',
+        providers: [
+          providerEntry('alpha', `${probe.origin}/alpha`, ALPHA_KEY, true, ['alpha-model']),
+          providerEntry('beta', `${probe.origin}/beta`, BETA_KEY, true, ['o3-mini'])
+        ]
+      });
+
+      // Start fresh session 1 on o3-mini
+      await postJson(`${handle.url}/api/sessions/new`, {});
+      // Materialize first session with a turn on o3-mini
+      await runTurnAndReadDone(handle.url, 'session one turn');
+      const status1 = await getJson(`${handle.url}/api/status`);
+      const session1Id = status1.sessionId;
+      assert(status1.model === 'o3-mini', `expected status1 model o3-mini, got ${status1.model}`);
+      assert(status1.reasoningEffort === 'low', `expected status1 reasoningEffort low, got ${status1.reasoningEffort}`);
+
+      // 2. Create session 2: must inherit o3-mini from session 1
+      const newResp1 = await postJson(`${handle.url}/api/sessions/new`, {});
+      assert(newResp1.status.model === 'o3-mini', `new session 2 did not inherit o3-mini: ${newResp1.status.model}`);
+      assert(newResp1.status.reasoningEffort === 'low', `new session 2 did not inherit reasoningEffort: ${newResp1.status.reasoningEffort}`);
+
+      // 3. Switch model to alpha-model while in session 2
+      await postJson(`${handle.url}/api/model`, { role: 'main', model: 'alpha-model' });
+      const statusAfterSwitch = await getJson(`${handle.url}/api/status`);
+      assert(statusAfterSwitch.model === 'alpha-model', 'model switch failed');
+
+      // Materialize session 2 with a turn on alpha-model
+      await runTurnAndReadDone(handle.url, 'session two turn');
+      const status2 = await getJson(`${handle.url}/api/status`);
+      const session2Id = status2.sessionId;
+      assert(session1Id !== session2Id, 'session IDs should differ');
+      assert(status2.model === 'alpha-model', `expected status2 model alpha-model, got ${status2.model}`);
+
+      // 4. Create session 3: must inherit alpha-model from session 2
+      const newResp2 = await postJson(`${handle.url}/api/sessions/new`, {});
+      assert(newResp2.status.model === 'alpha-model', `new session 3 did not inherit alpha-model: ${newResp2.status.model}`);
+      const persistedSettingsNew = await readSettingsFile();
+      assert(persistedSettingsNew.modelName === 'alpha-model', `settings file not updated on new session: ${persistedSettingsNew.modelName}`);
+
+      // 5. Load first session: must restore o3-mini and low effort
+      const loadResp = await postJson(`${handle.url}/api/sessions/load`, { sessionIdOrPath: session1Id });
+      assert(loadResp.status.model === 'o3-mini', `loaded session status did not restore o3-mini: ${loadResp.status.model}`);
+      assert(loadResp.status.reasoningEffort === 'low', `loaded session status did not restore reasoningEffort: ${loadResp.status.reasoningEffort}`);
+      const persistedSettingsLoad = await readSettingsFile();
+      assert(persistedSettingsLoad.modelName === 'o3-mini', `settings file not updated on session load: ${persistedSettingsLoad.modelName}`);
+
+      const statusRestored = await getJson(`${handle.url}/api/status`);
+      assert(statusRestored.model === 'o3-mini', `status endpoint did not reflect loaded model: ${statusRestored.model}`);
+      assert(statusRestored.reasoningEffort === 'low', `status endpoint did not reflect loaded reasoningEffort: ${statusRestored.reasoningEffort}`);
+      assert(statusRestored.sessionId === session1Id, 'status did not switch back to session 1');
+    });
+
+    await test('POST /api/sessions/new on non-reasoning model preserves stored global reasoningEffort', async () => {
+      // 1. Set global preference to 'high' with non-reasoning model 'alpha-model'
+      await postJson(`${handle.url}/api/settings`, {
+        activeProviderId: 'alpha',
+        modelName: 'alpha-model',
+        reasoningEffort: 'high',
+        providers: [
+          providerEntry('alpha', `${probe.origin}/alpha`, ALPHA_KEY, true, ['alpha-model']),
+          providerEntry('beta', `${probe.origin}/beta`, BETA_KEY, true, ['o3-mini'])
+        ]
+      });
+      let persisted = await readSettingsFile();
+      assert(persisted.reasoningEffort === 'high', `expected stored reasoningEffort 'high', got '${persisted.reasoningEffort}'`);
+
+      // 2. Create a new session with non-reasoning model: must not wipe stored 'high'
+      const newResp = await postJson(`${handle.url}/api/sessions/new`, {});
+      assert(newResp.status.model === 'alpha-model', 'new session model mismatch');
+      assert(newResp.status.reasoningEffort === '', 'non-reasoning model should report empty reasoningEffort');
+      persisted = await readSettingsFile();
+      assert(
+        persisted.reasoningEffort === 'high',
+        `global reasoningEffort was wiped! expected 'high', saw '${persisted.reasoningEffort}'`
       );
     });
 

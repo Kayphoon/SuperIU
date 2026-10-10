@@ -76,6 +76,8 @@ interface SessionHeaderLine {
   cwd: string;
   title?: string;
   titleSource?: string;
+  model?: string;
+  reasoningEffort?: string;
 }
 
 type JsonlLine = SessionHeaderLine | SessionEntry;
@@ -446,6 +448,41 @@ async function runSmokeTests() {
     assert(session.getLeafId() === third.id, 'leafId must track the newest entry');
     assert(entries[2].id === third.id, 'entry id must match the returned message id');
     assert(session.buildSessionContext().length === 3, 'context length mismatch');
+  });
+
+  await test('Session header persists model and reasoningEffort, updateModel rewrites materialized header', async () => {
+    const cwd = path.join(workspace, 'model-header');
+    const session = SessionManager.create({
+      workspaceDir: workspace,
+      cwd,
+      model: 'o3-mini',
+      reasoningEffort: 'high'
+    });
+    const filePath = requireFilePath(session);
+
+    assert(session.header.model === 'o3-mini', `expected initial header model 'o3-mini', got '${session.header.model}'`);
+    assert(session.header.reasoningEffort === 'high', `expected initial header reasoningEffort 'high', got '${session.header.reasoningEffort}'`);
+
+    // Draft session has not written to disk yet
+    session.appendMessage({ role: 'user', content: 'hello' });
+
+    const header = await readHeader(filePath);
+    assert(header.model === 'o3-mini', `persisted header model mismatch: ${header.model}`);
+    assert(header.reasoningEffort === 'high', `persisted header reasoningEffort mismatch: ${header.reasoningEffort}`);
+
+    // Update model on materialized session
+    session.updateModel('o1-mini', 'low');
+    assert(session.header.model === 'o1-mini', `updated in-memory model mismatch: ${session.header.model}`);
+    assert(session.header.reasoningEffort === 'low', `updated in-memory effort mismatch: ${session.header.reasoningEffort}`);
+
+    const updatedHeader = await readHeader(filePath);
+    assert(updatedHeader.model === 'o1-mini', `updated on-disk model mismatch: ${updatedHeader.model}`);
+    assert(updatedHeader.reasoningEffort === 'low', `updated on-disk effort mismatch: ${updatedHeader.reasoningEffort}`);
+
+    // Entries are still readable after header update
+    const entries = await readEntries(filePath);
+    assert(entries.length === 1, `expected 1 entry, got ${entries.length}`);
+    assert(isPersistedMessageLine(entries[0]) && entries[0].message.content === 'hello', 'entry corrupted by header rewrite');
   });
 
   await test('Tool results persist as toolResult role', async () => {
@@ -1754,6 +1791,90 @@ async function runSmokeTests() {
     assert(second.getSessionFile() === sessionFile, 'resume picked a different file');
     assert(second.getMessages().length === 2, 'resumed context missing history');
     second.close();
+  });
+
+  await test('AgentRunner session model and reasoningEffort continuity across createSession, loadSession, and resume', async () => {
+    const runnerWorkspace = path.join(workspace, 'runner-continuity');
+    await fs.mkdir(runnerWorkspace, { recursive: true });
+
+    const options = {
+      workspaceDir: runnerWorkspace,
+      memoryDir: path.join(sandbox, 'runner-continuity-memory'),
+      spilloverDir: path.join(sandbox, 'runner-continuity-spill')
+    };
+
+    const first = new AgentRunner({
+      ...options,
+      modelName: 'o3-mini',
+      defaultReasoningEffort: 'high',
+      stepCaller: new MockStepAdapter([{ text: 'turn1' }, { text: 'turn2' }])
+    });
+    assert(first.session.header.model === 'o3-mini', 'first session header did not get initial model');
+    assert(first.session.header.reasoningEffort === 'high', 'first session header did not get initial effort');
+    await first.run('hello first');
+    const firstSessionId = first.getSessionId();
+
+    // Create session 2: inherits o3-mini and high
+    const secondSession = first.createSession();
+    assert(secondSession.header.model === 'o3-mini', 'second session did not inherit model');
+    assert(secondSession.header.reasoningEffort === 'high', 'second session did not inherit effort');
+
+    // Switch model while in session 2
+    first.setModel('main', { model: 'claude-3-7-sonnet', reasoningEffort: 'low' });
+    assert(first.session.header.model === 'claude-3-7-sonnet', 'setModel did not update session 2 header model');
+    assert(first.session.header.reasoningEffort === 'low', 'setModel did not update session 2 header effort');
+
+    // Run a turn in session 2 to materialize it
+    await first.run('hello second');
+    const secondSessionId = first.getSessionId();
+    assert(firstSessionId !== secondSessionId, 'session IDs should be distinct');
+
+    // Create session 3: should inherit claude-3-7-sonnet and low from session 2
+    const thirdSession = first.createSession();
+    assert(thirdSession.header.model === 'claude-3-7-sonnet', 'session 3 did not inherit model');
+    assert(thirdSession.header.reasoningEffort === 'low', 'session 3 did not inherit reasoningEffort');
+    const thirdRoute = first.getModelRoutes().main;
+    assert(thirdRoute.model === 'claude-3-7-sonnet', 'session 3 route model mismatch');
+    assert(thirdRoute.reasoningEffort === 'low', 'session 3 route effort mismatch');
+
+    // Load first session back: should restore o3-mini and high
+    first.loadSession(firstSessionId);
+    assert(first.session.header.model === 'o3-mini', 'loaded session did not restore header model');
+    assert(first.session.header.reasoningEffort === 'high', 'loaded session did not restore header effort');
+    const restoredRoute = first.getModelRoutes().main;
+    assert(restoredRoute.model === 'o3-mini', 'loaded session route model mismatch');
+    assert(restoredRoute.reasoningEffort === 'high', 'loaded session route effort mismatch');
+    first.close();
+
+    // Construct a new runner resuming first session directly without explicit modelName option
+    const resumed = new AgentRunner({
+      ...options,
+      sessionId: firstSessionId,
+      stepCaller: new MockStepAdapter([{ text: 'turn resume' }])
+    });
+    assert(resumed.session.header.model === 'o3-mini', 'resumed session header model mismatch');
+    assert(resumed.session.header.reasoningEffort === 'high', 'resumed session header effort mismatch');
+    const resumedRoute = resumed.getModelRoutes().main;
+    assert(resumedRoute.model === 'o3-mini', 'resumed session route model mismatch');
+    assert(resumedRoute.reasoningEffort === 'high', 'resumed session route effort mismatch');
+    resumed.close();
+
+    // Corrupt reasoning effort in session header is sanitized by parseReasoningEffort
+    const corruptSession = SessionManager.create({
+      workspaceDir: runnerWorkspace,
+      cwd: runnerWorkspace,
+      model: 'o3-mini',
+      reasoningEffort: 'corrupt-effort-value'
+    });
+    corruptSession.appendMessage({ role: 'user', content: 'hello corrupt' });
+    const corruptRunner = new AgentRunner({
+      ...options,
+      sessionId: corruptSession.id,
+      stepCaller: new MockStepAdapter([])
+    });
+    const corruptRoute = corruptRunner.getModelRoutes().main;
+    assert(corruptRoute.reasoningEffort !== 'corrupt-effort-value', 'corrupt reasoning effort was not sanitized');
+    corruptRunner.close();
   });
 
   // ---------------------------------------------------------------------------
