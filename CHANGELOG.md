@@ -14,6 +14,20 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.36 (2026-10-10)
+
+### 中文
+
+- 修复双端更新看板行内操作按钮未彻底隐藏的视觉问题：
+  - **封堵双端模式幽灵按钮**：修复在重绘版本状态时 `className` 赋值意外抹除 `hidden` 类名、导致本地客户端行重复显示检查更新按钮且远程网关行残存空边框的缺陷；
+  - **强制 CSS 隐藏层级**：为 `.siu-btn.hidden` 与 `.siu-btn[hidden]` 追加最高优先级隐藏，并在双端模式渲染周期显式确保两端行内按钮彻底隐藏，仅保留底栏统一主控。
+
+### English
+
+- Fix visual regression where per-node action buttons leaked in dual-end mode:
+  - **Suppress phantom buttons in dual mode**: fixed an issue where resetting `className` inadvertently cleared the `hidden` class on update status redraws, causing a duplicate check button on the local node and an empty border frame on the remote node;
+  - **Enforce CSS hidden specificity**: added `!important` to `.siu-btn.hidden` and `.siu-btn[hidden]`, explicitly guaranteeing that per-row action buttons remain hidden in dual mode with only the bottom master control visible.
+
 ## v0.2.35 (2026-10-10)
 
 ### 中文
