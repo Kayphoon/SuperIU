@@ -7,8 +7,17 @@
       content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
     />
     <meta name="color-scheme" content="dark light" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="SuperIU" />
+    <meta name="application-name" content="SuperIU" />
+    <meta name="theme-color" content="#121316" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
     <title data-i18n="app.title">SuperIU · 智能体控制台</title>
     <link rel="icon" type="image/png" href="/app-icon.png" />
+    <link rel="apple-touch-icon" href="/app-icon.png" />
+    <link rel="manifest" href="/manifest.json" />
     <script>
       // Set before the first paint so the translucent layers never flash opaque
       // in the desktop shell (and never render translucent in a browser tab,
@@ -345,6 +354,8 @@
         /* Transparent so the macOS `under-window` material is the base layer.
            The opaque fallback lives on the token, not on the element. */
         background: transparent;
+        overscroll-behavior-y: none;
+        -webkit-tap-highlight-color: transparent;
       }
       /* `html body` outranks Tailwind's preflight `body` rule (which sets
          `line-height: inherit`); both are single-class specificity otherwise. */
@@ -355,6 +366,7 @@
         font-size: var(--siu-text-body);
         line-height: 21px;
         -webkit-font-smoothing: antialiased;
+        -webkit-text-size-adjust: 100%;
       }
 
       ::selection {
@@ -4126,6 +4138,22 @@
         </div>
 
         <form id="connect-form" class="siu-connect-form">
+          <div class="siu-connect-field-wrap">
+            <div class="flex items-center justify-between">
+              <label class="siu-field-label" for="connect-server-url" data-i18n="pair.connect.serverUrlLabel">服务地址 (URL)</label>
+              <span class="text-[11px] text-muted" data-i18n="pair.connect.serverUrlOptional">可选，留空为当前站点</span>
+            </div>
+            <input
+              id="connect-server-url"
+              type="text"
+              class="siu-field font-mono text-[13px] h-10 w-full"
+              placeholder=""
+              data-i18n-placeholder="pair.connect.serverUrlPlaceholder"
+              autocomplete="off"
+              spellcheck="false"
+            />
+          </div>
+
           <div class="siu-connect-field-wrap">
             <label class="siu-field-label" for="connect-input" data-i18n="pair.connect.inputLabel">配对凭证（链接或密钥）</label>
             <input
@@ -9852,17 +9880,37 @@
         }
       }
 
-      function parsePairInput(raw) {
+      function parsePairInput(raw, customUrl) {
         const text = (raw || '').trim();
-        if (!text) return null;
-        const match = text.match(/\/auth\/connect\/([a-zA-Z0-9_-]+)/);
-        if (match) {
-          return { code: match[1] };
+        let targetOrigin = (customUrl || '').trim();
+        let code = '';
+        let key = '';
+
+        try {
+          if (text.startsWith('http://') || text.startsWith('https://')) {
+            const u = new URL(text);
+            if (!targetOrigin) targetOrigin = u.origin;
+            const match = u.pathname.match(/\/auth\/connect\/([a-zA-Z0-9_-]+)/);
+            if (match) code = match[1];
+          }
+        } catch {}
+
+        if (!code) {
+          const match = text.match(/\/auth\/connect\/([a-zA-Z0-9_-]+)/);
+          if (match) {
+            code = match[1];
+          } else if (/^[0-9a-fA-F]{64}$/.test(text)) {
+            key = text.toLowerCase();
+          } else {
+            code = text;
+          }
         }
-        if (/^[0-9a-fA-F]{64}$/.test(text)) {
-          return { key: text.toLowerCase() };
+
+        if (targetOrigin) {
+          targetOrigin = targetOrigin.replace(/\/+$/, '');
         }
-        return { code: text };
+
+        return { code: code || undefined, key: key || undefined, targetOrigin: targetOrigin || undefined };
       }
 
       async function checkPairingAvailability() {
@@ -9881,12 +9929,34 @@
         }
       }
 
+      const connectInputEl = $('connect-input');
+      const connectUrlEl = $('connect-server-url');
+      function syncConnectPaste() {
+        const raw = (connectInputEl?.value || '').trim();
+        try {
+          if (raw.startsWith('http://') || raw.startsWith('https://')) {
+            const u = new URL(raw);
+            if (connectUrlEl && !connectUrlEl.value.trim()) {
+              connectUrlEl.value = u.origin;
+            }
+            const match = u.pathname.match(/\/auth\/connect\/([a-zA-Z0-9_-]+)/);
+            if (match && connectInputEl) {
+              connectInputEl.value = match[1];
+            }
+          }
+        } catch {}
+      }
+      connectInputEl?.addEventListener('paste', () => setTimeout(syncConnectPaste, 0));
+      connectInputEl?.addEventListener('input', syncConnectPaste);
+
       $('connect-form')?.addEventListener('submit', async (event) => {
         event.preventDefault();
         const input = $('connect-input');
+        const urlInput = $('connect-server-url');
         const raw = input?.value || '';
-        const parsed = parsePairInput(raw);
-        if (!parsed) {
+        const customUrl = urlInput?.value || '';
+        const parsed = parsePairInput(raw, customUrl);
+        if (!parsed || (!parsed.code && !parsed.key && !parsed.targetOrigin)) {
           renderConnectScreen(tr('pair.error.required'));
           return;
         }
@@ -9897,20 +9967,50 @@
         if (btnText) btnText.textContent = tr('pair.connect.submitting');
         renderConnectScreen('');
 
+        // 1. If running on Desktop shell: connect directly via desktop bridge
+        if (window.superiuDesktop?.connectCustomUrl && parsed.targetOrigin) {
+          try {
+            await window.superiuDesktop.connectCustomUrl({
+              url: parsed.targetOrigin,
+              token: parsed.key || parsed.code,
+              saveDefault: true
+            });
+            dismissConnectScreen();
+            return;
+          } catch (err) {
+            renderConnectScreen(err?.message || tr('pair.error.network'));
+            if (btn) btn.disabled = false;
+            if (btnText) btnText.textContent = tr('pair.connect.submit');
+            return;
+          }
+        }
+
+        // 2. If targetOrigin is specified and differs from current origin in browser/mobile Safari:
+        if (parsed.targetOrigin && parsed.targetOrigin !== window.location.origin) {
+          if (btnText) btnText.textContent = tr('pair.connect.success');
+          if (parsed.code) {
+            window.location.href = `${parsed.targetOrigin}/auth/connect/${encodeURIComponent(parsed.code)}`;
+          } else if (parsed.key) {
+            window.location.href = `${parsed.targetOrigin}/auth/connect/${encodeURIComponent(parsed.key)}`;
+          } else {
+            window.location.href = `${parsed.targetOrigin}/`;
+          }
+          return;
+        }
+
+        // 3. Current host pairing (fetch /api/pair)
         try {
           const res = await fetch('/api/pair', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ...parsed, label: 'web' })
+            body: JSON.stringify({ code: parsed.code, key: parsed.key, label: 'web' })
           });
           const payload = await res.json().catch(() => ({}));
           if (res.status === 200 && payload.ok) {
             if (payload.id) {
               try {
                 localStorage.setItem('superiu.pairId', payload.id);
-              } catch {
-                /* ignore storage failure */
-              }
+              } catch {}
             }
             if (btnText) btnText.textContent = tr('pair.connect.success');
             setTimeout(() => {

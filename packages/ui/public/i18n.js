@@ -528,6 +528,9 @@ const DICT = {
 
     'pair.connect.title': 'SuperIU · 控制台配对',
     'pair.connect.subtitle': '请输入配对链接或密钥以连接此 SuperIU 实例',
+    'pair.connect.serverUrlLabel': '服务地址 (URL)',
+    'pair.connect.serverUrlPlaceholder': 'http://192.168.1.100:7345 或 https://...',
+    'pair.connect.serverUrlOptional': '可选，留空为当前站点',
     'pair.connect.inputLabel': '配对凭证（链接或密钥）',
     'pair.connect.inputPlaceholder': '粘贴配对链接或 64 位密钥…',
     'pair.connect.submit': '连接并登录',
@@ -1067,6 +1070,9 @@ const DICT = {
 
     'pair.connect.title': 'SuperIU · Console Pairing',
     'pair.connect.subtitle': 'Enter the pairing link or key to access this SuperIU instance',
+    'pair.connect.serverUrlLabel': 'Server URL',
+    'pair.connect.serverUrlPlaceholder': 'http://192.168.1.100:7345 or https://...',
+    'pair.connect.serverUrlOptional': 'Optional, empty for current site',
     'pair.connect.inputLabel': 'Pairing credential (link or key)',
     'pair.connect.inputPlaceholder': 'Paste pairing link or 64-hex key…',
     'pair.connect.submit': 'Connect',

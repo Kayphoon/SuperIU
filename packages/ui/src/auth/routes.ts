@@ -77,7 +77,14 @@ export function handleConnectCode(
     raw = '';
   }
 
-  const issued = raw ? layer.store.consumeCode(raw, 'web') : null;
+  let issued = raw ? layer.store.consumeCode(raw, 'web') : null;
+  if (!issued && raw && /^[0-9a-fA-F]{64}$/.test(raw)) {
+    const verified = layer.store.verify(raw);
+    if (verified) {
+      layer.store.markUsed(raw);
+      issued = { raw, id: verified.id };
+    }
+  }
   if (!issued) {
     redirect(res, '/?pair_error=invalid');
     return;
