@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.51 (2026-10-10)
+
+### 中文
+
+- 优化双端升级生命周期体验，实现点击一键升级双端后桌面端下载完成自动重启换装：
+  - **自动重启意图联动**：点击「一键升级双端」即作为授权本地重启的明确动作，本地安装包下载校验完成（`ready`）后自动调用换装接口执行无缝重启，消除下载后需手动二次点击的断层体验；
+  - **平滑时序保护**：在远端网关升级请求（`applyRemoteUpdate` POST）派发完成前严格等待，避免本地客户端过早退出中断远端守护进程升级命令的传输；若本地已就绪则在请求派发后立即触发重启；
+  - **双端过渡状态常驻展示**：修复远端服务重启重连后由于自检无更新导致双端操作栏突然隐藏的问题；在本地下载安装期间双端操作栏保持展示，清晰呈现自动重启等待状态与安装进度。
+
+### English
+
+- Streamline dual-end upgrade workflow with automatic desktop client restart upon download completion:
+  - **Auto-restart Intent Continuity**: Clicking "Upgrade Both Sides" now acts as explicit authorization to restart the local client, automatically triggering bundle replacement and app restart once local download finishes without requiring a second manual confirmation;
+  - **Graceful Lifecycle Protection**: Guarantees that the remote gateway upgrade dispatch completes before local restart to avoid interrupting in-flight server update triggers; immediately restarts local client if the download was already prepared;
+  - **Persistent Dual Transition Bar**: Fixes premature hiding of the dual-action bar when the remote gateway finishes restarting while local download is still in progress; keeps the master action bar visible with clear status hints during download and bundle installation.
+
 ## v0.2.50 (2026-10-10)
 
 ### 中文
