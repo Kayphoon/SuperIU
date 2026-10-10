@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.42 (2026-10-10)
+
+### 中文
+
+- 优化标题栏网络延迟与远程连接状态徽标排版：
+  - **解耦主机别名与延迟数字**：将主机别名与 RTT 延迟数字拆分为独立微胶囊徽标，消除字符串堆叠与多重硬分割线的拥挤感；
+  - **自适应延迟质量与警示状态**：引入等宽微胶囊数字展示（`tabular-nums` 防抖动），根据网络质量动态呈现语义化着色预警（>250ms 预警 / >800ms 较差）；
+  - **主机名优雅截断与全量悬停提示**：为长主机名/自定义地址提供优雅文本截断保护，悬停时通过原生 Tooltip 展示完整主机信息与实时毫秒延迟。
+
+### English
+
+- Refine titlebar network latency and remote connection status layout:
+  - **Decoupled host alias & latency readout**: split host alias and RTT latency into dedicated micro-capsule badges, eliminating string concatenation and harsh divider crowding;
+  - **Adaptive latency quality & alert states**: introduced monospace tabular-nums micro-pill indicators with semantic quality tinting (>250ms warning, >800ms poor);
+  - **Hostname truncation & hover tooltips**: added graceful truncation protection for long hostnames or custom URLs, backed by native hover tooltips revealing full host targets and exact millisecond latency.
+
 ## v0.2.41 (2026-10-10)
 
 ### 中文
