@@ -4312,6 +4312,9 @@
         gap: 8px;
       }
       .siu-net-banner-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
         margin-left: 6px;
         padding: 2px 8px;
         font-size: 11px;
@@ -4321,10 +4324,28 @@
         border: 1px solid rgba(255, 255, 255, 0.2);
         color: inherit;
         cursor: pointer;
-        transition: background var(--siu-dur-fast);
+        transition: background var(--siu-dur-fast), opacity var(--siu-dur-fast);
       }
-      .siu-net-banner-btn:hover {
+      .siu-net-banner-btn:hover:not(:disabled) {
         background: rgba(255, 255, 255, 0.22);
+      }
+      .siu-net-banner-btn:active:not(:disabled) {
+        background: rgba(255, 255, 255, 0.18);
+        transform: translateY(0.5px);
+      }
+      .siu-net-banner-btn:disabled {
+        opacity: 0.65;
+        cursor: not-allowed;
+        pointer-events: none;
+      }
+      .siu-net-spinner {
+        width: 10px;
+        height: 10px;
+        border: 1.5px solid currentColor;
+        border-top-color: transparent;
+        border-radius: 50%;
+        animation: siu-spin 0.8s linear infinite;
+        flex-shrink: 0;
       }
       .siu-stale-badge {
         display: inline-flex;
@@ -5856,7 +5877,8 @@
         consecutiveFailures: 0,
         lastSuccessAt: Date.now(),
         reconnectTimer: null,
-        reconnectDelay: 2000
+        reconnectDelay: 2000,
+        retrying: false
       };
 
       const $ = (id) => document.getElementById(id);
@@ -6054,6 +6076,73 @@
             scheduleReconnectProbe();
           }
         }, netState.reconnectDelay);
+      }
+
+      async function handleManualNetworkRetry() {
+        if (netState.retrying) return;
+        netState.retrying = true;
+
+        if (netState.reconnectTimer) {
+          clearTimeout(netState.reconnectTimer);
+          netState.reconnectTimer = null;
+        }
+
+        const dot = $('net-banner-dot');
+        const btnRetry = $('btn-net-retry');
+        if (dot) dot.dataset.status = 'thinking';
+        if (btnRetry) {
+          btnRetry.disabled = true;
+          btnRetry.textContent = '';
+          const spinner = el('span', 'siu-net-spinner');
+          btnRetry.appendChild(spinner);
+          btnRetry.appendChild(document.createTextNode(tr('net.banner.retrying')));
+        }
+
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 5000);
+
+        try {
+          const probe = await fetch('/api/status', {
+            method: 'GET',
+            cache: 'no-store',
+            signal: controller.signal
+          });
+          clearTimeout(timer);
+
+          if (probe.ok) {
+            netState.retrying = false;
+            onNetworkSuccess();
+            void refreshStatus();
+            void refreshSessions();
+          } else if (probe.status === 401) {
+            netState.retrying = false;
+            if (btnRetry) {
+              btnRetry.disabled = false;
+              btnRetry.textContent = tr('net.banner.retry');
+            }
+            if (dot) dot.dataset.status = 'error';
+            handleUnauthorized();
+          } else {
+            netState.retrying = false;
+            if (btnRetry) {
+              btnRetry.disabled = false;
+              btnRetry.textContent = tr('net.banner.retry');
+            }
+            if (dot) dot.dataset.status = 'error';
+            toast(tr('net.banner.retryFailed'), 'error');
+            scheduleReconnectProbe();
+          }
+        } catch {
+          clearTimeout(timer);
+          netState.retrying = false;
+          if (btnRetry) {
+            btnRetry.disabled = false;
+            btnRetry.textContent = tr('net.banner.retry');
+          }
+          if (dot) dot.dataset.status = 'error';
+          toast(tr('net.banner.retryFailed'), 'error');
+          scheduleReconnectProbe();
+        }
       }
 
       async function api(path, options = {}) {
@@ -10353,19 +10442,47 @@
         banner.dataset.state = netState.status;
         if (netState.status === 'offline') {
           banner.hidden = false;
-          if (dot) dot.dataset.status = 'error';
+          if (dot) dot.dataset.status = netState.retrying ? 'thinking' : 'error';
           const timeStr = shortTime(new Date(netState.lastSuccessAt).toISOString());
           msg.textContent = tr('net.banner.offline', { time: timeStr });
-          if (btnRetry) btnRetry.hidden = false;
+          if (btnRetry) {
+            btnRetry.hidden = false;
+            if (netState.retrying) {
+              btnRetry.disabled = true;
+              btnRetry.textContent = '';
+              const spinner = el('span', 'siu-net-spinner');
+              btnRetry.appendChild(spinner);
+              btnRetry.appendChild(document.createTextNode(tr('net.banner.retrying')));
+            } else {
+              btnRetry.disabled = false;
+              btnRetry.textContent = tr('net.banner.retry');
+            }
+          }
         } else if (netState.status === 'degraded') {
           banner.hidden = false;
           if (dot) dot.dataset.status = 'thinking';
           msg.textContent = tr('net.banner.reconnecting');
-          if (btnRetry) btnRetry.hidden = false;
+          if (btnRetry) {
+            btnRetry.hidden = false;
+            if (netState.retrying) {
+              btnRetry.disabled = true;
+              btnRetry.textContent = '';
+              const spinner = el('span', 'siu-net-spinner');
+              btnRetry.appendChild(spinner);
+              btnRetry.appendChild(document.createTextNode(tr('net.banner.retrying')));
+            } else {
+              btnRetry.disabled = false;
+              btnRetry.textContent = tr('net.banner.retry');
+            }
+          }
         } else if (netState.status === 'online') {
           if (dot) dot.dataset.status = 'completed';
           msg.textContent = tr('net.banner.online');
-          if (btnRetry) btnRetry.hidden = true;
+          if (btnRetry) {
+            btnRetry.hidden = true;
+            btnRetry.disabled = false;
+            btnRetry.textContent = tr('net.banner.retry');
+          }
           setTimeout(() => {
             if (netState.status === 'online') {
               banner.hidden = true;
@@ -11327,8 +11444,7 @@
       });
 
       $('btn-net-retry')?.addEventListener('click', () => {
-        void refreshStatus();
-        void refreshSessions();
+        void handleManualNetworkRetry();
       });
 
       window.addEventListener('online', () => {
