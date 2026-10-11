@@ -1,6 +1,6 @@
 {
   "name": "@agent/cli",
-  "version": "0.2.54",
+  "version": "0.2.55",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",

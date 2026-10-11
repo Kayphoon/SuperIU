@@ -14,6 +14,36 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.55 (2026-10-11)
+
+### 中文
+
+- **多服务商并发启用与凭据隔离**：
+  - 支持在设置中同时启用多个服务商，不再强制单选互斥；
+  - 核心运行时根据模型所属服务商自动分发端点与凭据路由（`providerForModel`），为无密钥本地端点配置占位凭据隔离，杜绝跨服务商凭据泄漏；
+- **模型角色下拉选项智能过滤与设置解耦**：
+  - 各类辅助模型（Tiny、Review、Title、Memory）下拉列表仅展示当前已启用服务商中已启用的模型，避免误选不可用模型；
+  - 移除设置面板「模型角色」中冗余的「主对话模型」配置，主模型统一由底栏输入框的模型选择器驱动，消除双重事实来源；
+  - 联动刷新：服务商启用切换、增删或模型探测成功时即时重绘模型角色列表；
+- **会话模型与推理强度继承与恢复**：
+  - 会话日志头（`SessionHeader`）新增 `model` 与 `reasoningEffort` 持久化字段，首次消息落盘与运行中模型切换（`updateModel`）时同步原子更新头信息；
+  - 新建会话（`/api/sessions/new`）默认继承上个会话选择的模型与推理强度，加载历史会话（`/api/sessions/load`）自动恢复该会话的模型与推理设置；
+  - 导航保护：当会话使用非思考模型或历史会话无推理字段时，安全保留用户的全局推理强度偏好不被抹除，严格校验并清洗磁盘会话头中的推理强度参数。
+
+### English
+
+- **Concurrent multi-provider support with credential isolation**:
+  - Allow multiple providers to remain concurrently active in settings rather than forcing single-provider exclusivity;
+  - Model routes dynamically dispatch endpoint and credentials based on provider model ownership (`providerForModel`), with credential isolation for keyless local endpoints to prevent leaks;
+- **Filtered model role dropdowns & main model preference decoupling**:
+  - Filter auxiliary role dropdowns (Tiny, Review, Title, Memory) to only display enabled models from currently enabled providers;
+  - Remove redundant "Main Model" setting from the Settings > Model Roles pane; active chat models are exclusively driven by the composer selector to avoid split sources of truth;
+  - Dynamically re-render model role dropdowns on provider toggles, additions, deletions, and model probe fetches;
+- **Session model and reasoning effort inheritance & restoration**:
+  - Persist `model` and `reasoningEffort` directly in JSONL `SessionHeader`, with atomic on-disk header updates on message materialization and runtime model switches (`updateModel`);
+  - New sessions (`/api/sessions/new`) automatically inherit the model and reasoning effort selected in the prior session; loading a session (`/api/sessions/load`) restores its recorded model and effort;
+  - Preserve the user's stored global reasoning effort preference when navigating to/from non-reasoning models, and sanitize on-disk effort attributes.
+
 ## v0.2.54 (2026-10-10)
 
 ### 中文
