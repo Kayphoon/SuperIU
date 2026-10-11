@@ -14,6 +14,24 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.56 (2026-10-11)
+
+### 中文
+
+- **通知提示自动消除与关闭交互优化**：
+  - 修复错误类通知（`notifyError`）因超时设为 0 导致永久常驻屏幕不自动消除的问题，默认超时调整为 8 秒自动淡出；
+  - 修复移动端/触摸屏上因关闭按钮透明度（`opacity: 0`）依赖 `:hover` 导致按钮完全不可见的问题，改为常态可见并将触控热区扩大至 32×32px；
+  - 移动端新增向右或向上滑动手势快速消除通知，按住通知可暂停倒计时；
+  - 相同标题与内容的重复错误通知自动合并/替换，杜绝多条相同告警横幅堆叠遮挡屏幕。
+
+### English
+
+- **Toast notification auto-dismissal and interaction polish**:
+  - Fix persistent error toasts caused by a 0ms default timeout, adding an 8-second auto-dismiss timer;
+  - Fix invisible close buttons on touch devices caused by hover-only opacity, making the dismiss button always visible and expanding the touch target to 32×32px;
+  - Add swipe gestures (swipe right or up) to quickly dismiss toasts on touchscreens, and pause timers on touch hold;
+  - Deduplicate identical notifications to prevent repeated error banners from stacking up.
+
 ## v0.2.55 (2026-10-11)
 
 ### 中文

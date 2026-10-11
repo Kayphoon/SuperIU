@@ -1,6 +1,6 @@
 {
   "name": "@agent/ui",
-  "version": "0.2.55",
+  "version": "0.2.56",
   "license": "MIT",
   "type": "module",
   "main": "./dist/server.js",
