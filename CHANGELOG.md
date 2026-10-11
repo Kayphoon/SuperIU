@@ -14,6 +14,26 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.57 (2026-10-11)
+
+### 中文
+
+- **网络连接重试按钮反馈与探测逻辑优化**：
+  - 修复离线横幅重试按钮（「立即重试」）点击时无视觉反馈、无 Loading 状态以及重复点击并发重试的问题；
+  - 新增按钮禁用状态、微动效旋转加载指示器（`.siu-net-spinner`）以及「正在重试…」动态文本；
+  - 手动重试时状态指示灯立即切换为思考状态（amber 脉冲），并取消后台等待计时器进行主动探测；
+  - 修复重试失败时错误被静默吞掉的问题，增加明确的重试失败错误提示并在探测超时后自动恢复重试状态；
+  - 新增相关 i18n 键值及完整单元测试，确保中英双语与字典对齐。
+
+### English
+
+- **Network resilience banner retry button feedback and probing polish**:
+  - Fix the offline resilience banner retry button ("Retry now") having no visual feedback, no loading state, and race conditions on repeated clicks;
+  - Add disabled button state, inline micro-spinner (`.siu-net-spinner`), and dynamic "Retrying…" text during connection attempts;
+  - Switch status indicator dot to thinking state (pulsing amber) immediately upon manual retry and clear pending background timers for immediate active probing;
+  - Fix silent error swallowing on failed retries by displaying an error toast when unreachable and restoring the button to retryable state;
+  - Add bilingual i18n dictionary entries and unit test suite ensuring full parity and guard conformance.
+
 ## v0.2.56 (2026-10-11)
 
 ### 中文
