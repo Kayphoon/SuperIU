@@ -55,7 +55,7 @@ const KIND_META_PUBLIC = Object.fromEntries(
   ])
 );
 
-const DEFAULT_TIMEOUT = { info: 5000, success: 4500, approval: 9000, error: 0 };
+const DEFAULT_TIMEOUT = { info: 5000, success: 4500, approval: 9000, error: 8000 };
 const MAX_TOASTS = 5;
 
 // ---------------------------------------------------------------------------
@@ -407,12 +407,16 @@ const TOAST_CSS = `
 .siu-action:hover{background:var(--siu-bg-active,rgba(255,255,255,.085));color:var(--siu-text-primary,#e9edf4)}
 .siu-action[data-primary="true"]{border-color:transparent;background:var(--siu-accent, #0a84ff);color:var(--siu-text-inverse,#06070b)}
 .siu-action[data-primary="true"]:hover{filter:brightness(1.08)}
-.siu-close{flex:0 0 auto;appearance:none;cursor:pointer;width:20px;height:20px;display:flex;align-items:center;justify-content:center;
-  border:0;border-radius:var(--siu-radius-xs,4px);background:transparent;color:var(--siu-text-muted,#7e8798);opacity:0;
-  transition:opacity .15s,background .15s,color .15s}
+.siu-close{flex:0 0 auto;appearance:none;cursor:pointer;width:22px;height:22px;display:flex;align-items:center;justify-content:center;
+  border:0;border-radius:var(--siu-radius-xs,4px);background:transparent;color:var(--siu-text-muted,#7e8798);opacity:.65;
+  touch-action:manipulation;transition:opacity .15s,background .15s,color .15s;padding:0;margin:-2px -2px 0 0}
 .siu-toast:hover .siu-close,.siu-close:focus-visible{opacity:1}
-.siu-close:hover{background:var(--siu-bg-hover,rgba(255,255,255,.055));color:var(--siu-text-primary,#e9edf4)}
-.siu-close svg{width:10px;height:10px}
+.siu-close:hover{background:var(--siu-bg-hover,rgba(255,255,255,.055));color:var(--siu-text-primary,#e9edf4);opacity:1}
+.siu-close svg{width:11px;height:11px}
+@media (hover:none),(pointer:coarse){
+  .siu-close{opacity:.85;width:32px;height:32px;margin:-5px -5px 0 0}
+  .siu-close svg{width:13px;height:13px}
+}
 @media (prefers-reduced-motion:reduce){
   .siu-toast{transition:none!important}
   .siu-toast,.siu-toast *{animation:none!important;transform:none!important}
@@ -546,8 +550,44 @@ function buildToast(message, options) {
   close.type = 'button';
   close.setAttribute('aria-label', tr('notify.dismiss'));
   close.innerHTML = '<svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M1.5 1.5l7 7M8.5 1.5l-7 7"/></svg>';
-  close.addEventListener('click', () => dismiss(options.id));
+  close.addEventListener('click', (event) => {
+    event.stopPropagation();
+    dismiss(options.id);
+  });
   node.appendChild(close);
+
+  let touchStartX = 0;
+  let touchStartY = 0;
+  let touchDeltaX = 0;
+  let touchDeltaY = 0;
+
+  node.addEventListener(
+    'touchstart',
+    (e) => {
+      if (e.touches.length !== 1) return;
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+      touchDeltaX = 0;
+      touchDeltaY = 0;
+    },
+    { passive: true }
+  );
+
+  node.addEventListener(
+    'touchmove',
+    (e) => {
+      if (e.touches.length !== 1) return;
+      touchDeltaX = e.touches[0].clientX - touchStartX;
+      touchDeltaY = e.touches[0].clientY - touchStartY;
+    },
+    { passive: true }
+  );
+
+  node.addEventListener('touchend', () => {
+    if (touchDeltaX > 48 || touchDeltaY < -32) {
+      dismiss(options.id);
+    }
+  });
 
   if (typeof options.onClick === 'function') {
     node.addEventListener('click', (event) => {
@@ -615,8 +655,25 @@ function toast(message, options = {}) {
 
   const kind = KIND_META[options.kind] ? options.kind : 'info';
   const timeout = Number.isFinite(options.timeout) ? options.timeout : DEFAULT_TIMEOUT[kind];
-  const node = buildToast(message === undefined || message === null ? '' : String(message), { ...options, id, kind });
-  const record = { id, node, timer: 0, remaining: timeout, startedAt: 0, closing: false };
+  const strMessage = message === undefined || message === null ? '' : String(message);
+
+  const tag = options.tag;
+  if (tag) {
+    for (const [existingId, entry] of toasts) {
+      if (!entry.closing && entry.tag === tag) {
+        dismiss(existingId);
+      }
+    }
+  } else {
+    for (const [existingId, entry] of toasts) {
+      if (!entry.closing && entry.kind === kind && entry.message === strMessage && entry.title === (options.title ?? '')) {
+        dismiss(existingId);
+      }
+    }
+  }
+
+  const node = buildToast(strMessage, { ...options, id, kind });
+  const record = { id, node, timer: 0, remaining: timeout, startedAt: 0, closing: false, kind, message: strMessage, title: options.title ?? '', tag };
   toasts.set(id, record);
 
   stack.insertBefore(node, stack.firstChild);
@@ -637,6 +694,17 @@ function toast(message, options = {}) {
       record.remaining = Math.max(600, record.remaining - (Date.now() - record.startedAt));
     });
     node.addEventListener('mouseleave', () => {
+      if (!record.closing) start();
+    });
+    node.addEventListener(
+      'touchstart',
+      () => {
+        window.clearTimeout(record.timer);
+        record.remaining = Math.max(600, record.remaining - (Date.now() - record.startedAt));
+      },
+      { passive: true }
+    );
+    node.addEventListener('touchend', () => {
       if (!record.closing) start();
     });
   }
