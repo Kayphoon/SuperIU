@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.60 (2026-10-12)
+
+### 中文
+
+- **会话标题自动生成与每回合滚动摘要**：
+  - **首回合标题生成**：首个完成回合由后台模型基于对话内容自动生成简明会话标题（支持中英双语分词与长度适配），显式落盘为 `auto` 模式，用户手动命名的会话绝不覆盖；调用失败时平滑回落至首行确定性提取；
+  - **每回合滚动摘要**：每轮对话完成后由后台任务自动更新单句会话摘要（最多 240 字符），在会话列表与侧边栏中作为副标题展示，并在终端与卡片中缩进展示；
+  - **时序竞态消除与热更新**：Web 与桌面端在轮次完成后增加延迟二次拉取机制，并在空闲轮询中同步拉取会话列表，消除后台生成与前端展示的时间差。
+
+### English
+
+- **Automatic session title generation and per-turn rolling summary**:
+  - **One-shot title generation**: automatically generates a concise session title in the background upon first completed turn (adapted for English words and CJK character lengths) with explicit `auto` marker, preserving user-named sessions and falling back to clean prompt extraction on failure;
+  - **Per-turn rolling summary**: updates a single-line session summary (up to 240 characters) after every completed turn, surfaced as a subtitle in session selectors and lists across Web, desktop, and CLI;
+  - **Timing race elimination**: adds delayed follow-up refreshes and idle synchronization in Web and desktop shells, ensuring background-generated metadata updates smoothly in the UI.
+
 ## v0.2.59 (2026-10-12)
 
 ### 中文

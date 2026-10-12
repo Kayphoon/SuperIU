@@ -581,6 +581,7 @@ async function runSmokeTests() {
   await test('discovery finds and resolves the newest session', async () => {
     const cwd = path.join(workspace, 'discovery');
     SessionManager.create({ workspaceDir: workspace, cwd }).appendMessage({ role: 'user', content: 'older' });
+    await new Promise((r) => setTimeout(r, 10));
     const newest = SessionManager.create({ workspaceDir: workspace, cwd });
     newest.appendMessage({ role: 'user', content: 'newer' });
 
