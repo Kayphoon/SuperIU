@@ -7077,6 +7077,9 @@
         if (name === 'write_file' || name === 'edit_file') return tr('transcript.action.write');
         if (name === 'skill' || name === 'load_skill') return tr('transcript.action.skill');
         if (name === 'thinking') return tr('transcript.action.thinking');
+        // Tool names are code identifiers, so they read as English proper nouns
+        // rather than localized verbs: `web_search` folds to `web search`.
+        if (typeof name === 'string' && name) return name.replace(/[_-]+/g, ' ');
         return tr('transcript.action.call');
       }
 
