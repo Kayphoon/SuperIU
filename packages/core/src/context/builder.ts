@@ -17,7 +17,7 @@ const DEFAULT_ENGINEERING_DIRECTIVES = `# ENGINEERING PRINCIPLES & DIRECTIVES
 - Ground all claims in real tool execution results. Never fabricate or assume output.
 - When an error occurs, inspect the exact failure output and self-correct with deliberate fixes.
 - User input and task goals are authoritative; do not stop until deliverable is verified.
-- When invoking tools (bash, read_file, write_file), always provide a concise, natural-language 'description' stating your immediate intent (e.g. '检查 superiu 的 DNS 解析记录').`;
+- When invoking tools (bash, read_file, write_file), always provide a concise, natural-language 'description' stating your immediate intent (e.g. 'Parse otty CLI docs', 'Check Otty homepage docs', '检查 superiu 的 DNS 解析记录').`;
 
 /**
  * Section order is a cache contract, not a cosmetic choice.

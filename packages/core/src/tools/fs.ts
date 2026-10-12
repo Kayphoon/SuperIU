@@ -16,10 +16,13 @@ export function createReadFileTool(options: FsToolOptions = {}) {
   return tool({
     description: 'Read the contents of a file within the workspace, optionally specifying line offset and limit.',
     parameters: z.object({
+      description: z
+        .string()
+        .optional()
+        .describe('Brief natural-language description of why you are reading this file (e.g. "Check vite config", "Read user auth controller", "查看路由定义")'),
       path: z.string().describe('Relative or absolute file path to read'),
       offset: z.number().optional().default(1).describe('1-based starting line number (default: 1)'),
-      limit: z.number().optional().default(200).describe('Maximum number of lines to read (default: 200)'),
-      description: z.string().optional().describe('简短说明读取此文件的目的，例如“检查配置路由”）')
+      limit: z.number().optional().default(200).describe('Maximum number of lines to read (default: 200)')
     }),
     execute: async ({ path: targetPath, offset, limit }) => {
       const context =
@@ -58,9 +61,12 @@ export function createWriteFileTool(
     description:
       'Write or overwrite text content to a specified file within the workspace, optionally executing a follow-up bash command.',
     parameters: z.object({
+      description: z
+        .string()
+        .optional()
+        .describe('Brief natural-language description of why you are writing this file (e.g. "Update router handlers", "Add pairing token schema", "更新配对逻辑")'),
       path: z.string().describe('Relative or absolute file path to write to'),
       content: z.string().describe('Text content to write to the file'),
-      description: z.string().optional().describe('简短说明写入此文件的目的'),
       then_run: z
         .string()
         .optional()

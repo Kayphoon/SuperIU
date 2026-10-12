@@ -1960,38 +1960,25 @@
       /* =====================================================================
          Transcript: tool card (Alma-inspired flat trigger & body)
          ===================================================================== */
+      /* Tool execution row (Alma ActivityToolRow) */
       .siu-tool {
-        border: 1px solid var(--siu-border-subtle);
-        border-radius: 10px;
-        background: var(--siu-bg-panel);
-        overflow: hidden;
-        transition: border-color var(--siu-dur-base) var(--siu-ease-out),
-          box-shadow var(--siu-dur-base) var(--siu-ease-out);
-      }
-      .siu-tool:hover {
-        border-color: var(--siu-border);
-      }
-      .siu-tool[open] {
-        border-color: var(--siu-border);
-        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
-      }
-      .siu-tool[data-state='error'] {
-        border-color: rgba(239, 68, 68, 0.35);
-      }
-      .siu-tool[data-state='pending'] {
-        border-color: rgba(245, 158, 11, 0.35);
+        border: none;
+        background: transparent;
+        overflow: visible;
+        border-radius: 4px;
       }
       .siu-tool > summary {
         display: flex;
-        align-items: center;
+        align-items: baseline;
         gap: 8px;
-        min-height: 36px;
-        padding: 6px 12px;
+        min-height: 22px;
+        padding: 2px 6px;
         user-select: none;
         cursor: pointer;
-        background: var(--siu-bg-subtle);
+        background: transparent;
         list-style: none;
-        transition: background var(--siu-dur-base) var(--siu-ease-out);
+        border-radius: 4px;
+        transition: background var(--siu-dur-fast) var(--siu-ease-out);
       }
       .siu-tool > summary::-webkit-details-marker {
         display: none;
@@ -1999,45 +1986,35 @@
       .siu-tool > summary:hover {
         background: var(--siu-bg-hover);
       }
-      .siu-tool[open] > summary {
-        background: var(--siu-bg-panel);
-        border-bottom: 1px solid var(--siu-border-subtle);
-      }
-      .siu-tool > summary:focus-visible {
-        outline-offset: -2px;
-      }
-      .siu-tool-icon {
-        display: flex;
-        align-items: center;
-        justify-content: center;
+      .siu-tool-pulse-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #f59e0b;
         flex: none;
-        width: 20px;
-        height: 20px;
-        border-radius: var(--siu-radius-xs);
-        background: var(--siu-bg-inset);
-        color: var(--siu-text-muted);
+        align-self: center;
+        margin-right: 2px;
+        animation: siu-pulse-dot 1.5s infinite;
       }
       .siu-tool-verb {
         font-family: var(--siu-font-sans);
-        font-size: 11.5px;
-        font-weight: 600;
+        font-size: 13.5px;
+        font-weight: 550;
         color: var(--siu-text-primary);
-        padding: 1px 6px;
-        border-radius: 4px;
-        background: var(--siu-bg-inset);
-        border: 1px solid var(--siu-border-subtle);
         flex: none;
-        letter-spacing: 0.01em;
+        letter-spacing: -0.01em;
+      }
+      .siu-tool[data-state='error'] .siu-tool-verb {
+        color: #ef4444;
       }
       .siu-tool-intent {
-        font-family: var(--siu-font-sans);
-        font-size: 12.5px;
-        font-weight: 500;
-        color: var(--siu-text-primary);
+        font-family: var(--siu-font-mono);
+        font-size: 13px;
+        font-weight: 400;
+        color: var(--siu-text-secondary);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        max-width: 28rem;
         flex: 1;
         min-width: 0;
       }
@@ -2088,21 +2065,32 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 16px;
-        height: 16px;
+        width: 14px;
+        height: 14px;
         color: var(--siu-text-muted);
-        transition: transform var(--siu-dur-fast) var(--siu-ease-out);
+        opacity: 0;
+        transition: opacity var(--siu-dur-fast) var(--siu-ease-out),
+          transform var(--siu-dur-fast) var(--siu-ease-out);
         flex: none;
+        align-self: center;
       }
-      .siu-tool[open] .siu-tool-chev {
+      .siu-tool > summary:hover .siu-tool-chev,
+      .siu-tool[open] > summary .siu-tool-chev {
+        opacity: 0.7;
+      }
+      .siu-tool[open] > summary .siu-tool-chev {
         transform: rotate(180deg);
       }
       .siu-tool-body {
-        padding: 10px 14px;
+        padding: 6px 10px;
+        margin-left: 12px;
+        margin-bottom: 6px;
         display: flex;
         flex-direction: column;
-        gap: 10px;
-        background: var(--siu-bg-panel);
+        gap: 6px;
+        background: var(--siu-bg-inset);
+        border: 1px solid var(--siu-border-subtle);
+        border-radius: 6px;
       }
       .siu-tool-section {
         display: flex;
@@ -2188,30 +2176,25 @@
         border-radius: 0;
         background: transparent;
         overflow: visible;
+        margin: 4px 0 8px 0;
       }
       .siu-tool-group summary {
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        padding: 4px 10px;
-        margin-bottom: 6px;
+        padding: 4px 8px;
         cursor: pointer;
-        font-size: 12px;
-        font-weight: 500;
-        color: var(--siu-text-muted);
         user-select: none;
         list-style: none;
         width: fit-content;
         border-radius: var(--siu-radius-sm);
-        transition: color var(--siu-dur-fast) var(--siu-ease-out),
-          background var(--siu-dur-fast) var(--siu-ease-out);
+        transition: background var(--siu-dur-fast) var(--siu-ease-out);
       }
       .siu-tool-group summary::-webkit-details-marker {
         display: none;
       }
       .siu-tool-group summary:hover {
         background: var(--siu-bg-hover);
-        color: var(--siu-text-secondary);
       }
       .siu-tool-stack {
         display: inline-flex;
@@ -2222,18 +2205,40 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 19px;
-        height: 19px;
+        width: 22px;
+        height: 22px;
         border-radius: 50%;
         background: var(--siu-bg-panel);
-        border: 1px solid var(--siu-border-subtle);
-        color: var(--siu-text-secondary);
-        margin-left: -5px;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        border: 1.5px solid #cbd5e1;
+        color: #475569;
+        margin-left: -6px;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
         flex: none;
+      }
+      [data-theme='dark'] .siu-tool-stack-item {
+        border-color: #475569;
+        color: #94a3b8;
       }
       .siu-tool-stack-item:first-child {
         margin-left: 0;
+      }
+      .siu-tool-group-label {
+        font-size: 14.5px;
+        font-weight: 600;
+        color: var(--siu-text-primary);
+        letter-spacing: -0.01em;
+        margin-left: 2px;
+        margin-right: 2px;
+      }
+      .siu-tool-group-chev {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--siu-text-muted);
+        transition: transform var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-tool-group[open] > summary .siu-tool-group-chev {
+        transform: rotate(180deg);
       }
       .siu-tool-group-toggle {
         display: inline-flex;
@@ -2243,77 +2248,34 @@
         margin-left: 4px;
         opacity: 0.75;
       }
-      .siu-tool-group-chev {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        transition: transform var(--siu-dur-fast) var(--siu-ease-out);
-      }
-      .siu-tool-group[open] > summary .siu-tool-group-chev {
-        transform: rotate(180deg);
+      .siu-tool-group:not([open]) .siu-tool-group-toggle {
+        display: none;
       }
       .siu-tool-group-body {
         padding: 0;
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 2px;
         border: none;
         background: transparent;
       }
 
-      /* Tree / timeline view */
+      /* Tree / timeline view (Alma Activity Timeline) */
       .siu-tool-tree {
         position: relative;
-        padding-left: 18px;
-        margin-left: 10px;
+        padding-left: 14px;
+        margin-left: 11px;
         border-left: 1.5px solid var(--siu-border-subtle);
         display: flex;
         flex-direction: column;
-        gap: 8px;
-      }
-      .siu-tool-tree > .siu-tool {
-        position: relative;
-      }
-      .siu-tool-tree > .siu-tool::before {
-        content: '';
-        position: absolute;
-        top: 17px;
-        left: -19px;
-        width: 10px;
-        height: 1.5px;
-        background: var(--siu-border-subtle);
-      }
-      .siu-tool-dot {
-        position: absolute;
-        top: 13px;
-        left: -23px;
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: var(--siu-bg-panel);
-        border: 1.5px solid var(--siu-border);
-        box-shadow: 0 0 0 2px var(--siu-bg-canvas);
-        z-index: 1;
-        transition: border-color var(--siu-dur-fast) var(--siu-ease-out),
-          background-color var(--siu-dur-fast) var(--siu-ease-out);
-      }
-      .siu-tool[data-state='running'] .siu-tool-dot {
-        border-color: #3b82f6;
-        background: #3b82f6;
-        animation: siu-pulse-dot 1.5s infinite;
-      }
-      .siu-tool[data-state='done'] .siu-tool-dot {
-        border-color: var(--siu-border);
-        background: var(--siu-bg-inset);
-      }
-      .siu-tool[data-state='error'] .siu-tool-dot {
-        border-color: #ef4444;
-        background: #ef4444;
+        gap: 2px;
+        margin-top: 4px;
+        margin-bottom: 6px;
       }
       @keyframes siu-pulse-dot {
-        0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5); }
-        70% { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0); }
-        100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        0% { transform: scale(0.85); opacity: 0.7; }
+        50% { transform: scale(1.15); opacity: 1; }
+        100% { transform: scale(0.85); opacity: 0.7; }
       }
 
       /* =====================================================================
@@ -6861,6 +6823,8 @@
         read_file: '<path d="M14 3v5h5M6 3h9l5 5v13H6z"/>',
         write_file: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
         edit_file: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+        skill: '<path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>',
+        thinking: '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.5.4.8 1 .8 1.6v.5h5.4v-.5c0-.6.3-1.2.8-1.6A6 6 0 0 0 12 3Z"/>',
         web_search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
         web_fetch: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/>',
         default:
@@ -6983,10 +6947,18 @@
         return badge;
       }
 
+      function shortenPath(p) {
+        if (!p || typeof p !== 'string') return '';
+        const parts = p.split('/').filter(Boolean);
+        return parts.length <= 3 ? p.replace(/^\//, '') : parts.slice(-3).join('/');
+      }
+
       function toolActionVerb(name) {
         if (name === 'bash') return tr('transcript.action.exec');
         if (name === 'read_file') return tr('transcript.action.read');
         if (name === 'write_file' || name === 'edit_file') return tr('transcript.action.write');
+        if (name === 'skill' || name === 'load_skill') return tr('transcript.action.skill');
+        if (name === 'thinking') return tr('transcript.action.thinking');
         return tr('transcript.action.call');
       }
 
@@ -6999,13 +6971,19 @@
             return args.command.trim();
           }
           if (typeof args.path === 'string' && args.path.trim()) {
-            return args.path.trim();
+            return shortenPath(args.path.trim());
           }
           if (typeof args.file === 'string' && args.file.trim()) {
-            return args.file.trim();
+            return shortenPath(args.file.trim());
           }
           if (typeof args.filePath === 'string' && args.filePath.trim()) {
-            return args.filePath.trim();
+            return shortenPath(args.filePath.trim());
+          }
+          if (typeof args.name === 'string' && args.name.trim()) {
+            return args.name.trim();
+          }
+          if (typeof args.skill === 'string' && args.skill.trim()) {
+            return args.skill.trim();
           }
           if (typeof args.query === 'string' && args.query.trim()) {
             return args.query.trim();
@@ -7021,24 +6999,21 @@
       }
 
       /**
-       * Tool execution card. It IS the collapsible: while the tool runs it stays
-       * open (active); once finished it auto-collapses into a one-line summary
-       * `✔ tool_name (duration)` that the user can click to expand.
+       * Tool execution card (Alma ActivityToolRow).
+       * In the timeline tree it stays a clean single row:
+       *   [amber dot if running] [Verb] [Intent Description] [duration] [chev]
+       * Clicking the row unfolds the raw JSON arguments and execution output.
        */
       function toolCard(name, args) {
         const details = el('details', 'siu-tool ' + enterClass());
-        details.open = true;
+        details.open = false;
         details.dataset.kind = 'tool';
         details.dataset.state = 'running';
 
         const summary = el('summary');
         
-        const dot = el('span', 'siu-tool-dot');
-        summary.appendChild(dot);
-
-        const icon = el('span', 'siu-tool-icon');
-        icon.innerHTML = iconSvg(name, 13);
-        summary.appendChild(icon);
+        const pulseDot = el('span', 'siu-tool-pulse-dot');
+        summary.appendChild(pulseDot);
 
         const verb = el('span', 'siu-tool-verb', toolActionVerb(name));
         summary.appendChild(verb);
@@ -7064,7 +7039,7 @@
         summary.appendChild(wait);
         const duration = el('span', 'siu-tool-meta', '');
         summary.appendChild(duration);
-        summary.appendChild(statusBadge('running'));
+
         const chev = el('span', 'siu-tool-chev');
         chev.innerHTML = CHEVRON_DOWN;
         summary.appendChild(chev);
@@ -7092,16 +7067,18 @@
         body.appendChild(outSection);
 
         details.appendChild(body);
-        return { details, duration, outPre, summary, wait };
+        return { details, duration, outPre, pulseDot, summary, wait };
       }
 
       /**
-       * The OpenCode v2 tool summary: one foldable row that collects a turn's
-       * tool cards behind a single `使用了 N 个 …` line, so a run of tool calls
-       * reads as one collapsed step rather than a column of separate cards.
+       * The OpenCode / Alma tool summary:
+       * While the turn runs, details.open = true so tools stream into view.
+       * Once the turn finishes, details.open = false so all tool calls auto-fold
+       * into a single summary bar: [stacked circular icons] [用了 N 个工具] [v].
        */
       function toolGroup() {
         const details = el('details', 'siu-tool-group ' + enterClass());
+        details.open = true;
         details.dataset.kind = 'tool-group';
         const summary = el('summary');
         
@@ -7111,23 +7088,22 @@
         const label = el('span', 'siu-tool-group-label');
         summary.appendChild(label);
 
+        const chev = el('span', 'siu-tool-group-chev');
+        chev.innerHTML = CHEVRON_DOWN;
+        summary.appendChild(chev);
+
         summary.appendChild(el('span', 'siu-tool-spacer'));
 
         const toggle = el('span', 'siu-tool-group-toggle');
         toggle.innerHTML = LIST_GLYPH;
         summary.appendChild(toggle);
 
-        const chev = el('span', 'siu-tool-group-chev');
-        chev.innerHTML = CHEVRON_DOWN;
-        summary.appendChild(chev);
         details.appendChild(summary);
 
         const body = el('div', 'siu-tool-group-body siu-tool-tree');
         details.appendChild(body);
         const names = [];
         let finished = false;
-        // While a live turn runs the row reads "working"; once it settles it
-        // names what ran, so the folded summary is the durable record.
         const refresh = () => {
           label.textContent = finished
             ? tr('transcript.toolUsed', { n: names.length, tools: names.join(toolSeparator()) })
@@ -7153,6 +7129,7 @@
           },
           finish() {
             finished = true;
+            details.open = false;
             refresh();
           }
         };
@@ -7164,14 +7141,15 @@
       }
 
       function setToolStatus(card, status, durationMs) {
-        const badge = card.summary.querySelector('[data-role="badge"]');
-        if (badge) badge.replaceWith(statusBadge(status));
         card.details.dataset.state = status;
+        if (card.pulseDot) {
+          card.pulseDot.style.display = status === 'running' ? 'inline-block' : 'none';
+        }
         if (typeof durationMs === 'number' && durationMs > 0) {
           card.duration.innerHTML = CLOCK_GLYPH + '<span>' + formatDuration(durationMs) + '</span>';
         }
-        // Finished tools fold themselves away; a click re-opens the detail.
-        card.details.open = false;
+        // If error, open card details so the error message is visible; otherwise keep folded.
+        card.details.open = status === 'error';
       }
 
       /** Collapsible reasoning block; visible while the model thinks, folded after. */
@@ -7986,6 +7964,7 @@
                 for (const fold of stepDetails.querySelectorAll('details')) fold.open = false;
               });
               for (const card of turn.querySelectorAll('details[data-kind="tool"]')) card.open = false;
+              for (const grp of turn.querySelectorAll('details[data-kind="tool-group"]')) grp.open = false;
 
               if (!turn.querySelector('.siu-md')) {
                 turn.appendChild(el('div', 'siu-label', tr('transcript.noOutput')));
