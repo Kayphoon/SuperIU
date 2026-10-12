@@ -4547,7 +4547,9 @@
         top: 0;
         left: 0;
         right: 0;
-        z-index: 60;
+        z-index: 90;
+        -webkit-app-region: no-drag;
+        pointer-events: auto;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -4578,8 +4580,12 @@
         display: flex;
         align-items: center;
         gap: 8px;
+        -webkit-app-region: no-drag;
+        pointer-events: auto;
       }
       .siu-net-banner-btn {
+        -webkit-app-region: no-drag;
+        pointer-events: auto;
         display: inline-flex;
         align-items: center;
         gap: 4px;
@@ -4592,7 +4598,7 @@
         border: 1px solid rgba(255, 255, 255, 0.2);
         color: inherit;
         cursor: pointer;
-        transition: background var(--siu-dur-fast), opacity var(--siu-dur-fast);
+        transition: background var(--siu-dur-fast), opacity var(--siu-dur-fast), border-color var(--siu-dur-fast);
       }
       .siu-net-banner-btn:hover:not(:disabled) {
         background: rgba(255, 255, 255, 0.22);
@@ -4604,7 +4610,11 @@
       .siu-net-banner-btn:disabled {
         opacity: 0.65;
         cursor: not-allowed;
-        pointer-events: none;
+      }
+      .siu-net-banner-btn[data-state='error'] {
+        background: rgba(255, 69, 58, 0.2);
+        border-color: rgba(255, 69, 58, 0.4);
+        color: #ff9898;
       }
       .siu-net-spinner {
         width: 10px;
@@ -4725,11 +4735,12 @@
 
     <div class="siu-app">
       <!-- Network resilience banner (overlay, zero layout shift) -->
-      <div id="network-banner" class="siu-net-banner" data-state="online" aria-live="polite" hidden>
-        <div class="siu-net-banner-inner">
+      <div id="network-banner" class="siu-net-banner no-drag" data-state="online" aria-live="polite" hidden>
+        <div class="siu-net-banner-inner no-drag">
           <span class="siu-status-dot" id="net-banner-dot" data-status="running"></span>
           <span id="net-banner-text"></span>
-          <button id="btn-net-retry" type="button" class="siu-net-banner-btn" data-i18n="net.banner.retry" hidden>立即重试</button>
+          <button id="btn-net-retry" type="button" class="siu-net-banner-btn no-drag" data-i18n="net.banner.retry" hidden>立即重试</button>
+          <button id="btn-net-reload" type="button" class="siu-net-banner-btn no-drag" data-i18n="net.banner.reload" hidden>刷新页面</button>
         </div>
       </div>
       <!-- Mobile-only: while the session drawer is open this transparent cover
@@ -6346,6 +6357,9 @@
         }, netState.reconnectDelay);
       }
 
+      let netBannerResetTimer = null;
+      let manualRetryCount = 0;
+
       async function handleManualNetworkRetry() {
         if (netState.retrying) return;
         netState.retrying = true;
@@ -6354,18 +6368,28 @@
           clearTimeout(netState.reconnectTimer);
           netState.reconnectTimer = null;
         }
+        if (netBannerResetTimer) {
+          clearTimeout(netBannerResetTimer);
+          netBannerResetTimer = null;
+        }
 
         const dot = $('net-banner-dot');
+        const msg = $('net-banner-text');
         const btnRetry = $('btn-net-retry');
+        const btnReload = $('btn-net-reload');
+
         if (dot) dot.dataset.status = 'thinking';
+        if (msg) msg.textContent = tr('net.banner.reconnecting');
         if (btnRetry) {
           btnRetry.disabled = true;
+          delete btnRetry.dataset.state;
           btnRetry.textContent = '';
           const spinner = el('span', 'siu-net-spinner');
           btnRetry.appendChild(spinner);
           btnRetry.appendChild(document.createTextNode(tr('net.banner.retrying')));
         }
 
+        const startTime = Date.now();
         const controller = new AbortController();
         const timer = setTimeout(() => controller.abort(), 5000);
 
@@ -6377,9 +6401,17 @@
           });
           clearTimeout(timer);
 
+          const elapsed = Date.now() - startTime;
+          if (elapsed < 500) {
+            await new Promise((resolve) => setTimeout(resolve, 500 - elapsed));
+          }
+
           if (probe.ok) {
-            netState.retrying = false;
+            manualRetryCount = 0;
+            if (btnReload) btnReload.hidden = true;
             onNetworkSuccess();
+            netState.retrying = false;
+            renderNetworkBanner();
             void refreshStatus();
             void refreshSessions();
           } else if (probe.status === 401) {
@@ -6391,26 +6423,53 @@
             if (dot) dot.dataset.status = 'error';
             handleUnauthorized();
           } else {
-            netState.retrying = false;
-            if (btnRetry) {
-              btnRetry.disabled = false;
-              btnRetry.textContent = tr('net.banner.retry');
-            }
-            if (dot) dot.dataset.status = 'error';
-            toast(tr('net.banner.retryFailed'), 'error');
-            scheduleReconnectProbe();
+            handleRetryFailure();
           }
         } catch {
           clearTimeout(timer);
-          netState.retrying = false;
-          if (btnRetry) {
-            btnRetry.disabled = false;
-            btnRetry.textContent = tr('net.banner.retry');
+          const elapsed = Date.now() - startTime;
+          if (elapsed < 500) {
+            await new Promise((resolve) => setTimeout(resolve, 500 - elapsed));
           }
-          if (dot) dot.dataset.status = 'error';
-          toast(tr('net.banner.retryFailed'), 'error');
-          scheduleReconnectProbe();
+          handleRetryFailure();
         }
+      }
+
+      function handleRetryFailure() {
+        netState.retrying = false;
+        manualRetryCount += 1;
+        const dot = $('net-banner-dot');
+        const msg = $('net-banner-text');
+        const btnRetry = $('btn-net-retry');
+        const btnReload = $('btn-net-reload');
+
+        if (dot) dot.dataset.status = 'error';
+        if (msg) msg.textContent = tr('net.banner.retryFailed');
+        if (btnRetry) {
+          btnRetry.disabled = false;
+          btnRetry.dataset.state = 'error';
+          btnRetry.textContent = tr('net.banner.retryFailedBtn');
+          setTimeout(() => {
+            if (!netState.retrying && netState.status !== 'online') {
+              btnRetry.textContent = tr('net.banner.retry');
+              delete btnRetry.dataset.state;
+            }
+          }, 1800);
+        }
+
+        if (btnReload && manualRetryCount >= 2 && netState.status !== 'online') {
+          btnReload.hidden = false;
+        }
+
+        toast(tr('net.banner.retryFailed'), 'error');
+        scheduleReconnectProbe();
+
+        netBannerResetTimer = setTimeout(() => {
+          if (!netState.retrying && netState.status === 'offline') {
+            const timeStr = shortTime(new Date(netState.lastSuccessAt).toISOString());
+            if (msg) msg.textContent = tr('net.banner.offline', { time: timeStr });
+          }
+        }, 3500);
       }
 
       async function api(path, options = {}) {
@@ -10961,6 +11020,7 @@
         const dot = $('net-banner-dot');
         const msg = $('net-banner-text');
         const btnRetry = $('btn-net-retry');
+        const btnReload = $('btn-net-reload');
         if (!banner || !msg) return;
 
         banner.dataset.state = netState.status;
@@ -10973,12 +11033,17 @@
             btnRetry.hidden = false;
             if (netState.retrying) {
               btnRetry.disabled = true;
+              delete btnRetry.dataset.state;
               btnRetry.textContent = '';
               const spinner = el('span', 'siu-net-spinner');
               btnRetry.appendChild(spinner);
               btnRetry.appendChild(document.createTextNode(tr('net.banner.retrying')));
+            } else if (btnRetry.dataset.state === 'error') {
+              btnRetry.disabled = false;
+              btnRetry.textContent = tr('net.banner.retryFailedBtn');
             } else {
               btnRetry.disabled = false;
+              delete btnRetry.dataset.state;
               btnRetry.textContent = tr('net.banner.retry');
             }
           }
@@ -10990,21 +11055,25 @@
             btnRetry.hidden = false;
             if (netState.retrying) {
               btnRetry.disabled = true;
+              delete btnRetry.dataset.state;
               btnRetry.textContent = '';
               const spinner = el('span', 'siu-net-spinner');
               btnRetry.appendChild(spinner);
               btnRetry.appendChild(document.createTextNode(tr('net.banner.retrying')));
             } else {
               btnRetry.disabled = false;
+              delete btnRetry.dataset.state;
               btnRetry.textContent = tr('net.banner.retry');
             }
           }
         } else if (netState.status === 'online') {
           if (dot) dot.dataset.status = 'completed';
           msg.textContent = tr('net.banner.online');
+          if (btnReload) btnReload.hidden = true;
           if (btnRetry) {
             btnRetry.hidden = true;
             btnRetry.disabled = false;
+            delete btnRetry.dataset.state;
             btnRetry.textContent = tr('net.banner.retry');
           }
           setTimeout(() => {
@@ -11967,8 +12036,14 @@
         sw.setAttribute('aria-checked', String(on));
       });
 
-      $('btn-net-retry')?.addEventListener('click', () => {
+      $('btn-net-retry')?.addEventListener('click', (e) => {
+        e.stopPropagation();
         void handleManualNetworkRetry();
+      });
+
+      $('btn-net-reload')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        window.location.reload();
       });
 
       window.addEventListener('online', () => {
