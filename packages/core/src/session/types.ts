@@ -14,6 +14,7 @@ export interface SessionHeader {
   titleSource?: 'auto' | 'user';
   model?: string;
   reasoningEffort?: string;
+  summary?: string;
 }
 
 /** Fields shared by every non-header entry. */

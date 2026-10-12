@@ -280,7 +280,16 @@ function getJson(url: string): Promise<Record<string, unknown>> {
 
 /** The last probe whose path ends with `suffix` — one per fetch call. */
 function lastProbe(probes: Probe[], suffix: string): Probe {
-  const hit = [...probes].reverse().find((probe) => probe.path.endsWith(suffix));
+  const hit = [...probes].reverse().find((probe) => {
+    if (!probe.path.endsWith(suffix)) return false;
+    if (suffix.endsWith('/chat/completions')) {
+      const isMetadata = Array.isArray(probe.body?.messages) && probe.body.messages.some(
+        (m: any) => typeof m?.content === 'string' && m.content.includes('TRANSCRIPT START')
+      );
+      if (isMetadata) return false;
+    }
+    return true;
+  });
   if (!hit) {
     throw new Error(`no probe request ended with '${suffix}'; saw ${probes.map((p) => p.path).join(', ') || '(none)'}`);
   }

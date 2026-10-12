@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { SessionHeader } from './types.js';
 import { getSessionDir, SESSION_FILE_EXTENSION } from './paths.js';
-import { sessionTitle } from './title.js';
+import { sessionSummary, sessionTitle } from './title.js';
 
 export interface SessionDescriptor extends SessionHeader {
   filePath: string;
@@ -67,6 +67,9 @@ export function listSessions(
       const title = sessionTitle(header);
       if (title === undefined) delete header.title;
       else header.title = title;
+      const summary = sessionSummary(header);
+      if (summary === undefined) delete header.summary;
+      else header.summary = summary;
       descriptors.push({ ...header, filePath, mtimeMs: stat.mtimeMs });
     } catch {
       continue;
