@@ -1179,6 +1179,22 @@ async function runWireTests() {
       );
     });
 
+    await test('POST /api/settings with reasoningEffort alone rebuilds the runner and updates status', async () => {
+      const view = await postJson(`${handle.url}/api/settings`, {
+        reasoningEffort: 'low'
+      });
+      assert(view.reasoningEffort === 'low', `reasoningEffort not applied: ${view.reasoningEffort}`);
+      assert(view.restarted === true, 'changing reasoningEffort alone did not rebuild the runner');
+      const status = await requestJson(`${handle.url}/api/status`);
+      assert(
+        status.reasoningEffort === 'low',
+        `status did not reflect new effort: '${String(status.reasoningEffort)}'`
+      );
+
+      // restore high for subsequent tests
+      await postJson(`${handle.url}/api/settings`, { reasoningEffort: 'high' });
+    });
+
     await test('a model outside the allowlist is sent no reasoning_effort at all', async () => {
       // The negative control for the gate, and the reason it is an allowlist:
       // an older Gemini tier rejects the parameter, so a pattern that were a

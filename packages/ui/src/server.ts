@@ -1700,6 +1700,7 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
     next.titleModelName !== settings.titleModelName ||
     next.memoryModelName !== settings.memoryModelName ||
     next.autoReview !== settings.autoReview ||
+    next.reasoningEffort !== settings.reasoningEffort ||
     providerFingerprint(next.providers) !== providerFingerprint(settings.providers) ||
     // scan canonicalizes `efforts`, so an entry written as ['high','low'] is not
     // a change against one stored as ['low','high'].
