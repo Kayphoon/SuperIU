@@ -14,6 +14,32 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.58 (2026-10-12)
+
+### 中文
+
+- **对齐 Alma 风格工具调用机制与树状时间线 UI**：
+  - 工具 Schema（`bash`、`read_file`、`write_file`）新增自然语言意图描述参数（`description`），并在工程系统提示词中注入显式输出意图指令；
+  - 工具调用前端界面全面对齐 Alma：单行摘要展示圆环叠层图标（`-5px` 负边距）、动态工具数量统计与列表切换图标；
+  - 工具步骤列表重构为垂直时间线树状视图（左侧主干连接线、节点圆点状态指示器、动词徽章 `执行`/`读取`/`写入`/`调用`、自然语言意图文本及行内耗时胶囊）；
+  - 折叠卡片单层直达，清晰展示执行命令与格式化输出代码块。
+- **轻量小模型 `toolModel` 自动分工与智能探测**：
+  - 新增 `toolModel` 自动探测机制，扫描已启用的服务商并自动匹配延时低、成本低的小模型（如 Gemini Flash、GPT-4o mini、Claude Haiku、DeepSeek Chat 等）；
+  - 将探测到的小模型作为辅助任务默认基底（`auxBase`），自动分流负责记忆提炼（Memory）与会话标题总结（Title），大幅节省 token 与响应耗时；
+  - 设置面板模型角色支持小模型独立配置与自动探测提示。
+
+### English
+
+- **Alma-aligned tool invocation mechanism and tree timeline UI**:
+  - Add natural-language intent `description` parameter to tool schemas (`bash`, `read_file`, `write_file`) and inject explicit directive in engineering system prompt;
+  - Redesign tool call interface to match Alma: summary header with stacked circular icons (`-5px` overlap), dynamic tool counter, and list toggle glyph;
+  - Reconstruct tool execution view into a vertical timeline tree (left trunk connector, node status dots, action verb badges `Run`/`Read`/`Write`/`Call`, natural-language intent titles, and inline duration pills);
+  - Single-level collapsible cards for instant inspectability of command arguments and formatted output code blocks.
+- **Lightweight helper `toolModel` auto-detection and task orchestration**:
+  - Introduce `toolModel` auto-detection sniffing fast, cost-effective models (e.g. Gemini Flash, GPT-4o mini, Claude Haiku, DeepSeek Chat) across enabled providers;
+  - Route auxiliary workloads (Memory extraction, Title generation, and summarization) to the auto-detected or configured helper model (`auxBase`) to save tokens and reduce latency;
+  - Model Roles settings panel supports standalone helper model configuration and auto-detected status hints.
+
 ## v0.2.57 (2026-10-11)
 
 ### 中文
