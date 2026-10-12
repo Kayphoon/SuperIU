@@ -882,6 +882,54 @@ function providerForModel(modelName?: string): ProviderConfig | undefined {
   return enabledProviders[0];
 }
 
+/**
+ * Known lightweight / fast models for auxiliary tasks (summarization, memory, intent),
+ * ordered by preference per provider pattern (matching Alma's toolModel auto-detection design).
+ */
+const KNOWN_FAST_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash',
+  'gpt-4o-mini',
+  'gpt-4o-mini-2024-07-18',
+  'claude-3-5-haiku',
+  'claude-3-5-haiku-20241022',
+  'claude-3-haiku-20240307',
+  'deepseek-chat',
+  'qwen-turbo',
+  'qwen-plus'
+];
+
+function getAutoDetectedToolModel(): string | undefined {
+  const enabledProviders = (settings.providers ?? []).filter((p) => p.enabled);
+  if (enabledProviders.length === 0) return undefined;
+
+  for (const known of KNOWN_FAST_MODELS) {
+    for (const p of enabledProviders) {
+      if (p.models?.includes(known)) return known;
+    }
+  }
+
+  const fastPattern = /(?:flash|mini|haiku|turbo|small|lite)/i;
+  for (const p of enabledProviders) {
+    const matched = p.models?.find((m) => fastPattern.test(m));
+    if (matched) return matched;
+  }
+
+  return undefined;
+}
+
+function getEffectiveToolModel(): { model: string; isAutoDetected: boolean } {
+  if (settings.tinyModelName && settings.tinyModelName.trim()) {
+    return { model: settings.tinyModelName.trim(), isAutoDetected: false };
+  }
+  const auto = getAutoDetectedToolModel();
+  if (auto) {
+    return { model: auto, isAutoDetected: true };
+  }
+  return { model: settings.modelName || '', isAutoDetected: false };
+}
+
 function runnerOptions(sessionReference?: string, historyDbPath?: string, newSession = false) {
   // A model the user has declared a level set for gets an EXPLICIT route, so the
   // level is a decision the router cannot second-guess: the capability gate only
@@ -902,7 +950,8 @@ function runnerOptions(sessionReference?: string, historyDbPath?: string, newSes
   // `OPENAI_MEMORY_MODEL_NAME` / `OPENAI_TITLE_MODEL_NAME` are read), so a route
   // naming only an effort would silently clobber the model the env var selected.
   // Resolving the effective model here keeps both halves in agreement.
-  const auxBase = settings.tinyModelName || settings.modelName;
+  const toolModelInfo = getEffectiveToolModel();
+  const auxBase = toolModelInfo.model || settings.modelName;
   const effectiveModel: Record<ModelRole, string> = {
     main: settings.modelName,
     review: settings.reviewModelName,
@@ -1402,6 +1451,8 @@ function settingsView() {
     apiType: p.apiType || defaultApiTypeFor(p.id, p.baseURL)
   }));
 
+  const toolModelInfo = getEffectiveToolModel();
+
   return {
     apiKeyMasked: maskApiKey(settings.apiKey),
     apiKeySet: settings.apiKey.length > 0,
@@ -1409,6 +1460,9 @@ function settingsView() {
     modelName: settings.modelName,
     reviewModelName: settings.reviewModelName,
     tinyModelName: settings.tinyModelName || '',
+    toolModel: toolModelInfo.model,
+    toolModelIsAutoDetected: toolModelInfo.isAutoDetected,
+    autoDetectedToolModel: getAutoDetectedToolModel() || '',
     titleModelName: settings.titleModelName || '',
     memoryModelName: settings.memoryModelName || '',
     autoReview: settings.autoReview,
@@ -1477,6 +1531,9 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
   }
   if (typeof patch.tinyModelName === 'string') {
     next.tinyModelName = patch.tinyModelName.trim();
+  }
+  if (typeof patch.toolModel === 'string') {
+    next.tinyModelName = patch.toolModel.trim();
   }
   if (typeof patch.titleModelName === 'string') {
     next.titleModelName = patch.titleModelName.trim();

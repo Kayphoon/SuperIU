@@ -1462,30 +1462,31 @@
         display: inline-flex;
         align-items: center;
         gap: 4px;
-        padding: 1px var(--siu-space-1);
+        height: 20px;
+        padding: 0 7px;
         border: 1px solid;
-        border-radius: var(--siu-radius-xs);
-        font-family: var(--siu-font-mono);
-        font-size: 9.5px;
-        font-weight: 600;
-        letter-spacing: 0.06em;
-        line-height: 1.4;
+        border-radius: var(--siu-radius-full);
+        font-family: var(--siu-font-sans);
+        font-size: 11px;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+        line-height: 1;
         white-space: nowrap;
       }
       .siu-badge[data-state='running'] {
-        border-color: var(--siu-warn-bd);
-        background: var(--siu-warn-bg);
-        color: var(--siu-warn-fg);
+        border-color: rgba(245, 158, 11, 0.25);
+        background: rgba(245, 158, 11, 0.09);
+        color: #f59e0b;
       }
       .siu-badge[data-state='done'] {
-        border-color: var(--siu-success-bd);
-        background: var(--siu-success-bg);
-        color: var(--siu-success-fg);
+        border-color: rgba(16, 185, 129, 0.25);
+        background: rgba(16, 185, 129, 0.09);
+        color: #10b981;
       }
       .siu-badge[data-state='error'] {
-        border-color: var(--siu-danger-bd);
-        background: var(--siu-danger-bg);
-        color: var(--siu-danger-fg);
+        border-color: rgba(239, 68, 68, 0.25);
+        background: rgba(239, 68, 68, 0.09);
+        color: #ef4444;
       }
       .siu-badge[data-state='denied'] {
         border-color: var(--siu-border);
@@ -1493,9 +1494,9 @@
         color: var(--siu-text-muted);
       }
       .siu-badge[data-state='pending'] {
-        border-color: var(--siu-warn-bd);
-        background: var(--siu-warn-bg);
-        color: var(--siu-warn-fg);
+        border-color: rgba(245, 158, 11, 0.25);
+        background: rgba(245, 158, 11, 0.09);
+        color: #f59e0b;
       }
 
       /* =====================================================================
@@ -1744,17 +1745,24 @@
       }
       .siu-bubble--user {
         align-self: flex-end;
-        max-width: 85%;
-        background: #3b5cf6;
-        color: #ffffff;
-        border: none;
-        border-radius: 10px;
-        padding: 8px 12px;
+        max-width: 82%;
+        background: #334155;
+        color: #f8fafc;
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 18px 18px 4px 18px;
+        padding: 10px 18px;
         font-size: 13.5px;
+        line-height: 1.55;
         font-weight: 440;
         white-space: pre-wrap;
         word-break: break-word;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.16);
+      }
+      [data-color-scheme='light'] .siu-bubble--user {
+        background: #628990;
+        color: #ffffff;
+        border-color: rgba(0, 0, 0, 0.04);
+        box-shadow: 0 2px 8px rgba(91, 130, 138, 0.18);
       }
       .siu-user-meta {
         display: flex;
@@ -1762,7 +1770,7 @@
         gap: 6px;
         font-size: 11px;
         color: var(--siu-text-muted);
-        padding-inline: 2px;
+        padding-inline: 4px;
         user-select: none;
       }
       .siu-user-meta-copy {
@@ -1792,6 +1800,8 @@
         border: none;
         border-radius: 0;
         padding: 4px 28px 10px 0;
+        font-size: 13.5px;
+        line-height: 1.65;
       }
       .siu-bubble-copy {
         position: absolute;
@@ -1900,34 +1910,27 @@
          Transcript: step group
          ===================================================================== */
       .siu-step {
-        border: 1px solid var(--siu-border-subtle);
-        border-radius: var(--siu-radius-md);
+        border: none;
         background: transparent;
       }
       .siu-step[open] {
-        border-color: var(--siu-border);
+        border-color: transparent;
       }
       .siu-step > summary {
-        display: flex;
-        align-items: center;
-        gap: var(--siu-space-2);
-        height: 28px;
-        padding: 0 var(--siu-space-3);
-        border-radius: var(--siu-radius-md);
-        font-family: var(--siu-font-mono);
-        font-size: var(--siu-text-tiny);
-        color: var(--siu-text-muted);
-        transition: background var(--siu-dur-base) var(--siu-ease-out),
-          color var(--siu-dur-base) var(--siu-ease-out);
-      }
-      .siu-step > summary:hover {
-        background: var(--siu-bg-hover);
-        color: var(--siu-text-secondary);
-      }
-      .siu-step > summary:focus-visible {
-        outline-offset: -2px;
+        display: none;
       }
       .siu-step[data-phase='review'] > summary {
+        display: inline-flex;
+        align-items: center;
+        gap: var(--siu-space-2);
+        height: 26px;
+        padding: 0 var(--siu-space-2);
+        margin-bottom: var(--siu-space-2);
+        border: 1px solid var(--siu-chain-bd);
+        border-radius: var(--siu-radius-xs);
+        background: var(--siu-chain-bg);
+        font-family: var(--siu-font-mono);
+        font-size: var(--siu-text-tiny);
         color: var(--siu-chain-fg);
       }
       .siu-step-meta {
@@ -1937,50 +1940,59 @@
       .siu-step-body {
         display: flex;
         flex-direction: column;
-        gap: var(--siu-space-2);
-        padding: var(--siu-space-3);
-        border-top: 1px solid var(--siu-border-subtle);
+        gap: var(--siu-space-3);
+        padding: 0;
+        border: none;
       }
 
       /* =====================================================================
-         Transcript: tool card
+         Transcript: tool card (Alma-inspired flat trigger & body)
          ===================================================================== */
       .siu-tool {
-        border: 1px solid var(--siu-border);
-        border-radius: var(--siu-radius-md);
+        border: 1px solid var(--siu-border-subtle);
+        border-radius: 10px;
         background: var(--siu-bg-panel);
         overflow: hidden;
-        transition: border-color var(--siu-dur-base) var(--siu-ease-out);
+        transition: border-color var(--siu-dur-base) var(--siu-ease-out),
+          box-shadow var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-tool:hover {
+        border-color: var(--siu-border);
+      }
+      .siu-tool[open] {
+        border-color: var(--siu-border);
+        box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+      }
+      .siu-tool[data-state='error'] {
+        border-color: rgba(239, 68, 68, 0.35);
+      }
+      .siu-tool[data-state='pending'] {
+        border-color: rgba(245, 158, 11, 0.35);
       }
       .siu-tool > summary {
         display: flex;
         align-items: center;
-        gap: var(--siu-space-2);
-        height: 32px;
-        padding: 0 var(--siu-space-3);
+        gap: 8px;
+        min-height: 36px;
+        padding: 6px 12px;
         user-select: none;
+        cursor: pointer;
+        background: var(--siu-bg-subtle);
+        list-style: none;
         transition: background var(--siu-dur-base) var(--siu-ease-out);
+      }
+      .siu-tool > summary::-webkit-details-marker {
+        display: none;
       }
       .siu-tool > summary:hover {
         background: var(--siu-bg-hover);
       }
+      .siu-tool[open] > summary {
+        background: var(--siu-bg-panel);
+        border-bottom: 1px solid var(--siu-border-subtle);
+      }
       .siu-tool > summary:focus-visible {
         outline-offset: -2px;
-      }
-      .siu-tool[data-state='error'] {
-        border-color: var(--siu-danger-bd);
-      }
-      .siu-tool[data-state='error'] > summary {
-        background: rgba(251, 113, 133, 0.05);
-      }
-      .siu-tool[data-state='pending'] {
-        border-color: var(--siu-warn-bd);
-      }
-      .siu-tool[data-state='pending'] > summary {
-        background: rgba(251, 191, 36, 0.06);
-      }
-      .siu-tool[data-state='denied'] > summary {
-        opacity: 0.72;
       }
       .siu-tool-icon {
         display: flex;
@@ -1989,24 +2001,63 @@
         flex: none;
         width: 20px;
         height: 20px;
-        border: 1px solid var(--siu-border);
         border-radius: var(--siu-radius-xs);
         background: var(--siu-bg-inset);
-        color: var(--siu-accent-text);
+        color: var(--siu-text-muted);
+      }
+      .siu-tool-verb {
+        font-family: var(--siu-font-sans);
+        font-size: 11.5px;
+        font-weight: 600;
+        color: var(--siu-text-primary);
+        padding: 1px 6px;
+        border-radius: 4px;
+        background: var(--siu-bg-inset);
+        border: 1px solid var(--siu-border-subtle);
+        flex: none;
+        letter-spacing: 0.01em;
+      }
+      .siu-tool-intent {
+        font-family: var(--siu-font-sans);
+        font-size: 12.5px;
+        font-weight: 500;
+        color: var(--siu-text-primary);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 28rem;
+        flex: 1;
+        min-width: 0;
       }
       .siu-tool-name {
         font-family: var(--siu-font-mono);
         font-size: var(--siu-text-sm);
-        font-weight: 500;
+        font-weight: 550;
         color: var(--siu-text-primary);
         white-space: nowrap;
+        flex: none;
+      }
+      .siu-tool-preview {
+        font-family: var(--siu-font-mono);
+        font-size: 11.5px;
+        color: var(--siu-text-muted);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: 24rem;
+        flex: 1;
+        min-width: 0;
       }
       .siu-tool-meta {
+        display: inline-flex;
+        align-items: center;
+        gap: 3px;
         font-family: var(--siu-font-mono);
-        font-size: var(--siu-text-tiny);
+        font-size: 11px;
         font-variant-numeric: tabular-nums;
         color: var(--siu-text-muted);
         white-space: nowrap;
+        flex: none;
       }
       .siu-tool-wait {
         display: inline-flex;
@@ -2021,31 +2072,59 @@
       .siu-tool-spacer {
         flex: 1;
       }
+      .siu-tool-chev {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 16px;
+        height: 16px;
+        color: var(--siu-text-muted);
+        transition: transform var(--siu-dur-fast) var(--siu-ease-out);
+        flex: none;
+      }
+      .siu-tool[open] .siu-tool-chev {
+        transform: rotate(180deg);
+      }
       .siu-tool-body {
-        border-top: 1px solid var(--siu-border-subtle);
+        padding: 10px 14px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        background: var(--siu-bg-panel);
       }
-      .siu-tool-body > details + details {
-        border-top: 1px solid var(--siu-border-subtle);
+      .siu-tool-section {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
       }
-      .siu-tool-body > details > summary {
+      .siu-tool-section-head {
         display: flex;
         align-items: center;
-        gap: var(--siu-space-2);
-        height: 26px;
-        padding: 0 var(--siu-space-3);
-        font-family: var(--siu-font-mono);
-        font-size: var(--siu-text-tiny);
+        justify-content: space-between;
+      }
+      .siu-tool-section-label {
+        font-size: 10.5px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
         color: var(--siu-text-muted);
-        transition: color var(--siu-dur-base) var(--siu-ease-out);
       }
-      .siu-tool-body > details > summary:hover {
+      .siu-tool-code {
+        display: block;
+        margin: 0;
+        padding: 9px 12px;
+        border-radius: 6px;
+        background: var(--siu-bg-inset);
+        border: 1px solid var(--siu-border-subtle);
+        font-family: var(--siu-font-mono);
+        font-size: 12px;
+        line-height: 1.5;
         color: var(--siu-text-secondary);
-      }
-      .siu-tool-body > details > summary:focus-visible {
-        outline-offset: -2px;
-      }
-      .siu-tool-body > details > .siu-tool-well {
-        margin: 0 var(--siu-space-3) var(--siu-space-3);
+        white-space: pre-wrap;
+        word-break: break-word;
+        tab-size: 2;
+        max-height: 320px;
+        overflow: auto;
       }
       .siu-tool-well {
         display: block;
@@ -2091,39 +2170,138 @@
         flex: none;
       }
 
-      /* A turn's tool cards collected behind one foldable summary row. */
+      /* A turn's tool cards collected behind an Alma-aligned lightweight summary row. */
       .siu-tool-group {
-        border: 1px solid var(--siu-border-subtle);
-        border-radius: 8px;
-        background: var(--siu-bg-subtle);
-        overflow: hidden;
-        transition: background var(--siu-dur-fast) var(--siu-ease-out);
+        border: none;
+        border-radius: 0;
+        background: transparent;
+        overflow: visible;
       }
       .siu-tool-group summary {
-        display: flex;
+        display: inline-flex;
         align-items: center;
-        justify-content: space-between;
-        padding: 6px 12px;
+        gap: 6px;
+        padding: 4px 10px;
+        margin-bottom: 6px;
         cursor: pointer;
-        font-size: 12.5px;
-        color: var(--siu-text-secondary);
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--siu-text-muted);
         user-select: none;
         list-style: none;
+        width: fit-content;
+        border-radius: var(--siu-radius-sm);
+        transition: color var(--siu-dur-fast) var(--siu-ease-out),
+          background var(--siu-dur-fast) var(--siu-ease-out);
       }
       .siu-tool-group summary::-webkit-details-marker {
         display: none;
       }
       .siu-tool-group summary:hover {
         background: var(--siu-bg-hover);
-        color: var(--siu-text-primary);
+        color: var(--siu-text-secondary);
+      }
+      .siu-tool-stack {
+        display: inline-flex;
+        align-items: center;
+        margin-right: 2px;
+      }
+      .siu-tool-stack-item {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 19px;
+        height: 19px;
+        border-radius: 50%;
+        background: var(--siu-bg-panel);
+        border: 1px solid var(--siu-border-subtle);
+        color: var(--siu-text-secondary);
+        margin-left: -5px;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        flex: none;
+      }
+      .siu-tool-stack-item:first-child {
+        margin-left: 0;
+      }
+      .siu-tool-group-toggle {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--siu-text-muted);
+        margin-left: 4px;
+        opacity: 0.75;
+      }
+      .siu-tool-group-chev {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        transition: transform var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-tool-group[open] > summary .siu-tool-group-chev {
+        transform: rotate(180deg);
       }
       .siu-tool-group-body {
-        padding: 8px 10px;
+        padding: 0;
         display: flex;
         flex-direction: column;
-        gap: 6px;
-        border-top: 1px solid var(--siu-border-subtle);
+        gap: 8px;
+        border: none;
+        background: transparent;
+      }
+
+      /* Tree / timeline view */
+      .siu-tool-tree {
+        position: relative;
+        padding-left: 18px;
+        margin-left: 10px;
+        border-left: 1.5px solid var(--siu-border-subtle);
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      .siu-tool-tree > .siu-tool {
+        position: relative;
+      }
+      .siu-tool-tree > .siu-tool::before {
+        content: '';
+        position: absolute;
+        top: 17px;
+        left: -19px;
+        width: 10px;
+        height: 1.5px;
+        background: var(--siu-border-subtle);
+      }
+      .siu-tool-dot {
+        position: absolute;
+        top: 13px;
+        left: -23px;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
         background: var(--siu-bg-panel);
+        border: 1.5px solid var(--siu-border);
+        box-shadow: 0 0 0 2px var(--siu-bg-canvas);
+        z-index: 1;
+        transition: border-color var(--siu-dur-fast) var(--siu-ease-out),
+          background-color var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-tool[data-state='running'] .siu-tool-dot {
+        border-color: #3b82f6;
+        background: #3b82f6;
+        animation: siu-pulse-dot 1.5s infinite;
+      }
+      .siu-tool[data-state='done'] .siu-tool-dot {
+        border-color: var(--siu-border);
+        background: var(--siu-bg-inset);
+      }
+      .siu-tool[data-state='error'] .siu-tool-dot {
+        border-color: #ef4444;
+        background: #ef4444;
+      }
+      @keyframes siu-pulse-dot {
+        0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.5); }
+        70% { box-shadow: 0 0 0 4px rgba(59, 130, 246, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
       }
 
       /* =====================================================================
@@ -6670,11 +6848,15 @@
         bash: '<path d="M4 17l6-5-6-5M12 19h8"/>',
         read_file: '<path d="M14 3v5h5M6 3h9l5 5v13H6z"/>',
         write_file: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+        edit_file: '<path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/>',
+        web_search: '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+        web_fetch: '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20M2 12h20"/>',
         default:
-          '<path d="M12 3v3m0 12v3M3 12h3m12 0h3M6.3 6.3l2.1 2.1m7.2 7.2 2.1 2.1m0-11.4-2.1 2.1m-7.2 7.2-2.1 2.1"/>'
+          '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>'
       };
 
       const CHEVRON = '<svg class="siu-chev" viewBox="0 0 10 10" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.5 1.5L7 5l-3.5 3.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      const CHEVRON_DOWN = '<svg class="siu-chev-down" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>';
 
       function iconSvg(name, size) {
         const path = ICONS[name] || ICONS.default;
@@ -6705,6 +6887,11 @@
       const CLOCK_GLYPH =
         '<svg viewBox="0 0 24 24" width="9" height="9" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true">' +
         '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2" stroke-linecap="round"/></svg>';
+
+      const LIST_GLYPH =
+        '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>' +
+        '<line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
 
       // =======================================================================
       // Transcript primitives
@@ -6784,6 +6971,43 @@
         return badge;
       }
 
+      function toolActionVerb(name) {
+        if (name === 'bash') return tr('transcript.action.exec');
+        if (name === 'read_file') return tr('transcript.action.read');
+        if (name === 'write_file' || name === 'edit_file') return tr('transcript.action.write');
+        return tr('transcript.action.call');
+      }
+
+      function toolIntentTitle(name, args) {
+        if (args && typeof args.description === 'string' && args.description.trim()) {
+          return args.description.trim();
+        }
+        if (args && typeof args === 'object') {
+          if (typeof args.command === 'string' && args.command.trim()) {
+            return args.command.trim();
+          }
+          if (typeof args.path === 'string' && args.path.trim()) {
+            return args.path.trim();
+          }
+          if (typeof args.file === 'string' && args.file.trim()) {
+            return args.file.trim();
+          }
+          if (typeof args.filePath === 'string' && args.filePath.trim()) {
+            return args.filePath.trim();
+          }
+          if (typeof args.query === 'string' && args.query.trim()) {
+            return args.query.trim();
+          }
+          if (typeof args.pattern === 'string' && args.pattern.trim()) {
+            return '/' + args.pattern.trim() + '/';
+          }
+          if (typeof args.url === 'string' && args.url.trim()) {
+            return args.url.trim();
+          }
+        }
+        return name;
+      }
+
       /**
        * Tool execution card. It IS the collapsible: while the tool runs it stays
        * open (active); once finished it auto-collapses into a one-line summary
@@ -6796,10 +7020,21 @@
         details.dataset.state = 'running';
 
         const summary = el('summary');
+        
+        const dot = el('span', 'siu-tool-dot');
+        summary.appendChild(dot);
+
         const icon = el('span', 'siu-tool-icon');
         icon.innerHTML = iconSvg(name, 13);
         summary.appendChild(icon);
-        summary.appendChild(el('span', 'siu-tool-name', name));
+
+        const verb = el('span', 'siu-tool-verb', toolActionVerb(name));
+        summary.appendChild(verb);
+
+        const intentText = toolIntentTitle(name, args);
+        const intentEl = el('span', 'siu-tool-intent', intentText);
+        intentEl.title = intentText;
+        summary.appendChild(intentEl);
 
         // write_file with then_run fuses write + verification into one step.
         if (args && typeof args.then_run === 'string' && args.then_run.trim()) {
@@ -6818,29 +7053,31 @@
         const duration = el('span', 'siu-tool-meta', '');
         summary.appendChild(duration);
         summary.appendChild(statusBadge('running'));
+        const chev = el('span', 'siu-tool-chev');
+        chev.innerHTML = CHEVRON_DOWN;
+        summary.appendChild(chev);
         details.appendChild(summary);
 
         const body = el('div', 'siu-tool-body');
 
         if (args && Object.keys(args).length > 0) {
-          const argDetails = el('details');
-          const argSummary = el('summary');
-          argSummary.innerHTML = CHEVRON + '<span>' + escapeHtml(tr('transcript.arguments')) + '</span>';
-          argDetails.appendChild(argSummary);
-          const pre = el('pre', 'siu-tool-well');
-          pre.textContent = JSON.stringify(args, null, 2);
-          argDetails.appendChild(pre);
-          body.appendChild(argDetails);
+          const argsSection = el('div', 'siu-tool-section');
+          const argsLabel = el('div', 'siu-tool-section-label', tr('transcript.arguments'));
+          const argsPre = el('pre', 'siu-tool-code');
+          argsPre.textContent = JSON.stringify(args, null, 2);
+          argsSection.appendChild(argsLabel);
+          argsSection.appendChild(argsPre);
+          body.appendChild(argsSection);
         }
 
-        const outDetails = el('details');
-        outDetails.open = true;
-        const outSummary = el('summary');
-        outSummary.innerHTML = CHEVRON + '<span>' + escapeHtml(tr('transcript.output')) + '</span>';
-        outDetails.appendChild(outSummary);
-        const outPre = el('pre', 'siu-tool-well', '…');
-        outDetails.appendChild(outPre);
-        body.appendChild(outDetails);
+        const outSection = el('div', 'siu-tool-section');
+        const outHead = el('div', 'siu-tool-section-head');
+        const outLabel = el('div', 'siu-tool-section-label', tr('transcript.output'));
+        outHead.appendChild(outLabel);
+        const outPre = el('pre', 'siu-tool-code siu-tool-output', '…');
+        outSection.appendChild(outHead);
+        outSection.appendChild(outPre);
+        body.appendChild(outSection);
 
         details.appendChild(body);
         return { details, duration, outPre, summary, wait };
@@ -6855,13 +7092,25 @@
         const details = el('details', 'siu-tool-group ' + enterClass());
         details.dataset.kind = 'tool-group';
         const summary = el('summary');
+        
+        const stack = el('span', 'siu-tool-stack');
+        summary.appendChild(stack);
+
         const label = el('span', 'siu-tool-group-label');
         summary.appendChild(label);
+
+        summary.appendChild(el('span', 'siu-tool-spacer'));
+
+        const toggle = el('span', 'siu-tool-group-toggle');
+        toggle.innerHTML = LIST_GLYPH;
+        summary.appendChild(toggle);
+
         const chev = el('span', 'siu-tool-group-chev');
-        chev.innerHTML = CHEVRON;
+        chev.innerHTML = CHEVRON_DOWN;
         summary.appendChild(chev);
         details.appendChild(summary);
-        const body = el('div', 'siu-tool-group-body');
+
+        const body = el('div', 'siu-tool-group-body siu-tool-tree');
         details.appendChild(body);
         const names = [];
         let finished = false;
@@ -6879,7 +7128,14 @@
           summary,
           label,
           add(tool, name) {
-            if (name) names.push(name);
+            if (name) {
+              names.push(name);
+              if (names.length <= 6) {
+                const item = el('span', 'siu-tool-stack-item');
+                item.innerHTML = iconSvg(name, 11);
+                stack.appendChild(item);
+              }
+            }
             if (tool) body.appendChild(tool.details);
             refresh();
           },
@@ -6899,7 +7155,9 @@
         const badge = card.summary.querySelector('[data-role="badge"]');
         if (badge) badge.replaceWith(statusBadge(status));
         card.details.dataset.state = status;
-        card.duration.textContent = formatDuration(durationMs);
+        if (typeof durationMs === 'number' && durationMs > 0) {
+          card.duration.innerHTML = CLOCK_GLYPH + '<span>' + formatDuration(durationMs) + '</span>';
+        }
         // Finished tools fold themselves away; a click re-opens the detail.
         card.details.open = false;
       }
@@ -8622,12 +8880,17 @@
         }
         const sorted = [...choices].sort();
 
-        const populate = (selectId, currentVal, emptyLabelKey) => {
+        const autoModel = state.settings?.autoDetectedToolModel;
+        const tinyEmptyText = autoModel
+          ? tr('settings.modelRoles.followAuto', { model: autoModel })
+          : tr('settings.modelRoles.followMain');
+
+        const populate = (selectId, currentVal, emptyLabel) => {
           const sel = $(selectId);
           if (!sel) return;
           sel.innerHTML = '';
-          if (emptyLabelKey) {
-            const opt = el('option', '', tr(emptyLabelKey));
+          if (emptyLabel) {
+            const opt = el('option', '', emptyLabel);
             opt.value = '';
             sel.appendChild(opt);
           }
@@ -8644,10 +8907,10 @@
           sel.value = currentVal || '';
         };
 
-        populate('role-tiny-model', state.draftTinyModel, 'settings.modelRoles.followMain');
-        populate('role-review-model', state.draftReviewModel, 'settings.modelRoles.followTiny');
-        populate('role-title-model', state.draftTitleModel, 'settings.modelRoles.followTiny');
-        populate('role-memory-model', state.draftMemoryModel, 'settings.modelRoles.followTiny');
+        populate('role-tiny-model', state.draftTinyModel, tinyEmptyText);
+        populate('role-review-model', state.draftReviewModel, tr('settings.modelRoles.followTiny'));
+        populate('role-title-model', state.draftTitleModel, tr('settings.modelRoles.followTiny'));
+        populate('role-memory-model', state.draftMemoryModel, tr('settings.modelRoles.followTiny'));
       }
       /**
        * Language and theme are absent on purpose: both selects persist the

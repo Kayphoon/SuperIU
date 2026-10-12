@@ -63,7 +63,11 @@ export function createBashTool(options: BashToolOptions = {}) {
   return tool({
     description: 'Execute a bash command in the workspace directory with process tree protection and timeout safeguards.',
     parameters: z.object({
-      command: z.string().describe('The bash command to execute')
+      command: z.string().describe('The bash command to execute'),
+      description: z
+        .string()
+        .optional()
+        .describe('简短说明此命令的意图/目的，例如“检查 superiu 的 DNS 解析记录”')
     }),
     execute: async ({ command }) => executeBashCommand(command, options)
   });

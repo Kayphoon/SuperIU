@@ -18,7 +18,8 @@ export function createReadFileTool(options: FsToolOptions = {}) {
     parameters: z.object({
       path: z.string().describe('Relative or absolute file path to read'),
       offset: z.number().optional().default(1).describe('1-based starting line number (default: 1)'),
-      limit: z.number().optional().default(200).describe('Maximum number of lines to read (default: 200)')
+      limit: z.number().optional().default(200).describe('Maximum number of lines to read (default: 200)'),
+      description: z.string().optional().describe('简短说明读取此文件的目的，例如“检查配置路由”）')
     }),
     execute: async ({ path: targetPath, offset, limit }) => {
       const context =
@@ -59,6 +60,7 @@ export function createWriteFileTool(
     parameters: z.object({
       path: z.string().describe('Relative or absolute file path to write to'),
       content: z.string().describe('Text content to write to the file'),
+      description: z.string().optional().describe('简短说明写入此文件的目的'),
       then_run: z
         .string()
         .optional()
