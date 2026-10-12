@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.59 (2026-10-12)
+
+### 中文
+
+- **修复输入框工具栏独立切换推理强度时不生效与状态显示不一致问题**：
+  - 修复后端设置应用逻辑（`applySettings`）的 `runnerChanged` 判断条件中遗漏 `reasoningEffort` 变更比对的缺陷；
+  - 解决用户在底栏单独切换推理强度（如切至「高」）时，后端仅持久化设置却未重建引擎 runner，导致 runner 仍运行在旧强度（默认「中」）、状态接口返回旧强度、药丸按钮无法同步更新的问题；
+  - 补充针对单独切换推理强度的自动化回归测试，确保变更即时生效。
+
+### English
+
+- **Fix reasoning effort toolbar switch not taking effect and status desync**:
+  - Fix missing `reasoningEffort` change check in backend `applySettings` `runnerChanged` condition;
+  - Resolve issue where changing reasoning effort alone in the composer toolbar (e.g. to "High") persisted settings to disk but failed to rebuild the active runner, leaving the engine on the previous effort ("Medium") and desyncing the status pill from the popover selection;
+  - Add automated wire regression test ensuring switching reasoning effort alone immediately rebuilds the runner and updates effective status.
+
 ## v0.2.58 (2026-10-12)
 
 ### 中文
