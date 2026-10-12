@@ -14,6 +14,28 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.61 (2026-10-12)
+
+### 中文
+
+- **Alma 风格工具活动时间线与单色图标体系**：
+  - 工具执行过程在流式输出中保持展开，回合结束后自动折叠为单行摘要，形成可展开的活动时间线；
+  - 工具卡片重构为垂直时间线树状视图：左侧主干连接线、状态圆点、英文工具名徽章（`Read`/`Write`/`Bash`/`Skill`/`Think`/`Call`）与自然语言意图文本；
+  - 思考（thinking）阶段与工具调用统一到同一可折叠活动时间线，按时间顺序交错展示；活动超过 6 条时显示 `+N` 溢出胶囊；
+  - 思考耗时统一为英文（`Thought for 1s`），工具动作动词改用英文工具名，未知工具名自动人性化（如 `web_search` → `web search`）；
+  - 全站图标统一为单色（`currentColor` 描边），并新增独立可交互预览 `preview-alma-timeline.html`。
+- **工具意图描述约束**：`bash`、`read_file`、`write_file` 工具 Schema 新增 `description` 参数，并在工程系统提示词中约束为 3–6 个词的简洁短语，避免界面截断。
+
+### English
+
+- **Alma-style tool activity timeline and monochrome icon system**:
+  - Tool execution stays expanded while streaming and auto-folds into a single summary row once the turn settles, forming an expandable activity timeline;
+  - Tool cards rebuilt as a vertical timeline tree: left trunk connector, status dots, English tool-name badges (`Read`/`Write`/`Bash`/`Skill`/`Think`/`Call`), and natural-language intent text;
+  - Thinking phase and tool calls unified into one foldable activity timeline, interleaved chronologically, with a `+N` overflow pill when activities exceed 6;
+  - Thinking duration rendered in English (`Thought for 1s`) and tool action verbs switched to English tool names, with unknown names humanized (e.g. `web_search` → `web search`);
+  - Monochrome icon set (`currentColor` stroke) plus a standalone interactive preview `preview-alma-timeline.html`.
+- **Tool intent description constraint**: add a `description` parameter to the `bash`, `read_file`, and `write_file` schemas, constrained by the engineering system prompt to concise 3–6 word phrases to avoid UI truncation.
+
 ## v0.2.60 (2026-10-12)
 
 ### 中文
