@@ -482,7 +482,7 @@ const DICT = {
     'transcript.action.write': 'Write',
     'transcript.action.skill': 'Skill',
     'transcript.action.thinking': 'Think',
-    'transcript.thoughtDuration': '已思考 {seconds} 秒',
+    'transcript.thoughtDuration': 'Thought for {seconds}s',
     'transcript.action.call': 'Call',
 
     'approval.title': '需要审批',
