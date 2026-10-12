@@ -14,6 +14,26 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.62 (2026-10-12)
+
+### 中文
+
+- **离线横幅重试按钮交互与状态反馈全面修复**：
+  - 为顶部网络断开横幅 `#network-banner` 与重试按钮显式配置 `no-drag` 类与 `-webkit-app-region: no-drag; pointer-events: auto; z-index: 90;`，彻底解决 macOS Electron 隐藏式标题栏（`hiddenInset`）将顶部点击劫持为窗口拖拽的问题；
+  - 增加至少 500ms 最小过渡时间与旋转 Spinner 动效，横幅同步显示“正在重新连接…”，避免断网时探针瞬间抛错造成“毫无反应”的视觉假死感；
+  - 明确失败视觉反馈：重试失败时，按钮变为微红态的“重试失败”（持续 1.8s），横幅同步更新为“重新连接失败，服务暂不可用”并弹出全局 Toast；
+  - 连续 2 次重试失败后自动显示“刷新页面”兜底按钮，方便一键硬重载；
+  - 按钮点击添加 `stopPropagation`，新增 `net.banner.retryFailedBtn` 与 `net.banner.reload` 双语词条并通过全量国际化合规守护。
+
+### English
+
+- **Network offline banner retry button interaction & feedback overhaul**:
+  - Explicitly configured `no-drag` class with `-webkit-app-region: no-drag; pointer-events: auto; z-index: 90;` on the network banner `#network-banner` and retry button, completely fixing the issue where macOS Electron hidden titlebars (`hiddenInset`) intercepted clicks as window drag events;
+  - Added a minimum 500ms visual transition with a spinning indicator (`.siu-net-spinner`) and "Connection unstable, reconnecting…" banner text, eliminating the apparent unresponsiveness caused by instant fetch failures when offline;
+  - Added explicit failure feedback: on failure, the button transitions to a reddish "Retry failed" state (held for 1.8s), the banner updates to "Reconnection failed, server unavailable", and an error toast is surfaced;
+  - Added an automatic "Reload page" fallback button after 2 consecutive manual retry failures for easy hard-reloading;
+  - Added `stopPropagation` on button clicks, added `net.banner.retryFailedBtn` and `net.banner.reload` keys across bilingual dictionaries, and passed all repo verification guards.
+
 ## v0.2.61 (2026-10-12)
 
 ### 中文
