@@ -1966,13 +1966,17 @@
         background: transparent;
         overflow: visible;
         border-radius: 4px;
+        width: 100%;
       }
       .siu-tool > summary {
         display: flex;
-        align-items: baseline;
+        align-items: center;
         gap: 8px;
-        min-height: 22px;
+        min-height: 24px;
         padding: 2px 6px;
+        margin: 0 -6px;
+        width: calc(100% + 12px);
+        box-sizing: border-box;
         user-select: none;
         cursor: pointer;
         background: transparent;
@@ -1993,30 +1997,36 @@
         background: #f59e0b;
         flex: none;
         align-self: center;
-        margin-right: 2px;
+        margin-right: 1px;
         animation: siu-pulse-dot 1.5s infinite;
       }
       .siu-tool-verb {
         font-family: var(--siu-font-sans);
-        font-size: 13.5px;
+        font-size: 13px;
         font-weight: 550;
         color: var(--siu-text-primary);
+        opacity: 0.88;
         flex: none;
         letter-spacing: -0.01em;
       }
       .siu-tool[data-state='error'] .siu-tool-verb {
-        color: #ef4444;
+        color: var(--siu-danger-fg);
+        opacity: 1;
       }
       .siu-tool-intent {
         font-family: var(--siu-font-mono);
-        font-size: 13px;
+        font-size: 12.5px;
         font-weight: 400;
-        color: var(--siu-text-secondary);
+        color: var(--siu-text-muted);
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
         flex: 1;
         min-width: 0;
+      }
+      .siu-tool[data-state='error'] .siu-tool-intent {
+        color: var(--siu-danger-fg);
+        opacity: 0.85;
       }
       .siu-tool-name {
         font-family: var(--siu-font-mono);
@@ -2045,6 +2055,7 @@
         font-size: 11px;
         font-variant-numeric: tabular-nums;
         color: var(--siu-text-muted);
+        opacity: 0.8;
         white-space: nowrap;
         flex: none;
       }
@@ -2082,8 +2093,8 @@
         transform: rotate(180deg);
       }
       .siu-tool-body {
-        padding: 6px 10px;
-        margin-left: 12px;
+        padding: 8px 10px;
+        margin-top: 4px;
         margin-bottom: 6px;
         display: flex;
         flex-direction: column;
@@ -2176,13 +2187,14 @@
         border-radius: 0;
         background: transparent;
         overflow: visible;
-        margin: 4px 0 8px 0;
+        margin: 2px 0 6px 0;
       }
-      .siu-tool-group summary {
+      .siu-tool-group > summary {
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        padding: 4px 8px;
+        padding: 4px 6px;
+        margin-left: -6px;
         cursor: pointer;
         user-select: none;
         list-style: none;
@@ -2190,16 +2202,16 @@
         border-radius: var(--siu-radius-sm);
         transition: background var(--siu-dur-fast) var(--siu-ease-out);
       }
-      .siu-tool-group summary::-webkit-details-marker {
+      .siu-tool-group > summary::-webkit-details-marker {
         display: none;
       }
-      .siu-tool-group summary:hover {
+      .siu-tool-group > summary:hover {
         background: var(--siu-bg-hover);
       }
       .siu-tool-stack {
         display: inline-flex;
         align-items: center;
-        margin-right: 2px;
+        margin-right: 1px;
       }
       .siu-tool-stack-item {
         display: inline-flex;
@@ -2208,34 +2220,40 @@
         width: 22px;
         height: 22px;
         border-radius: 50%;
-        background: var(--siu-bg-panel);
-        border: 1.5px solid #cbd5e1;
-        color: #475569;
-        margin-left: -6px;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+        background: var(--siu-bg-panel-opaque);
+        border: 1px solid var(--siu-border-strong);
+        color: var(--siu-text-secondary);
+        margin-left: -7px;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
         flex: none;
+        position: relative;
       }
-      [data-theme='dark'] .siu-tool-stack-item {
-        border-color: #475569;
-        color: #94a3b8;
+      [data-color-scheme='light'] .siu-tool-stack-item {
+        background: #ffffff;
+        border-color: #d1d5db;
+        color: #4b5563;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
       }
       .siu-tool-stack-item:first-child {
         margin-left: 0;
       }
       .siu-tool-group-label {
-        font-size: 14.5px;
+        font-size: 14px;
         font-weight: 600;
         color: var(--siu-text-primary);
         letter-spacing: -0.01em;
-        margin-left: 2px;
-        margin-right: 2px;
+        line-height: 1.4;
       }
       .siu-tool-group-chev {
         display: inline-flex;
         align-items: center;
         justify-content: center;
         color: var(--siu-text-muted);
-        transition: transform var(--siu-dur-fast) var(--siu-ease-out);
+        transition: transform var(--siu-dur-fast) var(--siu-ease-out),
+          color var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-tool-group > summary:hover .siu-tool-group-chev {
+        color: var(--siu-text-secondary);
       }
       .siu-tool-group[open] > summary .siu-tool-group-chev {
         transform: rotate(180deg);
@@ -2245,11 +2263,14 @@
         align-items: center;
         justify-content: center;
         color: var(--siu-text-muted);
-        margin-left: 4px;
-        opacity: 0.75;
+        margin-left: 2px;
+        opacity: 0.7;
+        transition: opacity var(--siu-dur-fast) var(--siu-ease-out),
+          color var(--siu-dur-fast) var(--siu-ease-out);
       }
-      .siu-tool-group:not([open]) .siu-tool-group-toggle {
-        display: none;
+      .siu-tool-group > summary:hover .siu-tool-group-toggle {
+        opacity: 1;
+        color: var(--siu-text-secondary);
       }
       .siu-tool-group-body {
         padding: 0;
@@ -2263,14 +2284,14 @@
       /* Tree / timeline view (Alma Activity Timeline) */
       .siu-tool-tree {
         position: relative;
-        padding-left: 14px;
-        margin-left: 11px;
-        border-left: 1.5px solid var(--siu-border-subtle);
+        padding-left: 15px;
+        margin-left: 10.25px;
+        border-left: 1.5px solid var(--siu-border);
         display: flex;
         flex-direction: column;
         gap: 2px;
-        margin-top: 4px;
-        margin-bottom: 6px;
+        margin-top: 3px;
+        margin-bottom: 4px;
       }
       @keyframes siu-pulse-dot {
         0% { transform: scale(0.85); opacity: 0.7; }
@@ -6865,9 +6886,9 @@
         '<circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2" stroke-linecap="round"/></svg>';
 
       const LIST_GLYPH =
-        '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-        '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/>' +
-        '<line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>';
+        '<svg viewBox="0 0 24 24" width="13.5" height="13.5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<path d="M21 12h-8"/><path d="M21 6H8"/><path d="M21 18h-8"/>' +
+        '<path d="M3 6v4c0 1.1.9 2 2 2h3"/><path d="M3 10v6c0 1.1.9 2 2 2h3"/></svg>';
 
       // =======================================================================
       // Transcript primitives
@@ -7092,8 +7113,6 @@
         chev.innerHTML = CHEVRON_DOWN;
         summary.appendChild(chev);
 
-        summary.appendChild(el('span', 'siu-tool-spacer'));
-
         const toggle = el('span', 'siu-tool-group-toggle');
         toggle.innerHTML = LIST_GLYPH;
         summary.appendChild(toggle);
@@ -7103,6 +7122,7 @@
         const body = el('div', 'siu-tool-group-body siu-tool-tree');
         details.appendChild(body);
         const names = [];
+        const seenIcons = new Set();
         let finished = false;
         const refresh = () => {
           label.textContent = finished
@@ -7118,7 +7138,8 @@
           add(tool, name) {
             if (name) {
               names.push(name);
-              if (names.length <= 6) {
+              if (seenIcons.size < 6 && !seenIcons.has(name)) {
+                seenIcons.add(name);
                 const item = el('span', 'siu-tool-stack-item');
                 item.innerHTML = iconSvg(name, 11);
                 stack.appendChild(item);
