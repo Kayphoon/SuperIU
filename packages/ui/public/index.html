@@ -2211,7 +2211,28 @@
       .siu-tool-stack {
         display: inline-flex;
         align-items: center;
-        margin-right: 1px;
+        margin-right: 2px;
+      }
+      .siu-tool-stack-overflow {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--siu-font-mono);
+        font-size: 11px;
+        font-weight: 500;
+        line-height: 1;
+        padding: 1.5px 6px;
+        border-radius: 9999px;
+        border: 1px solid var(--siu-border);
+        color: var(--siu-text-muted);
+        background: var(--siu-bg-panel-opaque);
+        margin-right: 5px;
+        flex: none;
+      }
+      [data-color-scheme='light'] .siu-tool-stack-overflow {
+        background: #ffffff;
+        border-color: #d1d5db;
+        color: #6b7280;
       }
       .siu-tool-stack-item {
         display: inline-flex;
@@ -2234,7 +2255,7 @@
         color: #4b5563;
         box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
       }
-      .siu-tool-stack-item:first-child {
+      .siu-tool-stack-item:first-of-type {
         margin-left: 0;
       }
       .siu-tool-group-label {
@@ -2297,6 +2318,80 @@
         0% { transform: scale(0.85); opacity: 0.7; }
         50% { transform: scale(1.15); opacity: 1; }
         100% { transform: scale(0.85); opacity: 0.7; }
+      }
+
+      /* Inline thinking phase in activity timeline tree */
+      .siu-tool-think-phase {
+        border: none;
+        background: transparent;
+        overflow: visible;
+        border-radius: 4px;
+        width: 100%;
+      }
+      .siu-tool-think-head {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        min-height: 24px;
+        padding: 2px 6px;
+        margin: 0 -6px;
+        width: calc(100% + 12px);
+        box-sizing: border-box;
+        user-select: none;
+        cursor: pointer;
+        background: transparent;
+        list-style: none;
+        border-radius: 4px;
+        transition: background var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-tool-think-head::-webkit-details-marker {
+        display: none;
+      }
+      .siu-tool-think-head:hover {
+        background: var(--siu-bg-hover);
+      }
+      .siu-tool-think-title {
+        font-family: var(--siu-font-sans);
+        font-size: 13px;
+        font-weight: 550;
+        color: var(--siu-text-secondary);
+        letter-spacing: -0.01em;
+        white-space: nowrap;
+        flex: none;
+      }
+      .siu-tool-think-phase[data-state='running'] .siu-tool-think-title {
+        color: var(--siu-text-primary);
+      }
+      .siu-tool-think-phase > summary .siu-tool-chev {
+        color: var(--siu-text-muted);
+        opacity: 0.6;
+        transition: transform var(--siu-dur-fast) var(--siu-ease-out),
+          opacity var(--siu-dur-fast) var(--siu-ease-out);
+        flex: none;
+      }
+      .siu-tool-think-phase > summary:hover .siu-tool-chev {
+        opacity: 1;
+        color: var(--siu-text-secondary);
+      }
+      .siu-tool-think-phase[open] > summary .siu-tool-chev {
+        transform: rotate(180deg);
+      }
+      .siu-tool-think-text {
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--siu-text-muted);
+        padding: 4px 6px 8px 6px;
+        margin: 0;
+        word-break: break-word;
+      }
+      .siu-tool-think-text p {
+        margin: 4px 0;
+      }
+      .siu-tool-think-text p:first-child {
+        margin-top: 0;
+      }
+      .siu-tool-think-text p:last-child {
+        margin-bottom: 0;
       }
 
       /* =====================================================================
@@ -7122,35 +7217,82 @@
         const body = el('div', 'siu-tool-group-body siu-tool-tree');
         details.appendChild(body);
         const names = [];
-        const seenIcons = new Set();
+        const activities = [];
+        let activeThinking = null;
         let finished = false;
+
+        const renderStack = () => {
+          stack.innerHTML = '';
+          const maxVisible = 6;
+          const total = activities.length;
+          let visible = activities;
+          if (total > maxVisible) {
+            const overflow = total - maxVisible;
+            const overflowEl = el('span', 'siu-tool-stack-overflow', '+' + overflow);
+            stack.appendChild(overflowEl);
+            visible = activities.slice(-maxVisible);
+            if (activities.includes('thinking') && !visible.includes('thinking')) {
+              visible = ['thinking', ...visible.slice(1)];
+            }
+          }
+          for (const act of visible) {
+            const item = el('span', 'siu-tool-stack-item');
+            item.innerHTML = iconSvg(act, 11);
+            stack.appendChild(item);
+          }
+        };
+
         const refresh = () => {
           label.textContent = finished
-            ? tr('transcript.toolUsed', { n: names.length, tools: names.join(toolSeparator()) })
+            ? (names.length > 0
+                ? tr('transcript.toolUsed', { n: names.length, tools: names.join(toolSeparator()) })
+                : tr('transcript.action.thinking'))
             : tr('transcript.working');
         };
         refresh();
+
         return {
           details,
           body,
           summary,
           label,
+          stack,
           add(tool, name) {
             if (name) {
               names.push(name);
-              if (seenIcons.size < 6 && !seenIcons.has(name)) {
-                seenIcons.add(name);
-                const item = el('span', 'siu-tool-stack-item');
-                item.innerHTML = iconSvg(name, 11);
-                stack.appendChild(item);
-              }
+              activities.push(name);
+              renderStack();
             }
             if (tool) body.appendChild(tool.details);
             refresh();
           },
+          addThinking(initialText, durationMs) {
+            activities.push('thinking');
+            renderStack();
+            const think = thinkingBlock(initialText, durationMs);
+            body.appendChild(think.details);
+            activeThinking = think;
+            refresh();
+            return think;
+          },
+          updateThinking(text) {
+            if (activeThinking) activeThinking.update(text);
+          },
+          closeThinking(durationMs) {
+            if (activeThinking) {
+              activeThinking.finish(durationMs);
+              activeThinking = null;
+              renderStack();
+            }
+          },
           finish() {
+            if (activeThinking) {
+              activeThinking.finish();
+              activeThinking = null;
+            }
             finished = true;
             details.open = false;
+            renderStack();
             refresh();
           }
         };
@@ -7174,16 +7316,81 @@
       }
 
       /** Collapsible reasoning block; visible while the model thinks, folded after. */
-      function thinkingBlock() {
-        const details = el('details', 'siu-think ' + enterClass());
+      function thinkingBlock(initialText, durationMs) {
+        const details = el('details', 'siu-tool-think-phase ' + enterClass());
         details.open = true;
         details.dataset.kind = 'thinking';
-        const summary = el('summary');
-        summary.innerHTML = CHEVRON + THINK_GLYPH + '<span data-role="label">' + escapeHtml(tr('transcript.thinking')) + '</span>';
+        const isDone = typeof durationMs === 'number';
+        details.dataset.state = isDone ? 'done' : 'running';
+
+        const summary = el('summary', 'siu-tool-think-head');
+        const pulseDot = el('span', 'siu-tool-pulse-dot');
+        pulseDot.style.display = isDone ? 'none' : 'inline-block';
+        summary.appendChild(pulseDot);
+
+        const title = el('span', 'siu-tool-think-title');
+        summary.appendChild(title);
+
+        const spacer = el('span', 'siu-tool-spacer');
+        summary.appendChild(spacer);
+
+        const chev = el('span', 'siu-tool-chev');
+        chev.innerHTML = CHEVRON_DOWN;
+        summary.appendChild(chev);
+
         details.appendChild(summary);
-        const body = el('div', 'siu-think-body');
+
+        const body = el('div', 'siu-tool-think-text');
         details.appendChild(body);
-        return { details, body, label: summary.querySelector('[data-role="label"]') };
+
+        let startedAt = Date.now();
+        let finalDurationMs = durationMs;
+        let rawText = initialText || '';
+
+        const renderText = () => {
+          if (rawText.trim()) {
+            body.innerHTML = renderMarkdown(rawText);
+          } else {
+            body.textContent = '';
+          }
+        };
+
+        const updateTitle = (done) => {
+          if (done || typeof finalDurationMs === 'number') {
+            const ms = typeof finalDurationMs === 'number' ? finalDurationMs : (Date.now() - startedAt);
+            const sec = Math.max(1, Math.round(ms / 1000));
+            title.textContent = tr('transcript.thoughtDuration', { seconds: sec });
+          } else {
+            title.textContent = tr('transcript.thinking');
+          }
+        };
+
+        renderText();
+        updateTitle(isDone);
+
+        return {
+          details,
+          summary,
+          title,
+          label: title,
+          body,
+          pulseDot,
+          update(text) {
+            rawText = text;
+            renderText();
+          },
+          append(chunk) {
+            rawText += chunk;
+            renderText();
+          },
+          finish(durMs) {
+            details.dataset.state = 'done';
+            if (pulseDot) pulseDot.style.display = 'none';
+            if (typeof durMs === 'number') finalDurationMs = durMs;
+            else if (typeof finalDurationMs !== 'number') finalDurationMs = Date.now() - startedAt;
+            updateTitle(true);
+          }
+        };
       }
 
       /** A step is a foldable container so the whole loop can collapse after a turn. */
@@ -7350,10 +7557,14 @@
           card.dataset.role = 'content';
 
           const calls = message.toolCalls || [];
-          if (calls.length) {
-            // Tool execution precedes the answer, so the folded summary sits
-            // above the bubble rather than below it.
+          const reasoning = message.reasoning || message.thought;
+          if (calls.length || reasoning) {
+            // Tool execution and reasoning precede the answer, so the folded
+            // summary sits above the bubble rather than below it.
             const group = toolGroup();
+            if (reasoning) {
+              group.addThinking(reasoning, message.thinkingDurationMs || message.reasoningDurationMs || 1000);
+            }
             for (const call of calls) {
               const tool = toolCard(call.name, call.args);
               const result = resultByCallId.get(call.id);
@@ -7762,6 +7973,7 @@
         let stepText = '';
         let activeBubble = null;
         let thinking = null;
+        let thinkingStartedAt = 0;
         let toolCount = 0;
         let turnStartedAt = Date.now();
         let approvalWaitTotal = 0;
@@ -7787,6 +7999,7 @@
           stepText = '';
           activeBubble = null;
           thinking = null;
+          thinkingStartedAt = 0;
           toolCount = 0;
           stepApprovalWait = 0;
           liveTools = null;
@@ -7833,10 +8046,11 @@
         /** Thinking ends the moment real output starts: fold it into a summary. */
         const closeThinking = () => {
           if (!thinking) return;
-          thinking.details.open = false;
-          const words = thinking.body.textContent.trim().split(/\s+/).filter(Boolean).length;
-          thinking.label.textContent = tr('transcript.thinkingSummary', { n: words });
+          const dur = Date.now() - thinkingStartedAt;
+          thinking.finish(dur);
+          if (liveTools) liveTools.closeThinking(dur);
           thinking = null;
+          thinkingStartedAt = 0;
         };
 
         /**
@@ -7884,10 +8098,13 @@
             case 'reasoning': {
               contentReceived = true;
               if (!group) openStep(1, phase);
-              if (!thinking) thinking = thinkingBlock();
-              if (!thinking.details.parentElement) group.body.appendChild(thinking.details);
-              thinking.body.textContent += event.text;
-              thinking.details.open = true;
+              const tools = ensureToolGroup();
+              if (!thinking) {
+                thinkingStartedAt = Date.now();
+                thinking = tools.addThinking(event.text);
+              } else {
+                thinking.append(event.text);
+              }
               scrollToBottom();
               break;
             }
@@ -7982,7 +8199,9 @@
               steps.forEach((stepDetails, index) => {
                 const isLast = index === steps.length - 1;
                 stepDetails.open = isLast;
-                for (const fold of stepDetails.querySelectorAll('details')) fold.open = false;
+                for (const fold of stepDetails.querySelectorAll('details')) {
+                  if (fold.dataset.kind !== 'thinking') fold.open = false;
+                }
               });
               for (const card of turn.querySelectorAll('details[data-kind="tool"]')) card.open = false;
               for (const grp of turn.querySelectorAll('details[data-kind="tool-group"]')) grp.open = false;
