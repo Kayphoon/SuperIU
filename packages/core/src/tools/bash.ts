@@ -66,7 +66,7 @@ export function createBashTool(options: BashToolOptions = {}) {
       description: z
         .string()
         .optional()
-        .describe('Brief natural-language description of what this command does (e.g. "Parse otty CLI docs", "Check Otty homepage docs")'),
+        .describe('Extremely brief 3-6 word / under 12 character intent (e.g. "Parse otty docs", "检查 Git 提交", "搜索 xkf 关键词"). Never write long sentences.'),
       command: z.string().describe('The bash command to execute')
     }),
     execute: async ({ command }) => executeBashCommand(command, options)

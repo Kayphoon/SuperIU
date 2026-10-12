@@ -19,7 +19,7 @@ export function createReadFileTool(options: FsToolOptions = {}) {
       description: z
         .string()
         .optional()
-        .describe('Brief natural-language description of why you are reading this file (e.g. "Check vite config", "Read user auth controller", "查看路由定义")'),
+        .describe('Extremely brief 3-6 word / under 12 character intent (e.g. "Check vite config", "读取鉴权路由", "查看路由定义"). Never write long sentences.'),
       path: z.string().describe('Relative or absolute file path to read'),
       offset: z.number().optional().default(1).describe('1-based starting line number (default: 1)'),
       limit: z.number().optional().default(200).describe('Maximum number of lines to read (default: 200)')
@@ -64,7 +64,7 @@ export function createWriteFileTool(
       description: z
         .string()
         .optional()
-        .describe('Brief natural-language description of why you are writing this file (e.g. "Update router handlers", "Add pairing token schema", "更新配对逻辑")'),
+        .describe('Extremely brief 3-6 word / under 12 character intent (e.g. "Update router", "更新配对逻辑", "写入新工具"). Never write long sentences.'),
       path: z.string().describe('Relative or absolute file path to write to'),
       content: z.string().describe('Text content to write to the file'),
       then_run: z
