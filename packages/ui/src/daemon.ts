@@ -1344,24 +1344,49 @@ export function normalizeTag(tag: string | undefined): string | undefined {
  * ships the asset for this architecture.
  */
 async function fetchLatestVersion(assetName: string): Promise<string | undefined> {
-  const direct = await fetchWithTimeout(
-    `https://api.github.com/repos/${REPO_SLUG}/releases/latest`,
-    'application/vnd.github+json'
-  );
-  if (direct.ok) {
-    const release = (await direct.json()) as GithubRelease;
-    return normalizeTag(release.tag_name);
+  try {
+    const direct = await fetchWithTimeout(
+      `https://api.github.com/repos/${REPO_SLUG}/releases/latest`,
+      'application/vnd.github+json'
+    );
+    if (direct.ok) {
+      const release = (await direct.json()) as GithubRelease;
+      return normalizeTag(release.tag_name);
+    }
+    if (direct.status === 404) {
+      const list = await fetchWithTimeout(
+        `https://api.github.com/repos/${REPO_SLUG}/releases?per_page=20`,
+        'application/vnd.github+json'
+      );
+      if (list.ok) {
+        const releases = (await list.json()) as GithubRelease[];
+        const match = releases.find((release) => release.assets?.some((asset) => asset.name === assetName));
+        return normalizeTag(match?.tag_name);
+      }
+    }
+  } catch {
+    // API failed or rate-limited; fall through to redirect probe below
   }
-  if (direct.status !== 404) throw new Error(`GitHub API responded ${direct.status}`);
 
-  const list = await fetchWithTimeout(
-    `https://api.github.com/repos/${REPO_SLUG}/releases?per_page=20`,
-    'application/vnd.github+json'
-  );
-  if (!list.ok) throw new Error(`GitHub API responded ${list.status}`);
-  const releases = (await list.json()) as GithubRelease[];
-  const match = releases.find((release) => release.assets?.some((asset) => asset.name === assetName));
-  return normalizeTag(match?.tag_name);
+  // Fallback for API rate limits (e.g. 403 on shared VPS IP):
+  // GitHub's HTML releases/latest endpoint 302 redirects to /releases/tag/vX.Y.Z
+  // with no API rate limit.
+  try {
+    const redirectRes = await fetch(`https://github.com/${REPO_SLUG}/releases/latest`, {
+      method: 'HEAD',
+      redirect: 'manual',
+      headers: { 'User-Agent': 'superiu-server-updater' },
+      signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS)
+    });
+    const location = redirectRes.headers.get('location');
+    if (location) {
+      const tag = location.split('/').pop();
+      if (tag) return normalizeTag(tag);
+    }
+  } catch {
+    // Both attempts failed
+  }
+  return undefined;
 }
 
 /** Download `url` to `destination`, refusing to leave a partial file behind. */

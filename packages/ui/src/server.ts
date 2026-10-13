@@ -954,7 +954,7 @@ function runnerOptions(sessionReference?: string, historyDbPath?: string, newSes
   const auxBase = toolModelInfo.model || settings.modelName;
   const effectiveModel: Record<ModelRole, string> = {
     main: settings.modelName,
-    review: settings.reviewModelName,
+    review: settings.reviewModelName || process.env.OPENAI_REVIEW_MODEL_NAME || auxBase,
     memory: settings.memoryModelName || process.env.OPENAI_MEMORY_MODEL_NAME || auxBase,
     title: settings.titleModelName || process.env.OPENAI_TITLE_MODEL_NAME || auxBase
   };
@@ -964,7 +964,8 @@ function runnerOptions(sessionReference?: string, historyDbPath?: string, newSes
     const level = levelFor(model);
     const hasExplicitModel =
       (role === 'title' && Boolean(settings.titleModelName)) ||
-      (role === 'memory' && Boolean(settings.memoryModelName));
+      (role === 'memory' && Boolean(settings.memoryModelName)) ||
+      (role === 'review' && Boolean(effectiveModel[role]));
     const provider = providerForModel(model);
     if (level !== undefined || hasExplicitModel || provider) {
       modelRoutes[role] = {
@@ -987,7 +988,7 @@ function runnerOptions(sessionReference?: string, historyDbPath?: string, newSes
     baseURL: effectiveBaseURL,
     provider: effectiveProvider || undefined,
     modelName: settings.modelName || undefined,
-    reviewModelName: settings.reviewModelName || undefined,
+    reviewModelName: effectiveModel.review || undefined,
     autoReview: settings.autoReview,
     // `''` means derive (env, else core's `medium`). An explicit option wins
     // over `OPENAI_REASONING_EFFORT`, matching how the other settings resolve.
@@ -1231,7 +1232,7 @@ function buildStatus() {
     sessionPersisted: runner.session.materialized,
     messageCount: runner.getMessages().length,
     model: settings.modelName,
-    reviewModel: settings.reviewModelName,
+    reviewModel: settings.reviewModelName || runner.getModelRoutes().review?.model || '',
     autoReview: settings.autoReview,
     // Only what the user configured: the shipped catalog is a suggestion list,
     // and serving it here is what put 12 models in the ⌘J selector of an
@@ -1526,7 +1527,7 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
   if (typeof patch.apiKey === 'string' && patch.apiKey.length > 0) next.apiKey = patch.apiKey.trim();
   if (typeof patch.baseURL === 'string') next.baseURL = patch.baseURL.trim();
   if (typeof patch.modelName === 'string' && patch.modelName.trim()) next.modelName = patch.modelName.trim();
-  if (typeof patch.reviewModelName === 'string' && patch.reviewModelName.trim()) {
+  if (typeof patch.reviewModelName === 'string') {
     next.reviewModelName = patch.reviewModelName.trim();
   }
   if (typeof patch.tinyModelName === 'string') {

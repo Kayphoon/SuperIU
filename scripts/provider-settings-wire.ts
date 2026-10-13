@@ -1012,6 +1012,31 @@ async function runWireTests() {
       );
     });
 
+    await test('review route follows tinyModelName when reviewModelName is empty', async () => {
+      await postJson(`${handle.url}/api/settings`, {
+        activeProviderId: 'alpha',
+        modelName: 'alpha-model',
+        tinyModelName: 'beta-model',
+        reviewModelName: '',
+        providers: [
+          providerEntry('alpha', `${probe.origin}/alpha`, ALPHA_KEY, true, ['alpha-model']),
+          providerEntry('beta', `${probe.origin}/beta`, BETA_KEY, true, ['beta-model'])
+        ]
+      });
+
+      const status = await getJson(`${handle.url}/api/status`);
+      assert(
+        status.reviewModel === 'beta-model',
+        `expected status.reviewModel to follow tinyModelName ('beta-model'), got '${String(status.reviewModel)}'`
+      );
+
+      const view = await getJson(`${handle.url}/api/settings`);
+      assert(
+        view.reviewModelName === '',
+        `expected view.reviewModelName to stay '' so select shows followTiny, got '${String(view.reviewModelName)}'`
+      );
+    });
+
     await test('POST /api/sessions/new and /api/sessions/load maintain model and reasoningEffort continuity', async () => {
       // 1. Set model to o3-mini with reasoning effort via /api/settings
       await postJson(`${handle.url}/api/settings`, {

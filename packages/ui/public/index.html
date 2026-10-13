@@ -9421,7 +9421,7 @@
             latest: res.latest || '',
             hasUpdate: Boolean(res.hasUpdate),
             canUpdate: res.canUpdate !== false,
-            phase: res.hasUpdate ? 'available' : 'idle',
+            phase: res.error && !res.hasUpdate ? 'error' : (res.hasUpdate ? 'available' : 'idle'),
             error: res.error || null
           };
         } catch (err) {
