@@ -7609,23 +7609,45 @@
         }
 
         let lastRow = null;
+        // One activity timeline per turn: consecutive tool/thinking-only assistant
+        // messages fold into a SINGLE group, so a turn that runs several tool
+        // rounds renders one collapsed row instead of one row per round.
+        let card = null;
+        let group = null;
+        const flushTurn = () => {
+          if (group) {
+            group.finish();
+            group = null;
+          }
+          if (card) {
+            transcript.appendChild(card);
+            lastRow = card;
+            card = null;
+          }
+        };
 
         for (const message of messages) {
           if (message.role === 'user') {
+            flushTurn();
             if (message.content) transcript.appendChild(userBubble(message.content));
             continue;
           }
           if (message.role !== 'assistant') continue;
 
-          const card = el('div', 'siu-turn ' + enterClass());
-          card.dataset.role = 'content';
-
           const calls = message.toolCalls || [];
           const reasoning = message.reasoning || message.thought;
+
           if (calls.length || reasoning) {
             // Tool execution and reasoning precede the answer, so the folded
             // summary sits above the bubble rather than below it.
-            const group = toolGroup();
+            if (!card) {
+              card = el('div', 'siu-turn ' + enterClass());
+              card.dataset.role = 'content';
+            }
+            if (!group) {
+              group = toolGroup();
+              card.appendChild(group.details);
+            }
             if (reasoning) {
               group.addThinking(reasoning, message.thinkingDurationMs || message.reasoningDurationMs || 1000);
             }
@@ -7641,20 +7663,26 @@
               }
               group.add(tool, call.name);
             }
-            group.finish();
-            card.appendChild(group.details);
           }
 
           if (message.content) {
+            if (!card) {
+              card = el('div', 'siu-turn ' + enterClass());
+              card.dataset.role = 'content';
+            }
             const bubble = el('div', 'siu-md siu-bubble siu-bubble--assistant');
             bubble.innerHTML = renderMarkdown(message.content);
             attachCopy(bubble, () => message.content);
             card.appendChild(bubble);
+            // Visible assistant text closes the current activity timeline, so a
+            // later tool round starts its own row rather than merging through it.
+            if (group) {
+              group.finish();
+              group = null;
+            }
           }
-
-          transcript.appendChild(card);
-          lastRow = card;
         }
+        flushTurn();
 
         // Restored history reads as a summary: only the final message stays open.
         collapseAllButLast(lastRow);
@@ -8058,19 +8086,25 @@
           // on the floor, so `closeBubble` can never reach it again.
           closeThinking();
           closeBubble();
-          group = stepGroup(step, stepPhase);
-          turn.appendChild(group.details);
+          // Consecutive tool-only steps share ONE activity timeline: a fresh step
+          // row is only started once the previous step produced visible text, so
+          // a turn with several tool rounds folds into a single summary row.
+          const previousHadText = !!(group && group.body.querySelector('.siu-md'));
+          if (!group || previousHadText) {
+            group = stepGroup(step, stepPhase);
+            turn.appendChild(group.details);
+            toolCount = 0;
+            liveTools = null;
+            group.details.addEventListener('toggle', () => {
+              // Collapsing a step must not leave a live cursor stranded.
+              if (!group.details.open && activeBubble) activeBubble.classList.remove('siu-cursor');
+            });
+          }
           stepText = '';
           activeBubble = null;
           thinking = null;
           thinkingStartedAt = 0;
-          toolCount = 0;
           stepApprovalWait = 0;
-          liveTools = null;
-          group.details.addEventListener('toggle', () => {
-            // Collapsing a step must not leave a live cursor stranded.
-            if (!group.details.open && activeBubble) activeBubble.classList.remove('siu-cursor');
-          });
         };
 
         const ensureBubble = () => {
