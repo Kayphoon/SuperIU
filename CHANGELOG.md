@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.65 (2026-10-13)
+
+### 中文
+
+- **离线横幅与重试按钮迁移至底部悬浮胶囊**：
+  - 将断网重试横幅从顶部（`top: 0`）彻底移出 macOS 隐藏标题栏（`hiddenInset`）可能发生拖拽冲突的顶部危险区域，改为悬浮在底部输入框上方的独立胶囊（`bottom: 92px`，居中对齐）；
+  - 采用现代胶囊圆角设计（`border-radius: 9999px`）、磨砂毛玻璃背景、精致环境光投影与清晰的离线/重连中/恢复各状态色环；
+  - 大幅扩充“立即重试”与“刷新页面”按钮的点击热区（高度 28px、内边距 3px 12px），增加悬浮与按压反馈，确保在桌面端与移动端均能 100% 舒适点击。
+
+### English
+
+- **Relocate offline resilience banner and retry action to bottom floating capsule**:
+  - Moved the network resilience banner out of the top window chrome drag zone (`top: 0`) where macOS Electron hidden titlebars could intercept clicks, relocating it to an ergonomic floating capsule suspended above the bottom composer input well (`bottom: 92px`, centered);
+  - Redesigned with modern floating capsule pill geometry (`border-radius: 9999px`), frosted glass backdrop blur, subtle shadow elevation, and distinct ambient accent rings across offline, degraded, and online states;
+  - Expanded interactive hitboxes for the "Retry" and "Reload" action buttons (28px height, generous 3px 12px padding) with tactile hover and active press feedback, ensuring effortless clickability across both desktop and mobile viewports.
+
 ## v0.2.64 (2026-10-13)
 
 ### 中文
