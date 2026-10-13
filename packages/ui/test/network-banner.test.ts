@@ -38,6 +38,9 @@ describe('Network Resilience Banner & Retry Feedback', () => {
 
     // CSS
     expect(html).toContain('-webkit-app-region: no-drag;');
+    expect(html).toContain('bottom: 92px;');
+    expect(html).toContain('border-radius: 9999px;');
+    expect(html).toContain('z-index: 75;');
     expect(html).toContain('.siu-net-banner-btn:disabled');
     expect(html).toContain('.siu-net-banner-btn[data-state=\'error\']');
     expect(html).toContain('.siu-net-spinner');
