@@ -14,6 +14,26 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.64 (2026-10-13)
+
+### 中文
+
+- **AutoReview 审查模型支持留空自动跟随 Tiny model**：
+  - 修复 `packages/ui/src/server.ts` 中模型路由装配缺陷，使 `reviewModelName` 在留空时与设置提示一致，正确跟随 `Tiny model`（或自动探测的快速模型），并自动绑定对应 Provider 的鉴权凭据与 BaseURL；
+  - 彻底解决未指定审查模型时被核心 Runner 默认回落到 `gpt-4o-mini`、在第三方 API 下报 400/404 错误并触发 Fail-Safe 防御性降级导致所有工具调用均被强制弹窗手动审批的问题；
+  - 修复设置面板保存时无法将审查模型恢复为留空（跟随 Tiny model）的问题；在状态栏中实时反映正在接管的实际审查模型。
+- **更新检测增加 GitHub 403 频率受限无感回落**：
+  - 云服务器 IP 访问 `api.github.com` 触发匿名 403 频控时，自动回落至 GitHub Web 302 重定向探针获取最新 Release 标签，避免因频控静默失败被误判为“已是最新版本”。
+
+### English
+
+- **AutoReview review model auto-follows Tiny model when unset**:
+  - Fix route resolution in `packages/ui/src/server.ts` so `reviewModelName` properly follows `Tiny model` (or auto-detected fast model) when left empty, automatically injecting the provider's credentials and base URL as documented;
+  - Fix issue where an unset review model fell back to `gpt-4o-mini`, which failed with 400/404 on custom providers and triggered the fail-safe security gate, escalating every routine tool call to manual approval cards;
+  - Fix settings save preventing resetting review model back to empty (follow Tiny model); status bar chip now shows the active effective review model.
+- **Graceful fallback on GitHub API 403 rate limits during update checks**:
+  - Automatically fall back to a GitHub Web 302 redirect probe when `api.github.com` rate-limits unauthenticated VPS IPs (HTTP 403), preventing silent check failures from falsely claiming the node is already up to date.
+
 ## v0.2.63 (2026-10-13)
 
 ### 中文
