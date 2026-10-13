@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.63 (2026-10-13)
+
+### 中文
+
+- **同一轮次的工具调用合并为单个活动时间线行**：
+  - 修复同一轮对话内多次工具调用（agent 每个 step 一条 assistant 消息）被渲染成多行独立折叠摘要的问题（例如连续 3 次 `bash` 显示为 3 行「用了 1 个工具」）；
+  - 历史渲染与实时流式渲染均将同一轮内连续的「仅工具/思考、无正文」活动合并为**单个**可折叠活动行，回合结束后折叠为一行摘要（如「用了 3 个工具」），展开后仍可逐条查看每次工具调用；
+  - 中间出现正文文本时按原语义断开时间线，其后的工具调用另起一行，保证实时与历史视图表现一致。
+
+### English
+
+- **Merge a turn's tool calls into a single activity-timeline row**:
+  - Fix multiple tool rounds within one turn (one assistant message per agent step) rendering as several separate collapsed summary rows (e.g. three consecutive `bash` calls shown as three "Used 1 tool" rows);
+  - Both the history render and the live streaming render now fold a turn's consecutive tool/thinking-only activity into a SINGLE collapsible activity row that settles to one summary line (e.g. "Used 3 tools") and still expands to every individual call;
+  - Visible assistant text still splits the timeline so later tool rounds start their own row, keeping the live and restored views consistent.
+
 ## v0.2.62 (2026-10-12)
 
 ### 中文
