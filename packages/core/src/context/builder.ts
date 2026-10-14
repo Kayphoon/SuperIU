@@ -27,17 +27,15 @@ const DEFAULT_ENGINEERING_DIRECTIVES = `# ENGINEERING PRINCIPLES & DIRECTIVES
  * boundary. A single volatile token near the front invalidates the entire cache
  * for every subsequent turn.
  *
- * `<workstation>` embeds a per-turn ISO timestamp, so placing it first (as it
- * once was) forced a 100% cache miss on every step of the unbounded loop. The
- * prompt is therefore assembled static-first:
+ * `<workstation>` omits volatile ISO timestamps (which are recorded in JSONL
+ * session files and retrievable on-demand via tools), allowing the entire
+ * system prompt to remain byte-identical across conversation turns:
  *
- *   1. Invariant directives, then the layered memory files, then the skills
- *      block — content that only changes when a human edits it.
- *   2. Volatile per-turn context (workstation, custom instructions, posture) at
- *      the very end.
+ *   1. Invariant directives, then layered memory files, skills, and the static
+ *      workstation block.
+ *   2. Optional per-turn custom instructions at the very end.
  *
- * The result is a long stable prefix shared by every turn. Do NOT move
- * `<workstation>` or any timestamped block ahead of the static sections.
+ * The result is a 100% stable prefix shared across turns.
  */
 
 export class SystemPromptBuilder {
@@ -74,11 +72,12 @@ export class SystemPromptBuilder {
       soul.trim(),
       user.trim(),
       memory.trim(),
-      skillsXml
+      skillsXml,
+      workstationXml
     ];
 
-    // Volatile tail: rebuilt every turn (workstation carries the ISO timestamp).
-    const volatileSections: string[] = [workstationXml];
+    // Volatile tail: optional per-turn instructions.
+    const volatileSections: string[] = [];
 
     if (this.customInstructions) {
       volatileSections.push(`# ADDITIONAL INSTRUCTIONS\n${this.customInstructions.trim()}`);
