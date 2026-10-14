@@ -387,21 +387,66 @@ export async function checkForUpdates(
   async function fetchLatestRelease(): Promise<GithubLatestRelease | null> {
     const candidates: GithubLatestRelease[] = [];
 
-    const direct = await fetchJson(`https://api.github.com/repos/${repo}/releases/latest`);
-    if (direct.ok) {
-      candidates.push((await direct.json()) as GithubLatestRelease);
-    } else if (direct.status !== 404) {
-      throw new Error(`GitHub API responded ${direct.status}`);
+    try {
+      const direct = await fetchJson(`https://api.github.com/repos/${repo}/releases/latest`);
+      if (direct.ok) {
+        candidates.push((await direct.json()) as GithubLatestRelease);
+      }
+    } catch {
+      // Direct API hit failed or was rate limited
     }
 
     try {
       const list = await fetchJson(`https://api.github.com/repos/${repo}/releases?per_page=30`);
-      if (!list.ok) throw new Error(`GitHub API responded ${list.status}`);
-      const releases = (await list.json()) as GithubLatestRelease[];
-      if (Array.isArray(releases)) candidates.push(...releases);
-    } catch (err) {
-      // The list is the richer source, but a direct hit alone is still usable.
-      if (candidates.length === 0) throw err;
+      if (list.ok) {
+        const releases = (await list.json()) as GithubLatestRelease[];
+        if (Array.isArray(releases)) candidates.push(...releases);
+      }
+    } catch {
+      // List failed
+    }
+
+    if (candidates.length === 0) {
+      // Fallback for API rate limits (e.g. 403 on shared or cloud IP):
+      // GitHub's HTML releases/latest endpoint 302 redirects to /releases/tag/vX.Y.Z
+      try {
+        const redirectRes = await fetch(`https://github.com/${repo}/releases/latest`, {
+          method: 'HEAD',
+          redirect: 'manual',
+          headers: { 'User-Agent': 'SuperIU-Desktop' }
+        });
+        const location = redirectRes.headers.get('location');
+        if (location) {
+          const tag = location.split('/').pop()?.trim();
+          if (tag) {
+            const ver = tag.replace(/^v/i, '');
+            candidates.push({
+              tag_name: tag,
+              name: tag,
+              assets: [
+                {
+                  name: `SuperIU-${ver}-mac-arm64.zip`,
+                  browser_download_url: `https://github.com/${repo}/releases/download/${tag}/SuperIU-${ver}-mac-arm64.zip`
+                },
+                {
+                  name: `SuperIU-${ver}-mac-x64.zip`,
+                  browser_download_url: `https://github.com/${repo}/releases/download/${tag}/SuperIU-${ver}-mac-x64.zip`
+                },
+                {
+                  name: `SuperIU-${ver}-mac-arm64.zip.blockmap`,
+                  browser_download_url: `https://github.com/${repo}/releases/download/${tag}/SuperIU-${ver}-mac-arm64.zip.blockmap`
+                },
+                {
+                  name: `SuperIU-${ver}-mac-x64.zip.blockmap`,
+                  browser_download_url: `https://github.com/${repo}/releases/download/${tag}/SuperIU-${ver}-mac-x64.zip.blockmap`
+                }
+              ]
+            });
+          }
+        }
+      } catch {
+        // Both API and redirect probe failed
+      }
     }
 
     return selectBestRelease(candidates);

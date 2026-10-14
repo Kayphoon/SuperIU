@@ -784,8 +784,9 @@
         0%, 100% { opacity: 1; transform: scale(1); }
         50% { opacity: 0.5; transform: scale(0.85); }
       }
-      .siu-titlebar-update-spinner {
-        animation: siu-spin 1s linear infinite;
+      .siu-titlebar-update-spinner,
+      .siu-spin {
+        animation: siu-spin 0.8s linear infinite;
         flex-shrink: 0;
       }
       @keyframes siu-spin {
@@ -5950,6 +5951,15 @@
                 <p class="siu-prefs-subtitle mt-0.5" data-i18n="settings.about.storage"></p>
               </div>
               <div id="settings-about-update" class="rounded-xl border border-line bg-fill-subtle p-2 flex flex-col gap-2">
+                <div class="flex items-center justify-between px-2 pt-1 pb-0.5">
+                  <span class="text-[12px] font-medium text-secondary" data-i18n="settings.about.updatesTitle"></span>
+                  <button id="settings-update-refresh-btn" type="button" class="siu-btn text-[11.5px] py-1 px-2.5 flex items-center gap-1.5 cursor-pointer">
+                    <svg id="settings-update-refresh-icon" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5">
+                      <path d="M2.5 8a5.5 5.5 0 0 1 9.3-3.9L13.5 6M13.5 2v4h-4M13.5 8a5.5 5.5 0 0 1-9.3 3.9L2.5 10M2.5 14v-4h4" stroke-linecap="round" stroke-linejoin="round" />
+                    </svg>
+                    <span data-i18n="settings.about.forceRefresh"></span>
+                  </button>
+                </div>
                 <!-- Local desktop client node -->
                 <div id="settings-update-local-wrap" class="siu-update-node">
                   <div class="siu-update-node-main">
@@ -9715,8 +9725,19 @@
               default:
                 statusEl.textContent = tr('settings.about.upToDate');
                 setDotTone(localDot, 'ok');
-                actionBtn.classList.add('hidden');
-                actionBtn.hidden = true;
+                actionBtn.textContent = tr('settings.about.checkUpdate');
+                actionBtn.className = 'siu-btn text-[12px] py-1 px-3 shrink-0';
+                actionBtn.classList.remove('hidden');
+                actionBtn.classList.remove('siu-btn--primary');
+                actionBtn.hidden = false;
+                actionBtn.disabled = false;
+                actionBtn.onclick = () => {
+                  actionBtn.disabled = true;
+                  lastAboutCheckTs = 0;
+                  void window.superiuDesktop?.checkForUpdate?.({ interactive: true }).finally(() => {
+                    actionBtn.disabled = false;
+                  });
+                };
                 break;
             }
           }
@@ -9809,8 +9830,19 @@
               default:
                 remoteStatus.textContent = tr('settings.about.upToDate');
                 setDotTone(remoteDot, 'ok');
-                remoteActionBtn.classList.add('hidden');
-                remoteActionBtn.hidden = true;
+                remoteActionBtn.textContent = tr('settings.about.checkUpdate');
+                remoteActionBtn.className = 'siu-btn text-[12px] py-1 px-3 shrink-0';
+                remoteActionBtn.classList.remove('hidden');
+                remoteActionBtn.classList.remove('siu-btn--primary');
+                remoteActionBtn.hidden = false;
+                remoteActionBtn.disabled = false;
+                remoteActionBtn.onclick = () => {
+                  remoteActionBtn.disabled = true;
+                  lastAboutCheckTs = 0;
+                  void checkRemoteUpdate().finally(() => {
+                    remoteActionBtn.disabled = false;
+                  });
+                };
                 break;
             }
           }
@@ -9921,6 +9953,35 @@
           }
         } else if (dualWrap) {
           dualWrap.classList.add('hidden');
+        }
+
+        const refreshBtn = $('settings-update-refresh-btn');
+        if (refreshBtn) {
+          const isBusy = dualChecking || remoteUpdateChecking;
+          refreshBtn.disabled = isBusy;
+          const refreshIcon = $('settings-update-refresh-icon');
+          if (refreshIcon) {
+            if (isBusy) refreshIcon.classList.add('siu-spin');
+            else refreshIcon.classList.remove('siu-spin');
+          }
+          refreshBtn.onclick = async () => {
+            if (dualChecking || remoteUpdateChecking) return;
+            lastAboutCheckTs = 0;
+            if (refreshIcon) refreshIcon.classList.add('siu-spin');
+            refreshBtn.disabled = true;
+            try {
+              if (isDualMode) {
+                await checkBothUpdates({ interactive: true });
+              } else if (isRemote) {
+                await checkRemoteUpdate();
+              } else if (isDesktop && window.superiuDesktop?.checkForUpdate) {
+                await window.superiuDesktop.checkForUpdate({ interactive: true });
+              }
+            } finally {
+              if (refreshIcon) refreshIcon.classList.remove('siu-spin');
+              refreshBtn.disabled = false;
+            }
+          };
         }
       }
 
