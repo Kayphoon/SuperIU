@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import type { ToolCallItem } from '../context/types.js';
 import type { ReviewResult, RiskLevel, ToolReviewContext } from './types.js';
 
 /** Files whose contents are credentials or system secrets. */
@@ -40,6 +41,18 @@ const UNRECOVERABLE_TARGETS: readonly string[] = [
 ];
 
 /**
+ * Benign shell redirects that merely discard stdout or stderr (e.g. `2>/dev/null`, `>/dev/null`, `2>&1`).
+ * Stripping these allows inspection commands to be recognized as safe read-only operations
+ * rather than falsely escalating as complex compound pipelines.
+ */
+const BENIGN_DISCARD_REDIRECT = /\s*(?:2>\s*\/dev\/null|>\s*\/dev\/null|2>&1|1>&2)\s*/g;
+
+/** Strip benign discard redirects for syntax analysis. */
+export function stripBenignRedirects(command: string): string {
+  return command.replace(BENIGN_DISCARD_REDIRECT, ' ').trim();
+}
+
+/**
  * Read-only command shapes that are safe to approve without a model round-trip.
  * Anything carrying shell metacharacters (redirect, pipe, chain, substitution)
  * falls out of the fast path because it can mutate state.
@@ -48,9 +61,15 @@ const SAFE_COMMAND_PATTERNS: readonly RegExp[] = [
   /^git\s+(?:status|diff|log|branch)\b/,
   /^ls\b/,
   /^pwd\b/,
-  /^node\s+-v\b/,
-  /^pnpm\s+-v\b/,
-  /^npm\s+-v\b/,
+  /^du\b/,
+  /^df\b/,
+  /^which\b/,
+  /^whoami\b/,
+  /^uname\b/,
+  /^date\b/,
+  /^uptime\b/,
+  /^ps\b/,
+  /^(?:node|pnpm|npm|bun|deno|python3?|ruby|perl|php|git)\s+(?:-v|--version)\b/,
   /^cat\s+/,
   /^head\s+/,
   /^tail\s+/,
@@ -96,8 +115,76 @@ const HOSTILE_COMMAND_PATTERNS: ReadonlyArray<{ pattern: RegExp; reason: string 
   }
 ];
 
-/** Script interpreters whose ad-hoc invocation runs arbitrary code. */
-const SCRIPT_INTERPRETERS = /\b(?:node|bun|deno|python3?|ruby|perl|php|bash|sh|zsh|fish|tsx|ts-node)\b/;
+const INTERPRETER_NAMES = new Set([
+  'node',
+  'bun',
+  'deno',
+  'python',
+  'python3',
+  'ruby',
+  'perl',
+  'php',
+  'bash',
+  'sh',
+  'zsh',
+  'fish',
+  'tsx',
+  'ts-node'
+]);
+
+/**
+ * Checks whether the command line invokes an ad-hoc script interpreter (e.g. `python3 script.py`, `node app.js`, `sh -c ...`, `./build.sh`).
+ * Inspects command token positions rather than raw substrings, avoiding false positives on command options like `du -sh` or `git status --short`.
+ */
+export function invokesScriptInterpreter(command: string): boolean {
+  const clean = stripBenignRedirects(command);
+  // Split along shell pipelines or command chains
+  const subcmds = clean.split(/[;&|]+/);
+  for (const rawSub of subcmds) {
+    const sub = rawSub.trim();
+    if (!sub) continue;
+
+    // Tokenize words, preserving quotes
+    const tokens = sub.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [];
+    let cmdToken: string | null = null;
+    let isVersionProbe = false;
+
+    for (let i = 0; i < tokens.length; i++) {
+      const raw = tokens[i];
+      const unquoted = raw.replace(/^['"]|['"]$/g, '');
+      // Skip environment variable assignments like FOO=bar
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(unquoted)) {
+        continue;
+      }
+      // Skip command wrappers like sudo, env, nohup, time, exec
+      if (/^(?:sudo|env|nohup|time|exec)$/.test(unquoted)) {
+        continue;
+      }
+      cmdToken = unquoted;
+      const nextToken = tokens[i + 1]?.replace(/^['"]|['"]$/g, '');
+      if (nextToken === '-v' || nextToken === '--version' || nextToken === '-V') {
+        isVersionProbe = true;
+      }
+      break;
+    }
+
+    if (!cmdToken || isVersionProbe) {
+      continue;
+    }
+
+    // Direct script executable path like `./script.sh` or `../run`
+    if (/^\.\.?\/\S+/.test(cmdToken)) {
+      return true;
+    }
+
+    const baseName = cmdToken.split('/').pop() ?? '';
+    if (INTERPRETER_NAMES.has(baseName)) {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 /** Package-manager verbs that mutate the dependency tree. */
 const DEPENDENCY_MUTATION =
@@ -200,14 +287,14 @@ function matchHostileCommand(command: string): string | null {
 
 /** Read-only single commands that need no model arbitration. */
 function isSafeReadOnlyCommand(command: string): boolean {
-  const trimmed = command.trim();
-  if (!trimmed || SHELL_METACHARACTERS.test(trimmed)) {
+  const stripped = stripBenignRedirects(command);
+  if (!stripped || SHELL_METACHARACTERS.test(stripped)) {
     return false;
   }
-  if (GIT_BRANCH_MUTATION.test(trimmed) || referencesSensitivePath(trimmed)) {
+  if (GIT_BRANCH_MUTATION.test(stripped) || referencesSensitivePath(stripped)) {
     return false;
   }
-  return SAFE_COMMAND_PATTERNS.some((pattern) => pattern.test(trimmed));
+  return SAFE_COMMAND_PATTERNS.some((pattern) => pattern.test(stripped));
 }
 
 /** Redirects such as `echo x > /etc/hosts` write outside the workspace. */
@@ -265,10 +352,7 @@ function matchEscalationCommand(
     return { reason: 'Mutates the dependency tree', riskLevel: 'medium' };
   }
 
-  // Ad-hoc interpreter invocation (`node app.js`, `sh -c ...`, `./build`) runs
-  // arbitrary code. Version probes stay on the safe fast path above.
-  const isVersionProbe = /^(?:node|bun|deno|python3?|ruby|perl|php)\s+(?:-v|--version)\s*$/.test(trimmed);
-  if (!isVersionProbe && (SCRIPT_INTERPRETERS.test(trimmed) || /^\.\/\S/.test(trimmed))) {
+  if (invokesScriptInterpreter(trimmed)) {
     return { reason: 'Executes a script or inline program', riskLevel: 'medium' };
   }
 
@@ -281,7 +365,8 @@ function matchEscalationCommand(
   // benign-looking first token. It never earns the read-only fast path above, and
   // it must not fall through to the lenient mode default either — an unclassified
   // mutation behind `&&` is exactly the shape a human must see.
-  if (SHELL_METACHARACTERS.test(trimmed)) {
+  const nonRedirect = stripBenignRedirects(trimmed);
+  if (SHELL_METACHARACTERS.test(nonRedirect)) {
     return { reason: 'Command chains, backgrounds, or redirects multiple shell operations', riskLevel: 'high' };
   }
 
@@ -368,4 +453,115 @@ export function classifyFallbackRisk(ctx: ToolReviewContext): RiskLevel {
     return 'low';
   }
   return 'medium';
+}
+
+const DESTRUCTIVE_BASH_TOOLS = new Set([
+  'rm',
+  'shred',
+  'wipe',
+  'dd',
+  'mkfs',
+  'fdisk',
+  'parted'
+]);
+
+/**
+ * Derives a human-readable and predictable permission pattern for a tool call.
+ * For benign development commands (test, build, git diff, curl, etc.), uses command/subcommand prefix matching (e.g. `pnpm test *`).
+ * For destructive commands (rm, git reset/clean), uses exact command matching to prevent privilege leakage.
+ */
+export function deriveSuggestedPattern(toolCall: ToolCallItem): string | undefined {
+  if (toolCall.name === 'bash') {
+    const rawCmd = typeof toolCall.args?.command === 'string' ? toolCall.args.command : '';
+    const command = stripBenignRedirects(rawCmd).trim();
+    if (!command) return undefined;
+
+    // Compound commands (containing &&, ;, ||) are safer to match as exact command
+    if (/[;&|]/.test(command)) {
+      return command;
+    }
+
+    const tokens = command.match(/(?:[^\s"']+|"[^"]*"|'[^']*')+/g) ?? [];
+    if (tokens.length === 0) return undefined;
+
+    const first = tokens[0]?.replace(/^['"]|['"]$/g, '') ?? '';
+    const baseFirst = first.split('/').pop() ?? '';
+
+    // Destructive commands: exact match
+    if (DESTRUCTIVE_BASH_TOOLS.has(baseFirst)) {
+      return command;
+    }
+
+    if (baseFirst === 'git') {
+      const sub = tokens[1]?.replace(/^['"]|['"]$/g, '');
+      if (!sub) return 'git *';
+      if (['clean', 'reset', 'restore', 'branch'].includes(sub)) {
+        // High-impact git actions: match exact command
+        return command;
+      }
+      return `git ${sub} *`;
+    }
+
+    // Package managers and build tools
+    if (['pnpm', 'npm', 'yarn', 'bun', 'cargo', 'go', 'make', 'gradle', 'mvn'].includes(baseFirst)) {
+      const sub1 = tokens[1]?.replace(/^['"]|['"]$/g, '');
+      if (!sub1) return `${baseFirst} *`;
+      if (sub1 === 'run' && tokens[2]) {
+        const sub2 = tokens[2].replace(/^['"]|['"]$/g, '');
+        return `${baseFirst} run ${sub2} *`;
+      }
+      return `${baseFirst} ${sub1} *`;
+    }
+
+    // Common CLIs: prefix wildcard
+    return `${baseFirst} *`;
+  }
+
+  if (toolCall.name === 'write_file') {
+    const rawPath = typeof toolCall.args?.path === 'string' ? toolCall.args.path.replace(/\\/g, '/') : '';
+    if (!rawPath) return undefined;
+    const parts = rawPath.split('/').filter(Boolean);
+    if (parts.length > 1) {
+      // Return directory wildcard, e.g. "packages/core/src/**" or "src/**"
+      const dir = parts.slice(0, -1).join('/');
+      return `${dir}/**`;
+    }
+    return rawPath;
+  }
+
+  return toolCall.name;
+}
+
+/**
+ * Checks if a given tool call matches a stored permission pattern.
+ */
+export function matchesPattern(pattern: string, tool: string, toolCall: ToolCallItem): boolean {
+  if (tool !== toolCall.name) {
+    return false;
+  }
+
+  if (tool === 'bash') {
+    const rawCmd = typeof toolCall.args?.command === 'string' ? toolCall.args.command : '';
+    const command = stripBenignRedirects(rawCmd).trim();
+    if (!command) return false;
+
+    if (pattern.endsWith(' *')) {
+      const prefix = pattern.slice(0, -2);
+      return command === prefix || command.startsWith(prefix + ' ');
+    }
+    return command === pattern;
+  }
+
+  if (tool === 'write_file') {
+    const rawPath = typeof toolCall.args?.path === 'string' ? toolCall.args.path.replace(/\\/g, '/') : '';
+    if (!rawPath) return false;
+
+    if (pattern.endsWith('/**')) {
+      const prefix = pattern.slice(0, -3);
+      return rawPath === prefix || rawPath.startsWith(prefix + '/');
+    }
+    return rawPath === pattern;
+  }
+
+  return pattern === toolCall.name;
 }

@@ -26,7 +26,7 @@ import {
   type SessionDescriptor,
   type ToolCallItem
 } from '@agent/core';
-import type { ReviewResult } from '@agent/core';
+import type { PermissionVerdict, ReviewResult } from '@agent/core';
 import { AuthLayer, authModeFromEnv } from './auth/middleware.js';
 import { GatewayServer, DeviceRegistry, EventHub } from './gateway/index.js';
 import type { GatewayRunner } from './gateway/index.js';
@@ -799,7 +799,7 @@ function maskApiKey(key: string): string {
  * answers; every entry is force-resolved when the stream dies so a turn can
  * never hang on a disconnected client.
  */
-type ApprovalResolver = (approved: boolean) => void;
+type ApprovalResolver = (verdict: PermissionVerdict) => void;
 const pendingApprovals = new Map<string, ApprovalResolver>();
 
 /** Wall-clock time each approval spent waiting on a human, queued per tool name. */
@@ -1013,8 +1013,8 @@ function runnerOptions(sessionReference?: string, historyDbPath?: string, newSes
     // The MCP config path follows the runner across settings rebuilds, so a
     // test-pinned (or disabled) path survives `applySettings`.
     mcpConfigPath: activeMcpConfigPath,
-    permissionGate: async (toolCall: ToolCallItem, review: ReviewResult): Promise<boolean> =>
-      new Promise<boolean>((resolve) => {
+    permissionGate: async (toolCall: ToolCallItem, review: ReviewResult): Promise<PermissionVerdict> =>
+      new Promise<PermissionVerdict>((resolve) => {
         pendingApprovals.set(toolCall.id, resolve);
         approvalStartedAt.set(toolCall.id, Date.now());
         approvalToolNames.set(toolCall.id, toolCall.name);
@@ -1025,7 +1025,8 @@ function runnerOptions(sessionReference?: string, historyDbPath?: string, newSes
           args: toolCall.args,
           riskLevel: review.riskLevel,
           reason: review.reason,
-          reviewedBy: review.reviewedBy
+          reviewedBy: review.reviewedBy,
+          suggestedPattern: review.suggestedPattern
         });
       })
   };
@@ -2151,9 +2152,10 @@ async function handleApi(
 
     pendingApprovals.delete(toolCallId);
     const approved = body.approved === true;
+    const remember = body.remember === 'session' ? 'session' : undefined;
     recordApprovalWait(toolCallId);
-    resolve(approved);
-    sendJson(res, 200, { ok: true, toolCallId, approved });
+    resolve({ approved, remember });
+    sendJson(res, 200, { ok: true, toolCallId, approved, remember });
     return true;
   }
 

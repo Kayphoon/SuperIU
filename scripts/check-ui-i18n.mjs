@@ -411,7 +411,7 @@ const ENUM_TOKENS = new Set([
   'clear', 'complete', 'completed', 'content', 'critical', 'custom', 'danger', 'dark', 'degraded', 'denied', 'details',
   'done', 'en', 'error', 'focus', 'general', 'granted', 'high', 'idle', 'info', 'light', 'low', 'main',
   'medium', 'message', 'more', 'new', 'notify', 'off', 'offline', 'ok', 'on', 'online', 'pairing', 'palette', 'pending', 'prompt',
-  'providers', 'quit', 'reasoning', 'rejected', 'review', 'role', 'running', 'sessions', 'settings',
+  'providers', 'quit', 'reasoning', 'rejected', 'review', 'role', 'running', 'session', 'sessions', 'settings',
   'stale', 'status', 'step', 'streaming', 'summary', 'system', 'thinking', 'toast', 'tool', 'tool_call',
   'tool_calling', 'tool_result', 'transcript', 'unset', 'user', 'warn', 'zh'
 ]);

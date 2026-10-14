@@ -276,7 +276,19 @@ export class AgentLoopEngine {
 
           let approved = false;
           try {
-            approved = await gate(toolCall, review);
+            const verdict = await gate(toolCall, review);
+            if (typeof verdict === 'boolean') {
+              approved = verdict;
+            } else if (verdict && typeof verdict === 'object') {
+              approved = verdict.approved === true;
+              if (approved && verdict.remember === 'session') {
+                const pattern = review.suggestedPattern;
+                const activeReviewer = this.reviewer;
+                if (pattern && typeof activeReviewer?.rememberSessionRule === 'function') {
+                  activeReviewer.rememberSessionRule(toolCall.name, pattern);
+                }
+              }
+            }
           } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
             const gateError =

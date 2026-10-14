@@ -1,6 +1,7 @@
 import type { CoreMessage } from 'ai';
+import type { ToolCallItem } from '../context/types.js';
 import type { StepModelCaller } from '../loop/types.js';
-import { checkRules, classifyFallbackRisk } from './rules.js';
+import { checkRules, classifyFallbackRisk, deriveSuggestedPattern, matchesPattern } from './rules.js';
 import type {
   AutoReviewMode,
   IAutoReviewer,
@@ -134,6 +135,7 @@ export class AutoReviewer implements IAutoReviewer {
   public readonly rulesOnly: boolean;
   public modelCaller?: StepModelCaller;
   private workspaceDir: string;
+  private sessionRules = new Map<string, Set<string>>();
 
   constructor(options: AutoReviewerOptions = {}) {
     this.mode = options.mode ?? 'lenient';
@@ -142,19 +144,66 @@ export class AutoReviewer implements IAutoReviewer {
     this.workspaceDir = options.workspaceDir ?? process.cwd();
   }
 
+  /**
+   * Remember an allowed pattern for the current session.
+   * Subsequent matching tool calls will skip prompt approval and model review.
+   */
+  public rememberSessionRule(tool: string, pattern: string): void {
+    let set = this.sessionRules.get(tool);
+    if (!set) {
+      set = new Set();
+      this.sessionRules.set(tool, set);
+    }
+    set.add(pattern);
+  }
+
+  /** Check if a tool call matches any remembered session rule. */
+  public matchesSessionRule(toolCall: ToolCallItem): boolean {
+    const set = this.sessionRules.get(toolCall.name);
+    if (!set || set.size === 0) return false;
+    for (const pattern of set) {
+      if (matchesPattern(pattern, toolCall.name, toolCall)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Clear all session-level permissions (e.g. on new session or load session). */
+  public clearSessionRules(): void {
+    this.sessionRules.clear();
+  }
+
   public async review(ctx: ToolReviewContext): Promise<ReviewResult> {
     const scoped: ToolReviewContext = {
       ...ctx,
       workspaceDir: ctx.workspaceDir || this.workspaceDir
     };
 
+    // Session-level allowlist (Always Allow in Session) hits with zero delay
+    if (this.matchesSessionRule(scoped.toolCall)) {
+      return {
+        decision: 'allow',
+        riskLevel: 'low',
+        reason: 'Allowed by session permission rule',
+        reviewedBy: 'rule'
+      };
+    }
+
     const ruleResult = checkRules(scoped);
     if (ruleResult) {
+      if (ruleResult.decision === 'ask_user') {
+        ruleResult.suggestedPattern = deriveSuggestedPattern(scoped.toolCall);
+      }
       return ruleResult;
     }
 
     if (this.rulesOnly || !this.modelCaller) {
-      return fallbackResult(scoped, this.mode);
+      const fallback = fallbackResult(scoped, this.mode);
+      if (fallback.decision === 'ask_user') {
+        fallback.suggestedPattern = deriveSuggestedPattern(scoped.toolCall);
+      }
+      return fallback;
     }
 
     const messages: CoreMessage[] = [{ role: 'user', content: buildReviewPrompt(scoped) }];
@@ -170,7 +219,7 @@ export class AutoReviewer implements IAutoReviewer {
       const decision = parsed?.decision;
       if (decision && VALID_DECISIONS.includes(decision)) {
         const riskLevel = parsed?.riskLevel;
-        return {
+        const result: ReviewResult = {
           decision,
           riskLevel:
             riskLevel && VALID_RISK_LEVELS.includes(riskLevel)
@@ -179,6 +228,10 @@ export class AutoReviewer implements IAutoReviewer {
           reason: parsed?.reason || `Review model verdict: ${decision}`,
           reviewedBy: 'model'
         };
+        if (decision === 'ask_user') {
+          result.suggestedPattern = deriveSuggestedPattern(scoped.toolCall);
+        }
+        return result;
       }
     } catch (err: unknown) {
       // Fail-safe, never fail-open: a review-model fault escalates to the human
@@ -188,7 +241,8 @@ export class AutoReviewer implements IAutoReviewer {
         decision: 'ask_user',
         riskLevel: 'high',
         reason: `Review model unavailable (${message}); escalating to user`,
-        reviewedBy: 'model'
+        reviewedBy: 'model',
+        suggestedPattern: deriveSuggestedPattern(scoped.toolCall)
       };
     }
 
@@ -197,7 +251,8 @@ export class AutoReviewer implements IAutoReviewer {
       decision: 'ask_user',
       riskLevel: classifyFallbackRisk(scoped),
       reason: 'Review model returned no usable verdict; escalating to user',
-      reviewedBy: 'model'
+      reviewedBy: 'model',
+      suggestedPattern: deriveSuggestedPattern(scoped.toolCall)
     };
   }
 }

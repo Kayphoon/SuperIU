@@ -947,6 +947,24 @@ async function runSmokeTests() {
     });
     assert(bashReview.decision === 'allow', `bash echo decision ${bashReview.decision}`);
     assert(bashReview.reviewedBy === 'rule', `bash echo reviewer ${bashReview.reviewedBy}`);
+
+    // Inspection commands including options like -sh and benign redirects 2>/dev/null stay on fast path
+    for (const cmd of [
+      'du -sh /tmp',
+      'du -sh /var/log 2>/dev/null',
+      'df -h',
+      'which node',
+      'whoami',
+      'uname -a'
+    ]) {
+      const inspectReview = await reviewer.review({
+        toolCall: { id: 'inspect', name: 'bash', args: { command: cmd } },
+        workspaceDir: reviewWorkspace
+      });
+      assert(inspectReview.decision === 'allow', `command '${cmd}' must be allowed on fast path (got ${inspectReview.decision})`);
+      assert(inspectReview.riskLevel === 'safe', `command '${cmd}' risk must be safe (got ${inspectReview.riskLevel})`);
+      assert(inspectReview.reviewedBy === 'rule', `command '${cmd}' reviewer must be rule (got ${inspectReview.reviewedBy})`);
+    }
   });
 
   await test('sensitive reads escalate, and without a gate the loop reports pending approval', async () => {
@@ -1209,6 +1227,70 @@ async function runSmokeTests() {
       .find((msg) => msg.role === 'tool')?.toolResults?.[0];
     assert(toolResult?.isError === false, 'approved result must not be flagged as error');
     assert(toolResult?.result === 'cleanup done', `approved result ${toolResult?.result}`);
+  });
+
+  await test('permissionGate with remember: session saves session rule and subsequent calls bypass prompt', async () => {
+    const rememberWorkspace = path.join(workspace, 'review-gate-remember');
+    await fs.mkdir(rememberWorkspace, { recursive: true });
+    const session = SessionManager.create({ workspaceDir: workspace, cwd: rememberWorkspace });
+
+    let executions = 0;
+    const tools = {
+      bash: {
+        description: 'bash',
+        parameters: {},
+        execute: async () => {
+          executions++;
+          return 'deps added';
+        }
+      }
+    };
+
+    let gatePromptCount = 0;
+    const reviewer = new AutoReviewer({ rulesOnly: true, workspaceDir: rememberWorkspace });
+    const stepCaller1 = new MockStepAdapter([
+      { text: 'installing', toolCalls: [{ id: 't1', name: 'bash', args: { command: 'pnpm add lodash' } }] },
+      { text: 'done 1' }
+    ]);
+    const engine = new AgentLoopEngine({
+      session,
+      assembler: new ContextAssembler({ session, workspaceDir: rememberWorkspace }),
+      tools,
+      reviewer,
+      stepCaller: stepCaller1,
+      permissionGate: async (_toolCall, review) => {
+        gatePromptCount++;
+        assert(review.suggestedPattern === 'pnpm add *', `suggested pattern should be pnpm add *, got ${review.suggestedPattern}`);
+        return { approved: true, remember: 'session' };
+      },
+      workspaceDir: rememberWorkspace
+    });
+
+    // Step 1: run pnpm add lodash -> triggers gate prompt and remembers "pnpm add *"
+    await engine.run(undefined, {});
+    assert(gatePromptCount === 1, `gate must be prompted on first call, got ${gatePromptCount}`);
+    assert(executions === 1, `first execution must run, ran ${executions}`);
+
+    // Step 2: run pnpm add express (different arguments!) -> matches session rule "pnpm add *" -> NO gate prompt!
+    const stepCaller2 = new MockStepAdapter([
+      { text: 'installing 2', toolCalls: [{ id: 't2', name: 'bash', args: { command: 'pnpm add express' } }] },
+      { text: 'done 2' }
+    ]);
+    engine.stepCaller = stepCaller2;
+    await engine.run(undefined, {});
+    assert(gatePromptCount === 1, `gate must NOT be prompted again for matching pnpm add express, still ${gatePromptCount}`);
+    assert(executions === 2, `second execution must run automatically, ran ${executions}`);
+
+    // Step 3: clearing session rules resets the bypass
+    reviewer.clearSessionRules();
+    const stepCaller3 = new MockStepAdapter([
+      { text: 'installing 3', toolCalls: [{ id: 't3', name: 'bash', args: { command: 'pnpm add chalk' } }] },
+      { text: 'done 3' }
+    ]);
+    engine.stepCaller = stepCaller3;
+    await engine.run(undefined, {});
+    assert(gatePromptCount === 2, `gate must be prompted again after clearSessionRules, got ${gatePromptCount}`);
+    assert(executions === 3, `third execution must run, ran ${executions}`);
   });
 
   await test('permissionGate rejection records the denial and the agent continues', async () => {

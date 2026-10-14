@@ -787,6 +787,7 @@ export class AgentRunner {
     this.assembler.session = session;
     this.engine.session = session;
     this.engine.latestUsage = undefined;
+    this.reviewer?.clearSessionRules?.();
   }
 
   /** Switch to another session by file path, file name, session id, or id prefix. */

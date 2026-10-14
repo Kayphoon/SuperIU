@@ -1,7 +1,7 @@
 import * as readline from 'node:readline/promises';
 import { stdin as input, stdout as output } from 'node:process';
 import pc from 'picocolors';
-import { AgentRunner, resolveMemoryDir, type PermissionGate } from '@agent/core';
+import { AgentRunner, resolveMemoryDir, type PermissionGate, type PermissionVerdict } from '@agent/core';
 import { resolveLanguage, t } from './language.js';
 import { redactSecrets } from './redact.js';
 
@@ -60,15 +60,18 @@ export async function startCli() {
     );
     output.write(`  ${pc.dim(tr('cli.approval.reason'))} ${review.reason}\n`);
     output.write(`  ${pc.dim(tr('cli.approval.args'))} ${JSON.stringify(toolCall.args)}\n`);
+    if (review.suggestedPattern) {
+      output.write(`  ${pc.dim(tr('cli.approval.suggestedPattern'))} ${pc.cyan(review.suggestedPattern)}\n`);
+    }
 
-    return new Promise<boolean>((resolve) => {
+    return new Promise<PermissionVerdict>((resolve) => {
       let settled = false;
 
-      const finish = (approved: boolean): void => {
+      const finish = (verdict: PermissionVerdict): void => {
         if (settled) return;
         settled = true;
         cancelPendingApprovals.delete(cancel);
-        resolve(approved);
+        resolve(verdict);
       };
 
       const cancel = (): void => finish(false);
@@ -79,7 +82,16 @@ export async function startCli() {
       // and only fail-closed path. A separate 'close' listener would race the
       // answer on piped stdin and could reject an approval the user just gave.
       iface.question(pc.bold(tr('cli.approval.question'))).then(
-        (answer) => finish(/^y(es)?$/i.test(answer.trim())),
+        (answer) => {
+          const trimmed = answer.trim();
+          if (/^a(lways)?$/i.test(trimmed)) {
+            finish({ approved: true, remember: 'session' });
+          } else if (/^y(es)?$/i.test(trimmed)) {
+            finish({ approved: true });
+          } else {
+            finish(false);
+          }
+        },
         () => finish(false)
       );
     });

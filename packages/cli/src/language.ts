@@ -103,7 +103,8 @@ const DICTS: Record<UiLanguage, Record<string, string>> = {
     'cli.approval.reviewerRule': '规则引擎',
     'cli.approval.reviewerModel': '审查模型',
     'cli.approval.reviewerUnknown': '未知来源',
-    'cli.approval.question': '是否允许执行该命令？[y/N] ',
+    'cli.approval.question': '是否允许执行该命令？[y=允许一次 / a=本会话始终允许 / N=拒绝] ',
+    'cli.approval.suggestedPattern': '本会话规则建议：',
 
     // Status labels carry their own padding: the values must line up as a column
     // in both languages, and fullwidth labels are double-width in a terminal.
@@ -207,7 +208,8 @@ const DICTS: Record<UiLanguage, Record<string, string>> = {
     'cli.approval.reviewerRule': 'rule engine',
     'cli.approval.reviewerModel': 'review model',
     'cli.approval.reviewerUnknown': 'unknown source',
-    'cli.approval.question': 'Approve this command? [y/N] ',
+    'cli.approval.question': 'Approve this command? [y=once / a=always in session / N=reject] ',
+    'cli.approval.suggestedPattern': 'Suggested session rule: ',
 
     'cli.status.header': 'Agent Status:',
     'cli.status.state': 'State:    ',

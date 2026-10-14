@@ -11,6 +11,7 @@ export interface ReviewResult {
   riskLevel: RiskLevel;
   reason: string;
   reviewedBy: 'rule' | 'model';
+  suggestedPattern?: string;
 }
 
 export interface ToolReviewContext {
@@ -21,19 +22,23 @@ export interface ToolReviewContext {
 
 export interface IAutoReviewer {
   review(ctx: ToolReviewContext): Promise<ReviewResult>;
+  rememberSessionRule?(tool: string, pattern: string): void;
+  matchesSessionRule?(toolCall: ToolCallItem): boolean;
+  clearSessionRules?(): void;
 }
+
+export type PermissionVerdict =
+  | { approved: boolean; remember?: 'session' }
+  | boolean;
 
 /**
  * Interactive resolution channel for `ask_user` verdicts.
  *
- * Invoked only when AutoReview escalates a call. Resolve `true` to execute the
- * tool as-is, `false` to reject it; the loop records the rejection and keeps
- * running so the agent can adapt. A host (UI, CLI prompt) implements this by
- * parking the promise until the human answers — it MUST also resolve `false`
- * when the turn is aborted or the client disconnects, or the loop will wait
- * forever.
+ * Invoked only when AutoReview escalates a call. Resolve `true` (or `{ approved: true }`)
+ * to execute the tool as-is, `false` to reject it; `{ approved: true, remember: 'session' }`
+ * records the session pattern rule to skip subsequent prompts.
  */
 export type PermissionGate = (
   toolCall: ToolCallItem,
   review: ReviewResult
-) => Promise<boolean>;
+) => Promise<PermissionVerdict>;

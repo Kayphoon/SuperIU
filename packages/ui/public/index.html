@@ -2466,10 +2466,11 @@
         color: var(--siu-danger-fg);
       }
       .siu-btn-approve,
+      .siu-btn-approve-session,
       .siu-btn-reject {
         height: 30px;
-        min-width: 128px;
-        padding: 0 var(--siu-space-4);
+        min-width: 100px;
+        padding: 0 var(--siu-space-3);
         border-radius: var(--siu-radius-md);
         font-size: var(--siu-text-sm);
         white-space: nowrap;
@@ -2486,6 +2487,23 @@
         filter: brightness(1.1);
       }
       .siu-btn-approve:active:not(:disabled) {
+        filter: brightness(0.94);
+      }
+      .siu-btn-approve-session {
+        border: 1px solid rgba(99, 102, 241, 0.4);
+        background: rgba(99, 102, 241, 0.12);
+        color: #818cf8;
+        font-weight: 600;
+        transition: background var(--siu-dur-fast) var(--siu-ease-out),
+          color var(--siu-dur-fast) var(--siu-ease-out),
+          filter var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-btn-approve-session:hover:not(:disabled) {
+        background: rgba(99, 102, 241, 0.22);
+        color: #a5b4fc;
+        filter: brightness(1.1);
+      }
+      .siu-btn-approve-session:active:not(:disabled) {
         filter: brightness(0.94);
       }
       .siu-btn-reject {
@@ -2506,6 +2524,7 @@
         background: var(--siu-bg-active);
       }
       .siu-btn-approve:disabled,
+      .siu-btn-approve-session:disabled,
       .siu-btn-reject:disabled {
         opacity: 0.45;
         cursor: not-allowed;
@@ -7618,11 +7637,20 @@
 
         const actions = el('div', 'siu-approval-actions');
         const approve = el('button', 'siu-btn-approve', tr('approval.approve'));
-        const reject = el('button', 'siu-btn-reject', tr('approval.reject'));
         approve.type = 'button';
-        reject.type = 'button';
         actions.appendChild(approve);
+
+        let approveSession = null;
+        if (event.suggestedPattern) {
+          approveSession = el('button', 'siu-btn-approve-session', tr('approval.approveSession', { pattern: event.suggestedPattern }));
+          approveSession.type = 'button';
+          actions.appendChild(approveSession);
+        }
+
+        const reject = el('button', 'siu-btn-reject', tr('approval.reject'));
+        reject.type = 'button';
         actions.appendChild(reject);
+
         const status = el('span', 'siu-approval-status', tr('approval.waiting'));
         actions.appendChild(status);
         card.appendChild(actions);
@@ -7633,29 +7661,39 @@
           else delete status.dataset.tone;
         };
 
-        const settle = async (approved) => {
+        const settle = async (approved, remember) => {
           approve.disabled = true;
+          if (approveSession) approveSession.disabled = true;
           reject.disabled = true;
           card.dataset.state = approved ? 'approved' : 'rejected';
-          setNote(approved ? tr('approval.approved') : tr('approval.rejected'), approved ? 'ok' : 'error');
+          if (approved) {
+            setNote(remember === 'session' ? tr('approval.approvedSession') : tr('approval.approved'), 'ok');
+          } else {
+            setNote(tr('approval.rejected'), 'error');
+          }
           try {
-            await postJson('/api/approve', { toolCallId: event.toolCallId, approved });
+            await postJson('/api/approve', { toolCallId: event.toolCallId, approved, remember });
           } catch (err) {
             setNote('✕ ' + err.message, 'error');
           }
         };
 
         approve.addEventListener('click', () => void settle(true));
+        if (approveSession) {
+          approveSession.addEventListener('click', () => void settle(true, 'session'));
+        }
         reject.addEventListener('click', () => void settle(false));
 
-        return { card, approve, reject, settle, setNote };
+        return { card, approve, approveSession, reject, settle, setNote };
       }
 
       /** Retire an unanswered card: a dead tool call must not keep live buttons. */
       function retireApproval(approval) {
         approval.approve.disabled = true;
+        if (approval.approveSession) approval.approveSession.disabled = true;
         approval.reject.disabled = true;
         approval.approve.replaceWith(el('span', 'siu-chip', tr('approval.retired')));
+        if (approval.approveSession) approval.approveSession.remove();
         approval.reject.remove();
         approval.card.dataset.state = 'stale';
         approval.setNote(tr('approval.retiredNote'));
