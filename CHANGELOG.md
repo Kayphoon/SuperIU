@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.67 (2026-10-14)
+
+### 中文
+
+- **更新面板新增手动强制刷新按钮与常驻检查入口**：
+  - 在「关于」面板的组件版本与更新卡片头部新增**「强制刷新」**按钮，带平滑旋转加载动画，点击即刻重置轮询节流并对本地客户端与远程网关发起双端即时更新检测；
+  - 即使组件处于「已是最新版本」（idle）状态，卡片右侧也常驻保留「检查更新」按钮，方便随时手动触发重新检测；
+  - **桌面端自动更新增强 GitHub 302 重定向探针回落**：当客户端遇到 GitHub REST API 匿名 403 频控或网络波动时，自动降级为 Releases 302 重定向探针，确保桌面端始终能无缝探测并拉取最新版本。
+
+### English
+
+- **Add force refresh button and persistent check actions to the update panel**:
+  - Added a dedicated **"Force Refresh"** button to the header of the component updates card in the About panel with smooth spinning icon feedback, instantly bypassing polling throttling to check updates for both desktop client and remote gateway simultaneously;
+  - Persistently display the "Check for Updates" action button on both component cards even when in the "Up to date" (idle) state, enabling on-demand checks at any time;
+  - **Desktop auto-updater GitHub 302 redirect probe fallback**: Automatically falls back to probing the GitHub Releases 302 redirect location when `api.github.com` encounters HTTP 403 rate limits or transient errors, ensuring desktop clients always detect and retrieve new releases seamlessly.
+
 ## v0.2.66 (2026-10-14)
 
 ### 中文
