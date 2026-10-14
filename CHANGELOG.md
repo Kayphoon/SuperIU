@@ -14,6 +14,24 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.70 (2026-10-14)
+
+### 中文
+
+- **修复：远程守护进程静态资源被系统清理后控制台只显示 `{"error":"Not found: /"}`**：
+  - **根因**：`superiu-server` 把内嵌的 SPA 资源解压到系统临时目录（`/tmp/superiu-public-*`）。守护进程是长期进程，而 VPS 上的临时文件清理（systemd-tmpfiles / tmpwatch）会把该目录删除；进程随后仍指向那个已消失的路径，于是**所有静态请求返回 404，直到重启为止**——远程控制台因此直接渲染出 JSON 错误页；
+  - **改为持久化目录**：解压目标改为按版本隔离的 `~/.superiu/assets/<version>`，重启直接复用，不再受 `/tmp` 清理影响；仅当 `$HOME` 不可写时才回退到版本稳定的临时目录；升级后旧版本的目录会被自动清理，不会无限增长；
+  - **按需自愈，无需重启**：新增 `ensurePublicDir` 恢复钩子。当 `index.html` 缺失（目录被整体清空的标志）时，服务端在该请求上重新解压资源并继续响应，健康状态下不会触发该钩子；
+  - **解压原子化且幂等**：先写入同级的 `.staging-<pid>` 目录再整体 rename，崩溃不会留下半成品目录；完整性按**全部**资源文件校验，而非只看 `index.html`。
+
+### English
+
+- **Fix: remote console showed only `{"error":"Not found: /"}` after the host swept the daemon's static assets**:
+  - **Root cause**: `superiu-server` extracted its embedded SPA assets into the system temp directory (`/tmp/superiu-public-*`). The daemon is long-lived, and a VPS temp-file cleaner (systemd-tmpfiles / tmpwatch) deletes that directory; the process kept pointing at the vanished path, so **every static request returned 404 until the next restart** — the remote console rendered the raw JSON error page instead of the app;
+  - **Persistent extraction target**: assets are now extracted to a version-scoped `~/.superiu/assets/<version>`, reused across restarts and immune to `/tmp` sweeps. Only an unwritable `$HOME` falls back to a version-stable temp directory, and directories from superseded versions are pruned automatically so the cache cannot grow without bound;
+  - **On-demand self-healing, no restart**: a new `ensurePublicDir` recovery hook re-extracts the assets on the request that finds `index.html` missing (the signature of a whole-directory sweep) and serves it. A healthy server never consults the hook;
+  - **Atomic, idempotent extraction**: files are staged in a sibling `.staging-<pid>` directory and renamed into place, so a crash cannot leave a half-populated directory; completeness is verified against **every** asset rather than `index.html` alone.
+
 ## v0.2.69 (2026-10-14)
 
 ### 中文

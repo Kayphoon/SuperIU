@@ -141,9 +141,10 @@ function serverStrippingPlugin() {
 
 /**
  * Collect `packages/ui/public/` into a base64 map exposed as the virtual module
- * `superiu:assets`. The daemon writes these to a temp directory at startup and
- * hands that path to `startServer` as `publicDir` — see `materializeEmbeddedAssets`
- * in `daemon.ts` for why the raw `$bunfs` path is not usable.
+ * `superiu:assets`. The daemon extracts these to a persistent per-version
+ * directory at startup and hands that path to `startServer` as `publicDir` —
+ * see `materializeEmbeddedAssets` in `daemon.ts` for why the raw `$bunfs` path
+ * is not usable.
  */
 function assetBundlingPlugin() {
   const files = [];

@@ -847,23 +847,19 @@ async function terminateAndWait(pid: number, timeoutMs: number = STOP_TIMEOUT_MS
 // Commands
 // ---------------------------------------------------------------------------
 
+/** Set once, so repeated recovery passes never stack `exit` handlers. */
+let tempAssetDirCleanupRegistered = false;
+
+/** Where the SPA assets for this binary version are extracted. */
+function persistentAssetDir(version: string): string {
+  return path.join(os.homedir(), '.superiu', 'assets', version);
+}
+
 /**
- * Materialize the SPA assets bundled into the binary, returning the directory
- * they were written to — or `undefined` when running from a plain `tsc` build,
- * where `server.ts`'s own `<package>/public` default is correct.
- *
- * Why this exists: a bun-compiled binary resolves `import.meta.url` to
- * `/$bunfs/root/<binary>`, so `server.ts`'s `path.resolve(HERE, '..', 'public')`
- * becomes `/$bunfs/public` — outside bun's embedded root and therefore ENOENT
- * for the `fs.statSync`/`createReadStream` calls `handleStatic` uses. Embedding
- * the files as base64 and writing them to a private temp dir keeps those calls
- * working against a real filesystem without changing `server.ts`'s public API.
- *
- * The directory lives for the process lifetime (removed on exit) and is created
- * 0700: it holds only shipped static assets, but the process may run as a
- * shared user.
+ * Decode the build-time asset bundle. `undefined` under plain node/tsc, where
+ * `server.ts`'s own `<package>/public` default is correct.
  */
-async function materializeEmbeddedAssets(): Promise<string | undefined> {
+async function loadEmbeddedAssets(): Promise<Record<string, string> | undefined> {
   let moduleId: string | undefined;
   try {
     // Undefined in a tsc build: the `typeof` guard never yields a ReferenceError here.
@@ -871,10 +867,8 @@ async function materializeEmbeddedAssets(): Promise<string | undefined> {
   } catch {
     moduleId = undefined;
   }
-  // Absent under plain node/tsc: server.ts falls back to its own `public/`.
   if (!moduleId) return undefined;
 
-  let assets: Record<string, string>;
   try {
     // The `import(SUPERIU_ASSET_MODULE)` spelling is deliberate and MUST stay
     // literal: bun only routes a dynamic import through the bundler's
@@ -885,38 +879,140 @@ async function materializeEmbeddedAssets(): Promise<string | undefined> {
     // ReferenceError inside the bundler's output.
     const mod = (await import(SUPERIU_ASSET_MODULE as string)) as { default?: Record<string, string> };
     if (!mod.default || typeof mod.default !== 'object') return undefined;
-    assets = mod.default;
+    return mod.default;
   } catch (err) {
     process.stderr.write(
       `superiu-server: could not load embedded assets: ${err instanceof Error ? err.message : String(err)}\n`
     );
     return undefined;
   }
+}
 
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'superiu-public-'));
-  fs.chmodSync(dir, 0o700);
+/** Write every asset into `dir`, flattening names and refusing to escape it. */
+function extractAssets(dir: string, assets: Record<string, string>): void {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  for (const [name, base64] of Object.entries(assets)) {
+    const relative = name.split('/').filter((part) => part && part !== '.' && part !== '..').join(path.sep);
+    if (!relative) continue;
+    const target = path.join(dir, relative);
+    if (!target.startsWith(dir + path.sep)) continue;
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, Buffer.from(base64, 'base64'));
+  }
+}
+
+/** `true` when every bundled asset is already on disk at `dir`. */
+function assetsPresent(dir: string, assets: Record<string, string>): boolean {
+  for (const name of Object.keys(assets)) {
+    const relative = name.split('/').filter((part) => part && part !== '.' && part !== '..').join(path.sep);
+    if (!relative) continue;
+    if (!fs.existsSync(path.join(dir, relative))) return false;
+  }
+  return true;
+}
+
+/**
+ * Extract `assets` into `dir` atomically: the files are staged beside the
+ * target and renamed into place, so a crash mid-write can never leave a
+ * half-populated directory that later looks complete.
+ */
+function extractAssetsAtomically(dir: string, assets: Record<string, string>): void {
+  const staging = `${dir}.staging-${process.pid}`;
+  fs.rmSync(staging, { recursive: true, force: true });
   try {
-    for (const [name, base64] of Object.entries(assets)) {
-      // Flatten any nested path, and refuse to escape the temp dir.
-      const relative = name.split('/').filter((part) => part && part !== '.' && part !== '..').join(path.sep);
-      if (!relative) continue;
-      const target = path.join(dir, relative);
-      if (!target.startsWith(dir + path.sep)) continue;
-      fs.mkdirSync(path.dirname(target), { recursive: true });
-      fs.writeFileSync(target, Buffer.from(base64, 'base64'));
-    }
-  } catch (err) {
-    // A partial extraction is worse than none: fall back to server.ts's default.
+    extractAssets(staging, assets);
     fs.rmSync(dir, { recursive: true, force: true });
+    fs.renameSync(staging, dir);
+  } catch (err) {
+    fs.rmSync(staging, { recursive: true, force: true });
+    throw err;
+  }
+}
+
+/**
+ * Drop extraction directories other than `keep` (a version, or a crashed
+ * process's `.staging-*` leftovers). Each release adds a version-scoped
+ * directory, so without this the cache grows by one ~700KB tree per upgrade.
+ * A concurrently running older daemon that loses its directory re-extracts it
+ * through the same recovery path, so pruning is safe.
+ */
+function pruneStaleAssetDirs(root: string, keep: string): void {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(root, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name === keep) continue;
+    try {
+      fs.rmSync(path.join(root, entry.name), { recursive: true, force: true });
+    } catch {
+      // A directory we cannot remove is not worth failing startup over.
+    }
+  }
+}
+
+/**
+ * Materialize the SPA assets bundled into the binary, returning the directory
+ * they were written to — or `undefined` when running from a plain `tsc` build.
+ *
+ * Why this exists: a bun-compiled binary resolves `import.meta.url` to
+ * `/$bunfs/root/<binary>`, so `server.ts`'s `path.resolve(HERE, '..', 'public')`
+ * becomes `/$bunfs/public` — outside bun's embedded root and therefore ENOENT
+ * for the `fs.statSync`/`createReadStream` calls `handleStatic` uses. Embedding
+ * the files as base64 and writing them to a real directory keeps those calls
+ * working without changing `server.ts`'s public API.
+ *
+ * The extraction target is `~/.superiu/assets/<version>`, NOT `os.tmpdir()`: a
+ * daemon is long-lived, and `/tmp` is swept by `systemd-tmpfiles`/tmpwatch on
+ * exactly the VPS hosts this runs on. A sweep used to delete the assets under a
+ * running daemon, after which every static request 404'd until the next
+ * restart. A version-scoped persistent path survives it and is reused across
+ * restarts instead of being re-extracted. Only when that path is unwritable
+ * (read-only `$HOME`) does it fall back to a version-stable temp dir.
+ *
+ * Idempotent, and the extraction is verified against the full asset list rather
+ * than a single file: `server.ts`'s `ensurePublicDir` calls this on demand to
+ * recover from a sweep that happened mid-flight.
+ */
+async function materializeEmbeddedAssets(): Promise<string | undefined> {
+  const assets = await loadEmbeddedAssets();
+  if (!assets) return undefined;
+
+  const version = resolveVersion();
+  const persistent = persistentAssetDir(version);
+  if (assetsPresent(persistent, assets)) return persistent;
+  try {
+    extractAssetsAtomically(persistent, assets);
+    pruneStaleAssetDirs(path.dirname(persistent), version);
+    return persistent;
+  } catch (err) {
+    process.stderr.write(
+      `superiu-server: could not extract embedded assets to ${persistent}: ${
+        err instanceof Error ? err.message : String(err)
+      }\n`
+    );
+  }
+
+  // Version-stable (not `mkdtemp`) so repeated recovery reuses one directory
+  // instead of leaking a new one per request.
+  const fallback = path.join(os.tmpdir(), `superiu-public-${version}`);
+  if (assetsPresent(fallback, assets)) return fallback;
+  try {
+    extractAssetsAtomically(fallback, assets);
+  } catch (err) {
     process.stderr.write(
       `superiu-server: could not extract embedded assets: ${err instanceof Error ? err.message : String(err)}\n`
     );
     return undefined;
   }
 
-  const cleanup = (): void => fs.rmSync(dir, { recursive: true, force: true });
-  process.once('exit', cleanup);
-  return dir;
+  if (!tempAssetDirCleanupRegistered) {
+    tempAssetDirCleanupRegistered = true;
+    process.once('exit', () => fs.rmSync(fallback, { recursive: true, force: true }));
+  }
+  return fallback;
 }
 
 async function commandStart(parsed: ParsedArgs): Promise<number> {
@@ -965,6 +1061,10 @@ async function commandStart(parsed: ParsedArgs): Promise<number> {
     quiet: true,
     // Undefined lets server.ts use its own `public/` default (tsc build).
     ...(publicDir ? { publicDir } : {}),
+    // Recovery hook: if the extraction is swept off disk while this process
+    // runs, `handleStatic` re-materializes it on demand instead of 404ing
+    // every asset for the rest of the daemon's life.
+    ensurePublicDir: materializeEmbeddedAssets,
     // Reported by `/api/status` and the gateway handshake.
     version
   });

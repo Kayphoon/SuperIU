@@ -93,6 +93,11 @@ export interface StartServerOptions {
   mcpConfigPath?: string | null;
   /** Optional lifecycle hooks to drive the `/api/update` routes. */
   updateHooks?: UpdateHooks;
+  /**
+   * Optional recovery callback to re-materialize or verify public directory
+   * if index.html is missing at request time (e.g. daemon assets wiped by tmpwatch).
+   */
+  ensurePublicDir?: () => Promise<string | undefined> | string | undefined;
 }
 
 export interface UpdateHooks {
@@ -163,6 +168,7 @@ export interface ServerHandle {
 
 // Resolved by startServer so the module can be imported without side effects.
 let PUBLIC_DIR = path.resolve(HERE, '..', 'public');
+let ENSURE_PUBLIC_DIR: (() => Promise<string | undefined> | string | undefined) | undefined;
 let SETTINGS_FILE = path.join(process.cwd(), '.superiu', 'ui-settings.json');
 
 /**
@@ -2734,14 +2740,40 @@ function serveFile(res: http.ServerResponse, filePath: string): boolean {
   return true;
 }
 
-function handleStatic(req: http.IncomingMessage, res: http.ServerResponse, pathname: string): void {
+/**
+ * Serve one path out of `PUBLIC_DIR`, honouring the traversal guard.
+ * `false` means "no such file here", never "already answered".
+ */
+function serveStaticPath(res: http.ServerResponse, pathname: string): boolean {
   const relative = decodeURIComponent(pathname).replace(/^\/+/, '');
   const candidate = path.resolve(PUBLIC_DIR, relative);
 
   // Traversal guard: only paths that stay inside PUBLIC_DIR are eligible.
-  if (candidate.startsWith(PUBLIC_DIR + path.sep)) {
+  if (!candidate.startsWith(PUBLIC_DIR + path.sep)) return false;
+  try {
+    if (fs.statSync(candidate).isFile() && serveFile(res, candidate)) return true;
+  } catch {
+    // Fall through: the caller may recover the assets and retry.
+  }
+  return false;
+}
+
+async function handleStatic(req: http.IncomingMessage, res: http.ServerResponse, pathname: string): Promise<void> {
+  if (serveStaticPath(res, pathname)) return;
+
+  // Recovery: the whole extraction directory can be swept off disk while the
+  // process runs (a VPS `/tmp` cleaner, an operator `rm -rf`). `index.html` is
+  // the canary — a sweep removes the directory, not one file — so its absence
+  // means every asset is gone and the daemon would 404 until the next restart.
+  // A healthy server therefore never consults the hook, including on the
+  // navigation routes that reach this point by design.
+  if (ENSURE_PUBLIC_DIR && !fs.existsSync(path.join(PUBLIC_DIR, 'index.html'))) {
     try {
-      if (fs.statSync(candidate).isFile() && serveFile(res, candidate)) return;
+      const refreshed = await ENSURE_PUBLIC_DIR();
+      if (refreshed) {
+        PUBLIC_DIR = path.resolve(refreshed);
+        if (serveStaticPath(res, pathname)) return;
+      }
     } catch {
       // Fall through to the SPA fallback below.
     }
@@ -2807,6 +2839,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
   const dualListen = socketPath !== undefined && options.port !== undefined && options.port > 0;
 
   PUBLIC_DIR = options.publicDir ? path.resolve(options.publicDir) : path.resolve(HERE, '..', 'public');
+  ENSURE_PUBLIC_DIR = options.ensurePublicDir;
   SETTINGS_FILE = options.settingsFile
     ? path.resolve(options.settingsFile)
     : path.join(workspaceDir, '.superiu', 'ui-settings.json');
@@ -2864,7 +2897,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
         if (await auth.handle(req, res, url)) return;
         if (await handleApi(req, res, pathname)) return;
         if (req.method === 'GET' || req.method === 'HEAD') {
-          handleStatic(req, res, pathname);
+          await handleStatic(req, res, pathname);
           return;
         }
         sendError(res, 405, `Method not allowed: ${req.method} ${pathname}`);
