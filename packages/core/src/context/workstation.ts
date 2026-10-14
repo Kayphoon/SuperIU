@@ -37,10 +37,10 @@ export function getWorkstationInfo(cwd: string = process.cwd()): WorkstationInfo
 /**
  * Render the workstation block.
  *
- * Line order matters for prompt caching: the ISO `Time` line changes every turn,
- * so it is emitted LAST. Everything above it (OS, Arch, Node, CWD, Git Branch)
- * then stays inside the byte-identical cacheable prefix instead of being
- * invalidated along with the timestamp.
+ * Emits OS, Arch, Node, CWD, and Git Branch. The volatile ISO `Time` line
+ * is intentionally omitted to maintain a 100% byte-identical static prefix
+ * across turns for prompt caching. Real-world chronology is persisted in the
+ * JSONL session storage and models can query current time on-demand via tools (`bash("date")`).
  */
 export function formatWorkstationXml(info: WorkstationInfo): string {
   const lines: string[] = [
@@ -55,7 +55,6 @@ export function formatWorkstationXml(info: WorkstationInfo): string {
     lines.push(`- Git Branch: ${info.gitBranch}`);
   }
 
-  // Volatile: keep this the final line before the closing tag.
-  lines.push(`- Time: ${info.timestamp}`, '</workstation>');
+  lines.push('</workstation>');
   return lines.join('\n');
 }

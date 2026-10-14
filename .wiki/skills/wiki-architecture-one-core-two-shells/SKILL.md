@@ -100,9 +100,9 @@ description: |
   2. `USER.md`: 用户环境（OS、Shell、输出风格偏好）。
   3. `MEMORY.md`: 长期跨会话事实知识库。
 - **自动初始化**: 文件不存在时由系统自动创建默认模板。
-- **系统提示词装配顺序（前缀缓存契约）**: 静态优先、易变后置——`DEFAULT_ENGINEERING_DIRECTIVES` → SOUL → USER → MEMORY → `<skills>` → **`<workstation>`** → 附加指令 → `# OPERATIONAL POSTURE`。
-- **为什么**: OpenAI/Anthropic/DeepSeek 的 prompt caching 是**前缀匹配**，需从 token 0 起逐字节相同。`<workstation>` 内嵌每轮变化的 ISO 时间戳，放在开头会让无界循环**每一步都 cache miss**。实测重排后共享前缀达 **99.83%**（12657/12678 字符），仅时间戳所在 21 字符不可复用；`- Time:` 被刻意置于 workstation 块**最后一行**，使 OS/Arch/Node/CWD/Git 也进入共享前缀。**禁止**把 `<workstation>` 或任何带时间戳的块移到静态段之前。
-- **`<workstation>`**: 每轮实时快照，含 OS、Arch、Node 版本、CWD、ISO 时间戳、Git 分支（`git rev-parse --abbrev-ref HEAD`，1s 超时静默降级）。
+- **系统提示词装配顺序（前缀缓存契约）**: 静态优先——`DEFAULT_ENGINEERING_DIRECTIVES` → SOUL → USER → MEMORY → `<skills>` → `<workstation>`（全部纳入静态前缀，跨轮逐字节相同） → 附加指令 → `# OPERATIONAL POSTURE`。
+- **为什么**: OpenAI/Anthropic/DeepSeek 的 prompt caching 是**前缀匹配**，需从 token 0 起逐字节相同。下游消息流紧跟系统提示词，任何靠近开头的易变时间戳都会导致后续全量对话历史 cache miss。因此物理时间线交由 JSONL 存储层（`SessionEntry.timestamp` / `createdAt`）保障，模型需要高精度时间时由工具拉取（`bash("date")`）；`<workstation>` 剥离易变 `- Time:` 行，使整个系统提示词在无附加指令时达到 **100% 字节级一致**，完全吃满前缀缓存。
+- **`<workstation>`**: 含 OS、Arch、Node 版本、CWD、Git 分支（`git rev-parse --abbrev-ref HEAD`，1s 超时静默降级）。
 
 ### 5. Valence-Arousal 情绪状态机 (`src/emotion/engine.ts`)
 - **三维状态**:

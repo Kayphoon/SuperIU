@@ -1660,10 +1660,9 @@ async function runSmokeTests() {
     for (const marker of ['<skills>', '</skills>', '<workstation>', '</workstation>', '# SOUL']) {
       assert(first.includes(marker), `reordered prompt lost ${marker}`);
     }
-    assert(first.includes('- Time: '), 'workstation timestamp must still be present');
+    assert(!first.includes('- Time: '), 'workstation must omit volatile Time to preserve cache');
 
-    // Within the workstation block the volatile Time line must come last, so the
-    // stable lines above it (OS/Arch/Node/CWD/Git) stay in the shared prefix.
+    // Within the workstation block all emitted fields (OS/Arch/Node/CWD/Git) are stable.
     const blockStart = first.indexOf('<workstation>');
     const blockEnd = first.indexOf('</workstation>');
     const blockLines = first
@@ -1672,19 +1671,26 @@ async function runSmokeTests() {
       .slice(1)
       .filter((line) => line.trim() !== '');
     assert(
-      blockLines[blockLines.length - 1].startsWith('- Time: '),
-      `Time must be the last workstation line, got: ${blockLines.join(' | ')}`
-    );
-    assert(
       blockLines.some((line) => line.startsWith('- OS: ')),
       'workstation must still report the OS'
     );
-
-    // The first differing byte across turns must fall inside the Time line itself,
-    // proving every stable workstation field is also cacheable.
     assert(
-      shared > blockStart,
-      `first difference must be inside the workstation block, got ${shared} vs ${blockStart}`
+      blockLines.some((line) => line.startsWith('- Node: ')),
+      'workstation must still report Node version'
+    );
+    assert(
+      blockLines.some((line) => line.startsWith('- CWD: ')),
+      'workstation must still report CWD'
+    );
+
+    // The entire system prompt must be 100% byte-identical across turns without external edits.
+    assert(
+      first === second,
+      'system prompt must be 100% byte-identical across turns'
+    );
+    assert(
+      shared === first.length,
+      `expected full prompt sharing, got ${shared} vs ${first.length}`
     );
   });
 
