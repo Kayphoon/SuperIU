@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.68 (2026-10-14)
+
+### 中文
+
+- **只读检查管道与复合排查命令全面零延迟自动审批**：
+  - **支持只读命令管道语法自动判定**：彻底解决常规排查管道（如 `du -h -d 1 / 2>/dev/null | sort -hr | head -n 15`、`ls | grep`、`ps aux | grep node`、`cat file | grep ...`、`find . -name "*.ts" | wc -l`）被规则引擎误判为高风险复合命令而强制弹窗拦截的问题；
+  - **白名单能力与常用系统排查工具扩充**：将 `sort`（无 `-o` 写入）、`uniq`、`wc`、`grep`/`rg`、`cut`、`tr`、`column`、`free`、`stat`、`file`、`find`（无 `-delete`/`-exec` 等突变参数）及 `git show/rev-parse/describe` 纳入只读快路径；
+  - **管道级全链路安全防御**：若管道中包含任何突变指令（如 `tee`、`xargs rm`、`sed -i`、`-delete`、脚本执行或写重定向），则严格阻止快路径放行并升级审批，确保安全防护不留盲区。
+
+### English
+
+- **Zero-latency auto-approval for safe read-only inspection pipelines**:
+  - **Syntax-aware read-only pipeline evaluation**: Resolved false positives where benign inspection pipelines (e.g. `du -h -d 1 / 2>/dev/null | sort -hr | head -n 15`, `ls | grep`, `ps aux | grep node`, `find . -name "*.ts" | wc -l`) were incorrectly classified as high-risk compound shell mutations by the rule engine, requiring unnecessary interactive confirmations;
+  - **Expanded read-only whitelist & system utilities**: Added safe filter and inspection utilities to the fast path, including `sort` (without `-o`), `uniq`, `wc`, `grep`/`rg`, `cut`, `tr`, `column`, `free`, `stat`, `file`, `find` (without `-delete`/`-exec` mutating flags), and `git show/rev-parse/describe`;
+  - **Strict pipeline security boundary**: Any pipeline containing mutation actions (such as `tee`, `xargs rm`, `sed -i`, `-delete`, script interpreters, or file write redirects) strictly drops out of the fast path and escalates to human confirmation.
+
 ## v0.2.67 (2026-10-14)
 
 ### 中文

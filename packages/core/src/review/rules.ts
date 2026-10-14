@@ -54,11 +54,11 @@ export function stripBenignRedirects(command: string): string {
 
 /**
  * Read-only command shapes that are safe to approve without a model round-trip.
- * Anything carrying shell metacharacters (redirect, pipe, chain, substitution)
+ * Anything carrying shell metacharacters (redirect, chain, substitution)
  * falls out of the fast path because it can mutate state.
  */
 const SAFE_COMMAND_PATTERNS: readonly RegExp[] = [
-  /^git\s+(?:status|diff|log|branch)\b/,
+  /^git\s+(?:status|diff|log|branch|show|rev-parse|describe)\b/,
   /^ls\b/,
   /^pwd\b/,
   /^du\b/,
@@ -69,15 +69,31 @@ const SAFE_COMMAND_PATTERNS: readonly RegExp[] = [
   /^date\b/,
   /^uptime\b/,
   /^ps\b/,
+  /^free\b/,
+  /^stat\b/,
+  /^file\b/,
+  /^find\b/,
   /^(?:node|pnpm|npm|bun|deno|python3?|ruby|perl|php|git)\s+(?:-v|--version)\b/,
-  /^cat\s+/,
-  /^head\s+/,
-  /^tail\s+/,
-  /^echo\s+/
+  /^(?:cat|head|tail|sort|uniq|wc|grep|egrep|fgrep|rg|cut|tr|column)\b/,
+  /^echo\b/,
+  /^printf\b/
 ];
 
 /** Branch deletion/move is a mutation despite matching the `git branch` prefix. */
 const GIT_BRANCH_MUTATION = /^git\s+branch\s+(?:-[dDmM]\b|--delete\b|--move\b)/;
+
+/** Mutating flags that turn find into an execution or deletion tool. */
+const FIND_MUTATING_FLAGS = /\s-(?:delete|exec|execdir|ok|okdir|fprint|fls)\b/;
+
+/** Mutating flags that turn sort into a file write tool. */
+const SORT_MUTATING_FLAGS = /\s(?:-o|--output)\b/;
+
+/**
+ * Metacharacters that chain commands, run in background, perform command substitution,
+ * or redirect I/O to/from files. Pipelines (single `|`) are handled separately by
+ * evaluating each pipeline stage independently.
+ */
+const DANGEROUS_SHELL_METACHARACTERS = /[&;<>`(){}$\\\n\r]|\|\|/;
 
 /**
  * Every shell construct that can chain, background, group, redirect, or
@@ -285,16 +301,37 @@ function matchHostileCommand(command: string): string | null {
   return matchExfiltration(command);
 }
 
-/** Read-only single commands that need no model arbitration. */
-function isSafeReadOnlyCommand(command: string): boolean {
+/** Checks whether a single pipeline stage is a safe read-only operation. */
+function isSafeReadOnlyStage(stage: string): boolean {
+  const trimmed = stage.trim();
+  if (!trimmed) return false;
+  if (GIT_BRANCH_MUTATION.test(trimmed) || referencesSensitivePath(trimmed)) {
+    return false;
+  }
+  if (/^find\b/.test(trimmed) && FIND_MUTATING_FLAGS.test(trimmed)) {
+    return false;
+  }
+  if (/^sort\b/.test(trimmed) && SORT_MUTATING_FLAGS.test(trimmed)) {
+    return false;
+  }
+  return SAFE_COMMAND_PATTERNS.some((pattern) => pattern.test(trimmed));
+}
+
+/**
+ * Read-only commands that need no model arbitration.
+ * Supports single commands and pipelines (e.g. `du -h -d 1 / | sort -hr | head -n 15`)
+ * where every stage is a known-safe read-only inspection or filter utility.
+ */
+export function isSafeReadOnlyCommand(command: string): boolean {
   const stripped = stripBenignRedirects(command);
-  if (!stripped || SHELL_METACHARACTERS.test(stripped)) {
+  if (!stripped || DANGEROUS_SHELL_METACHARACTERS.test(stripped)) {
     return false;
   }
-  if (GIT_BRANCH_MUTATION.test(stripped) || referencesSensitivePath(stripped)) {
+  const stages = stripped.split('|');
+  if (stages.length === 0) {
     return false;
   }
-  return SAFE_COMMAND_PATTERNS.some((pattern) => pattern.test(stripped));
+  return stages.every((stage) => isSafeReadOnlyStage(stage));
 }
 
 /** Redirects such as `echo x > /etc/hosts` write outside the workspace. */
@@ -329,6 +366,14 @@ function matchEscalationCommand(
   const rm = parseRm(command);
   if (rm?.recursive && rm.targets.length > 0) {
     return { reason: `Recursive delete of ${rm.targets.join(', ')}`, riskLevel: 'high' };
+  }
+
+  if (/^find\b/.test(trimmed) && FIND_MUTATING_FLAGS.test(trimmed)) {
+    return { reason: 'Find command executes external actions or deletes files', riskLevel: 'high' };
+  }
+
+  if (/^sort\b/.test(trimmed) && SORT_MUTATING_FLAGS.test(trimmed)) {
+    return { reason: 'Sort command writes output directly to a file', riskLevel: 'medium' };
   }
 
   if (GIT_DESTRUCTIVE.test(trimmed)) {

@@ -955,7 +955,16 @@ async function runSmokeTests() {
       'df -h',
       'which node',
       'whoami',
-      'uname -a'
+      'uname -a',
+      'free -h',
+      'stat package.json',
+      'du -h -d 1 / 2>/dev/null | sort -hr | head -n 15',
+      'du -h -d 1 /root 2>/dev/null | sort -hr | head -n 15',
+      'ls -la | grep src',
+      'ps aux | grep node',
+      'cat package.json | grep version',
+      'find . -name "*.ts" | wc -l',
+      'git log --oneline -n 20 | head -n 5'
     ]) {
       const inspectReview = await reviewer.review({
         toolCall: { id: 'inspect', name: 'bash', args: { command: cmd } },
@@ -964,6 +973,21 @@ async function runSmokeTests() {
       assert(inspectReview.decision === 'allow', `command '${cmd}' must be allowed on fast path (got ${inspectReview.decision})`);
       assert(inspectReview.riskLevel === 'safe', `command '${cmd}' risk must be safe (got ${inspectReview.riskLevel})`);
       assert(inspectReview.reviewedBy === 'rule', `command '${cmd}' reviewer must be rule (got ${inspectReview.reviewedBy})`);
+    }
+
+    // Mutating or non-allowlisted commands in pipelines must never take the allow fast path
+    for (const cmd of [
+      'du -h | bash',
+      'cat file | xargs rm',
+      'find . -name "*.log" -delete',
+      'sort -o /etc/hosts file',
+      'cat /etc/shadow | grep root'
+    ]) {
+      const inspectReview = await reviewer.review({
+        toolCall: { id: 'unsafe-pipe', name: 'bash', args: { command: cmd } },
+        workspaceDir: reviewWorkspace
+      });
+      assert(inspectReview.decision !== 'allow', `unsafe pipeline '${cmd}' must not be allowed (got ${inspectReview.decision})`);
     }
   });
 
