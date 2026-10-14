@@ -14,6 +14,24 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.72 (2026-10-14)
+
+### 中文
+
+- **修复：守护进程身份文件被同一 workspace 的第二个实例破坏后，`update` 只换装不重启**：
+  - `<workspace>/.superiu/server.json` 是**每个 workspace 一个路径**。在同一 workspace 上再起一个守护进程会覆写它，而败者退出时又把它删掉——**在跑的守护进程因此失去身份**：`status` 报 `{"running":false}`，`superiu-server update` 找不到它去重启；
+  - 实测后果：`update` 换装成功却 `restarted:false`，旧进程继续从已被替换的 inode 运行，只能手工 `systemctl --user restart superiu-server` 收尾；
+  - **删除按 pid 认领**：四处删除点（接管块、SIGTERM/SIGINT shutdown、`stop`、`update`）统一走 `removeStateIfOwned(workspace, pid)`，**只在文件仍写着目标 pid 时才删**（损坏或缺失的文件仍照删），避免任何进程删掉别人的身份；
+  - **`update` 增加 systemd 兜底**：状态文件找不到存活守护进程、但用户 systemd 单元处于 active 时，直接重启该单元让换装真正生效；inactive 单元不动——启动一个本来没在跑的守护进程不是这条命令的职责。
+
+### English
+
+- **Fix: `update` swapped the binary but did not restart after a second instance clobbered the daemon's state file**:
+  - `<workspace>/.superiu/server.json` is one path per workspace. Starting another daemon against the same workspace overwrites it, and the loser's exit removes it — so the **running daemon loses its identity**: `status` reports `{"running":false}` and `superiu-server update` cannot find it to restart;
+  - Observed consequence: `update` swapped the binary but reported `restarted:false`, leaving the old process running from the replaced inode, recoverable only by a manual `systemctl --user restart superiu-server`;
+  - **Removal is now ownership-checked**: all four removal sites (the takeover block, the SIGTERM/SIGINT shutdown, `stop`, `update`) go through `removeStateIfOwned(workspace, pid)`, which deletes the file **only while it still names the target pid** (a corrupt or missing file is still removed), so no process can delete another's identity;
+  - **`update` gained a systemd fallback**: when the state file names no live daemon but the user systemd unit is active, the unit is restarted so the swap actually takes effect. An inactive unit is left alone — starting a daemon that was not running is not this command's job.
+
 ## v0.2.71 (2026-10-14)
 
 ### 中文

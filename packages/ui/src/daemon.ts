@@ -743,7 +743,20 @@ function writeState(workspace: string, state: DaemonState): string {
   return file;
 }
 
-function removeState(workspace: string): void {
+/**
+ * Delete the state file only while it still names `pid`.
+ *
+ * The state file is one path per workspace, so a second daemon started against
+ * a workspace another daemon owns will overwrite it — and, without this guard,
+ * the loser's shutdown deletes the winner's identity. The live daemon then
+ * reports `{"running":false}` and `update` can no longer find it to restart
+ * (`restarted:false` after a successful binary swap).
+ *
+ * Exported so the ownership rule can be tested without booting a daemon.
+ */
+export function removeStateIfOwned(workspace: string, pid: number): void {
+  const state = readState(workspace);
+  if (state && state.pid !== pid) return;
   try {
     fs.rmSync(statePath(workspace), { force: true });
   } catch {
@@ -1022,7 +1035,7 @@ async function commandStart(parsed: ParsedArgs): Promise<number> {
   const token = parsed.token ?? process.env.SUPERIU_GATEWAY_TOKEN ?? generateToken();
   const version = resolveVersion();
 
-  // Read BEFORE the takeover block below, which may `removeState(workspace)`:
+  // Read BEFORE the takeover block below, which may `removeStateIfOwned(...)`:
   // the auto-update settings of the daemon this process replaces are the
   // defaults for this boot (see the persistence block further down).
   const existingState = readState(workspace);
@@ -1043,7 +1056,7 @@ async function commandStart(parsed: ParsedArgs): Promise<number> {
     if (!exited) {
       process.stderr.write(`superiu-server: daemon pid ${existingState.pid} did not exit; continuing anyway\n`);
     }
-    removeState(workspace);
+    removeStateIfOwned(workspace, existingState.pid);
   }
 
   const publicDir = await materializeEmbeddedAssets();
@@ -1184,7 +1197,7 @@ async function commandStart(parsed: ParsedArgs): Promise<number> {
       .close()
       .catch(() => undefined)
       .then(() => {
-        if (stateFile) removeState(workspace);
+        if (stateFile) removeStateIfOwned(workspace, process.pid);
         process.exit(0);
       });
   };
@@ -1268,7 +1281,7 @@ async function commandStop(parsed: ParsedArgs): Promise<number> {
   const deadline = Date.now() + STOP_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (!isAlive(state.pid)) {
-      removeState(workspace);
+      removeStateIfOwned(workspace, state.pid);
       printJson({ stopped: true, pid: state.pid });
       return 0;
     }
@@ -1614,6 +1627,30 @@ async function acquireBinary(url: string, destination: string, source: string): 
 
   await downloadTo(url, destination);
   return 'full';
+}
+
+/**
+ * Restart the user systemd unit that owns the daemon, if one is ACTIVE.
+ *
+ * `update` normally restarts the daemon it found through the state file. That
+ * file can be gone while the unit keeps serving — a second daemon pointed at
+ * the same workspace overwrites it, and the loser's exit removes it — in which
+ * case the binary swap would otherwise never take effect. An inactive unit is
+ * left alone: starting a daemon that was not running is not this command's job.
+ *
+ * Returns whether a unit was restarted.
+ */
+function restartActiveUserUnit(): boolean {
+  try {
+    execFileSync('systemctl', ['--user', 'is-active', '--quiet', 'superiu-server'], { stdio: 'ignore' });
+  } catch {
+    return false;
+  }
+  execFileSync('systemctl', ['--user', 'restart', 'superiu-server'], {
+    stdio: 'ignore',
+    timeout: STOP_TIMEOUT_MS
+  });
+  return true;
 }
 
 /**
@@ -2096,10 +2133,20 @@ async function commandUpdate(parsed: ParsedArgs): Promise<number> {
   const state = readState(workspace);
   if (state && isAlive(state.pid)) {
     await terminateAndWait(state.pid);
-    removeState(workspace);
+    removeStateIfOwned(workspace, state.pid);
     try {
       restartDaemon(target, state);
       restarted = true;
+    } catch (err) {
+      process.stderr.write(`superiu-server: updated, but restart failed: ${describeError(err)}\n`);
+    }
+  } else {
+    // No state file to name the daemon (a second daemon on the same workspace
+    // can remove it), but a user unit may still be serving from the replaced
+    // inode. Restart it so the swap takes effect instead of silently leaving
+    // the old build running.
+    try {
+      restarted = restartActiveUserUnit();
     } catch (err) {
       process.stderr.write(`superiu-server: updated, but restart failed: ${describeError(err)}\n`);
     }
