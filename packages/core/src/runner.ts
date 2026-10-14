@@ -438,6 +438,8 @@ export class AgentRunner {
     const autoReviewEnabled =
       this.config.autoReview ?? (process.env.SUPERIU_AUTO_REVIEW ?? '1') !== '0';
     this.config.autoReview = autoReviewEnabled;
+    this.config.autoApprove =
+      this.config.autoApprove ?? (process.env.SUPERIU_AUTO_APPROVE ?? '0') === '1';
     this.config.autoReviewMode =
       this.config.autoReviewMode ??
       (process.env.SUPERIU_AUTO_REVIEW_MODE === 'strict' ? 'strict' : 'lenient');
@@ -458,6 +460,7 @@ export class AgentRunner {
         modelCaller: reviewCaller,
         rulesOnly: reviewCaller === undefined,
         mode: this.config.autoReviewMode,
+        autoApprove: this.config.autoApprove,
         workspaceDir
       });
     }
@@ -722,12 +725,16 @@ export class AgentRunner {
    * Turn the AutoReview gate on or off at runtime without rebuilding the runner.
    * Takes effect on the next tool call.
    */
-  public setAutoReview(enabled: boolean, mode?: AutoReviewMode): void {
+  public setAutoReview(enabled: boolean, mode?: AutoReviewMode, autoApprove?: boolean): void {
     this.config.autoReview = enabled;
     if (mode !== undefined) {
       this.config.autoReviewMode = mode;
     }
+    if (autoApprove !== undefined) {
+      this.config.autoApprove = autoApprove;
+    }
     const currentMode = mode ?? this.config.autoReviewMode ?? 'lenient';
+    const currentAutoApprove = autoApprove ?? this.config.autoApprove ?? false;
 
     if (enabled) {
       const reviewCaller = this.callerFactory ? this.buildCaller(this.models.resolve('review')) : undefined;
@@ -735,6 +742,7 @@ export class AgentRunner {
         modelCaller: reviewCaller,
         rulesOnly: reviewCaller === undefined,
         mode: currentMode,
+        autoApprove: currentAutoApprove,
         workspaceDir: this.config.workspaceDir ?? process.cwd()
       });
       this.reviewer = rebuilt;

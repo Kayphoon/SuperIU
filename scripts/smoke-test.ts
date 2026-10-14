@@ -991,6 +991,33 @@ async function runSmokeTests() {
     }
   });
 
+  await test('AutoReview autoApprove mode automatically approves escalated calls while denying hostile commands', async () => {
+    const autoWorkspace = path.join(workspace, 'review-auto');
+    await fs.mkdir(autoWorkspace, { recursive: true });
+    const reviewer = new AutoReviewer({ rulesOnly: true, autoApprove: true, workspaceDir: autoWorkspace });
+
+    // Hostile commands MUST STILL BE DENIED
+    const hostile = await reviewer.review({
+      toolCall: { id: 'h1', name: 'bash', args: { command: 'rm -rf /' } },
+      workspaceDir: autoWorkspace
+    });
+    assert(hostile.decision === 'deny', `hostile command must deny in autoApprove mode, got ${hostile.decision}`);
+
+    // Mutative or compound commands that usually escalate to ask_user are automatically approved
+    for (const cmd of [
+      'rm -rf dist',
+      'git clean -fd',
+      'git status && npm test',
+      'cat file | xargs rm'
+    ]) {
+      const review = await reviewer.review({
+        toolCall: { id: 'auto-ok', name: 'bash', args: { command: cmd } },
+        workspaceDir: autoWorkspace
+      });
+      assert(review.decision === 'allow', `command '${cmd}' should be auto-approved, got ${review.decision}`);
+    }
+  });
+
   await test('sensitive reads escalate, and without a gate the loop reports pending approval', async () => {
     const askWorkspace = path.join(workspace, 'review-ask');
     await fs.mkdir(askWorkspace, { recursive: true });

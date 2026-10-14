@@ -32,6 +32,8 @@ export interface RunnerConfig {
   reviewModelName?: string;
   /** Enable the automatic approval gate. Defaults to true. */
   autoReview?: boolean;
+  /** Automatically approve escalated calls without prompting the user. */
+  autoApprove?: boolean;
   /** Posture for tool calls the rule engine cannot classify. Defaults to `lenient`. */
   autoReviewMode?: AutoReviewMode;
   workspaceDir?: string;

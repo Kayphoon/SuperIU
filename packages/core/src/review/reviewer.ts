@@ -19,6 +19,8 @@ export interface AutoReviewerOptions {
   /** Posture for unclassified calls. Defaults to `lenient`. */
   mode?: AutoReviewMode;
   workspaceDir?: string;
+  /** Automatically approve escalated calls without prompting the user. */
+  autoApprove?: boolean;
 }
 
 const REVIEW_SYSTEM_PROMPT = [
@@ -133,6 +135,7 @@ function parseReviewPayload(text: string): Partial<ReviewResult> | null {
 export class AutoReviewer implements IAutoReviewer {
   public readonly mode: AutoReviewMode;
   public readonly rulesOnly: boolean;
+  public readonly autoApprove: boolean;
   public modelCaller?: StepModelCaller;
   private workspaceDir: string;
   private sessionRules = new Map<string, Set<string>>();
@@ -140,8 +143,24 @@ export class AutoReviewer implements IAutoReviewer {
   constructor(options: AutoReviewerOptions = {}) {
     this.mode = options.mode ?? 'lenient';
     this.rulesOnly = options.rulesOnly ?? false;
+    this.autoApprove = options.autoApprove ?? false;
     this.modelCaller = options.modelCaller;
     this.workspaceDir = options.workspaceDir ?? process.cwd();
+  }
+
+  private finalizeVerdict(result: ReviewResult, scoped: ToolReviewContext): ReviewResult {
+    if (result.decision === 'ask_user') {
+      if (this.autoApprove) {
+        return {
+          decision: 'allow',
+          riskLevel: result.riskLevel,
+          reason: `${result.reason} (Auto-approved by AutoReview)`,
+          reviewedBy: result.reviewedBy
+        };
+      }
+      result.suggestedPattern = deriveSuggestedPattern(scoped.toolCall);
+    }
+    return result;
   }
 
   /**
@@ -192,18 +211,12 @@ export class AutoReviewer implements IAutoReviewer {
 
     const ruleResult = checkRules(scoped);
     if (ruleResult) {
-      if (ruleResult.decision === 'ask_user') {
-        ruleResult.suggestedPattern = deriveSuggestedPattern(scoped.toolCall);
-      }
-      return ruleResult;
+      return this.finalizeVerdict(ruleResult, scoped);
     }
 
     if (this.rulesOnly || !this.modelCaller) {
       const fallback = fallbackResult(scoped, this.mode);
-      if (fallback.decision === 'ask_user') {
-        fallback.suggestedPattern = deriveSuggestedPattern(scoped.toolCall);
-      }
-      return fallback;
+      return this.finalizeVerdict(fallback, scoped);
     }
 
     const messages: CoreMessage[] = [{ role: 'user', content: buildReviewPrompt(scoped) }];
@@ -228,31 +241,26 @@ export class AutoReviewer implements IAutoReviewer {
           reason: parsed?.reason || `Review model verdict: ${decision}`,
           reviewedBy: 'model'
         };
-        if (decision === 'ask_user') {
-          result.suggestedPattern = deriveSuggestedPattern(scoped.toolCall);
-        }
-        return result;
+        return this.finalizeVerdict(result, scoped);
       }
     } catch (err: unknown) {
       // Fail-safe, never fail-open: a review-model fault escalates to the human
       // instead of silently granting permission.
       const message = err instanceof Error ? err.message : String(err);
-      return {
+      return this.finalizeVerdict({
         decision: 'ask_user',
         riskLevel: 'high',
         reason: `Review model unavailable (${message}); escalating to user`,
-        reviewedBy: 'model',
-        suggestedPattern: deriveSuggestedPattern(scoped.toolCall)
-      };
+        reviewedBy: 'model'
+      }, scoped);
     }
 
     // Unparseable or invalid model output is also a failed review.
-    return {
+    return this.finalizeVerdict({
       decision: 'ask_user',
       riskLevel: classifyFallbackRisk(scoped),
       reason: 'Review model returned no usable verdict; escalating to user',
-      reviewedBy: 'model',
-      suggestedPattern: deriveSuggestedPattern(scoped.toolCall)
-    };
+      reviewedBy: 'model'
+    }, scoped);
   }
 }

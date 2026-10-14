@@ -5369,6 +5369,15 @@
                 </div>
                 <button id="set-auto-review" class="siu-switch" data-on="false" role="switch" aria-checked="false" aria-label="AutoReview" data-i18n-aria-label="settings.autoReview.title"></button>
               </div>
+              <div class="siu-toggle-row mt-3">
+                <div class="flex-1">
+                  <div class="siu-toggle-row-title" data-i18n="settings.autoReview.autoApprove">全自动接管审批（免人工确认）</div>
+                  <p class="siu-toggle-row-hint" data-i18n="settings.autoReview.autoApproveHint">
+                    由 AutoReview 全自动接管权限审批，自动放行常规及敏感操作，仅拦截毁灭性破坏指令（如格式化、删除根目录），全程无需手动点击审批卡片。
+                  </p>
+                </div>
+                <button id="set-auto-approve" class="siu-switch" data-on="false" role="switch" aria-checked="false" aria-label="全自动接管审批" data-i18n-aria-label="settings.autoReview.autoApprove"></button>
+              </div>
               <div class="mt-4">
                 <label class="siu-field-label" for="role-review-model" data-i18n="settings.autoReview.model">审查模型（Review Model）</label>
                 <select id="role-review-model" class="siu-field"></select>
@@ -9402,6 +9411,7 @@
           state.draftTitleModel,
           state.draftMemoryModel,
           $('set-auto-review').dataset.on === 'true',
+          $('set-auto-approve')?.dataset?.on === 'true',
           // Last, so the existing fields keep their positions and an untouched
           // tree still compares equal to the baseline below.
           modelConfigsFingerprint(state.modelConfigsDraft)
@@ -9418,6 +9428,7 @@
           view.titleModelName || '',
           view.memoryModelName || '',
           Boolean(view.autoReview),
+          Boolean(view.autoApprove),
           modelConfigsFingerprint(state.savedModelConfigs)
         ]);
       }
@@ -9460,6 +9471,10 @@
         // them here too would duplicate that logic and hardcode the English.
         $('set-auto-review').dataset.on = String(view.autoReview);
         $('set-auto-review').setAttribute('aria-checked', String(view.autoReview));
+        if ($('set-auto-approve')) {
+          $('set-auto-approve').dataset.on = String(Boolean(view.autoApprove));
+          $('set-auto-approve').setAttribute('aria-checked', String(Boolean(view.autoApprove)));
+        }
         // The select is a live preview, so it shows the language actually in
         // force — not the last value read from disk, which Save is what commits.
         // (Assigning `.value` fires no `change`, so this cannot loop back into
@@ -10110,6 +10125,14 @@
         renderSettingsDirty();
       });
 
+      $('set-auto-approve')?.addEventListener('click', () => {
+        const toggle = $('set-auto-approve');
+        const next = toggle.dataset.on !== 'true';
+        toggle.dataset.on = String(next);
+        toggle.setAttribute('aria-checked', String(next));
+        renderSettingsDirty();
+      });
+
 
       const DEFAULT_PROVIDER_TEMPLATES = [
         { id: 'openai', name: 'OpenAI', baseURL: 'https://api.openai.com/v1', helpUrl: 'https://platform.openai.com/api-keys' },
@@ -10513,6 +10536,7 @@
           titleModelName: state.draftTitleModel,
           memoryModelName: state.draftMemoryModel,
           autoReview: $('set-auto-review').dataset.on === 'true',
+          autoApprove: $('set-auto-approve')?.dataset?.on === 'true',
           language: $('set-language').value,
           // A full replacement of the map, so every default-only entry is
           // pruned first: the draft accumulates an object for every model the

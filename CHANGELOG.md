@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.69 (2026-10-14)
+
+### 中文
+
+- **AutoReview 权限全自动接管模式（免人工确认）**：
+  - **支持全自动接管审批（Unattended Auto-Approve）**：在 AutoReview 设置中新增「全自动接管审批（免人工确认）」开关，开启后由 AutoReview 全自动接管并放行常规及敏感操作（如文件修改、包安装、Git 操作、清理构建产物等），全程无需手动点击审批卡片；
+  - **核心破坏性指令硬阻断兜底保障**：在全自动接管模式下，安全规则底线依旧生效，针对格式化磁盘、删除系统根目录（`rm -rf /`）、原始扇区写入及凭据外传等不可恢复的恶意行为，保持严格阻断（`deny`），保障系统底线安全；
+  - **全链路端到端同步与运行时即时生效**：支持从 Web 控制台设置面板、环境变量 `SUPERIU_AUTO_APPROVE=1` 或配置文件动态切换，运行时立即生效无需重启。
+
+### English
+
+- **AutoReview fully unattended auto-approval mode**:
+  - **Autonomous approval takeover**: Added an "Auto-Approve All (Unattended)" toggle in the AutoReview settings pane. When enabled, AutoReview takes full ownership of tool call permissions, automatically approving routine and sensitive operations (such as file edits, package installations, git commands, and build artifact cleanup) without presenting interactive confirmation cards;
+  - **Catastrophic command hard-deny safety net**: Even in unattended auto-approve mode, critical safety guardrails remain active. Irreversible and malicious commands (such as disk formatting, root deletion via `rm -rf /`, raw disk block writes, and credential exfiltration) are strictly denied (`deny`), preventing catastrophic damage;
+  - **End-to-end sync and runtime hot-switching**: Configurable via Web Settings, environment variable `SUPERIU_AUTO_APPROVE=1`, or settings files, taking effect immediately at runtime without requiring an agent restart.
+
 ## v0.2.68 (2026-10-14)
 
 ### 中文
