@@ -81,6 +81,43 @@ describe('Multi-provider routing and AI SDK integration', () => {
     });
   });
 
+  describe('AgentRunner.setAutoReview', () => {
+    const makeRunner = (): AgentRunner =>
+      new AgentRunner({
+        workspaceDir: '/tmp',
+        stepCaller: async () => ({ text: 'ok' })
+      });
+
+    it('clears the reviewer when auto-review is disabled', () => {
+      const runner = makeRunner();
+      expect(runner.reviewer).toBeDefined();
+
+      runner.setAutoReview(false);
+
+      expect(runner.reviewer).toBeUndefined();
+    });
+
+    it('rebuilds the reviewer when auto-review is re-enabled', () => {
+      const runner = makeRunner();
+      runner.setAutoReview(false);
+      expect(runner.reviewer).toBeUndefined();
+
+      runner.setAutoReview(true);
+
+      expect(runner.reviewer).toBeDefined();
+    });
+
+    it('keeps the reviewer defined when the review model is changed', () => {
+      const runner = makeRunner();
+      runner.setAutoReview(true);
+      expect(runner.reviewer).toBeDefined();
+
+      runner.setModel('review', { model: 'gpt-4o-mini' });
+
+      expect(runner.reviewer).toBeDefined();
+    });
+  });
+
   describe('AgentRunner.createLanguageModel', () => {
     it('creates Anthropic LanguageModelV1 with anthropic.messages provider', () => {
       const model = AgentRunner.createLanguageModel(

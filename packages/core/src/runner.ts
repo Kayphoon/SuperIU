@@ -24,7 +24,7 @@ import {
 } from './subagent/index.js';
 import type { StepModelCaller } from './loop/types.js';
 import { AutoReviewer } from './review/reviewer.js';
-import type { PermissionGate } from './review/types.js';
+import type { AutoReviewMode, PermissionGate } from './review/types.js';
 import { discoverSkills, type AgentSkill } from './skills/index.js';
 import {
   SessionManager,
@@ -719,6 +719,33 @@ export class AgentRunner {
   }
 
   /**
+   * Turn the AutoReview gate on or off at runtime without rebuilding the runner.
+   * Takes effect on the next tool call.
+   */
+  public setAutoReview(enabled: boolean, mode?: AutoReviewMode): void {
+    this.config.autoReview = enabled;
+    if (mode !== undefined) {
+      this.config.autoReviewMode = mode;
+    }
+    const currentMode = mode ?? this.config.autoReviewMode ?? 'lenient';
+
+    if (enabled) {
+      const reviewCaller = this.callerFactory ? this.buildCaller(this.models.resolve('review')) : undefined;
+      const rebuilt = new AutoReviewer({
+        modelCaller: reviewCaller,
+        rulesOnly: reviewCaller === undefined,
+        mode: currentMode,
+        workspaceDir: this.config.workspaceDir ?? process.cwd()
+      });
+      this.reviewer = rebuilt;
+      this.engine.reviewer = rebuilt;
+    } else {
+      this.reviewer = undefined;
+      this.engine.reviewer = undefined;
+    }
+  }
+
+  /**
    * Change the model for a role at runtime.
    *
    * `main` is what the chat UI's model selector drives. The new caller is built
@@ -736,16 +763,17 @@ export class AgentRunner {
     if (role === 'main') {
       this.stepCaller = this.buildCaller(this.models.resolve('main'));
       this.engine.stepCaller = this.stepCaller;
-    } else if (role === 'review' && this.reviewer && this.callerFactory) {
+    } else if (role === 'review' && this.callerFactory && this.config.autoReview !== false) {
       // Rebuild rather than patch `modelCaller`: `rulesOnly` is readonly and was
       // decided at construction, so a runner that started rule-only would ignore
       // an assigned caller. Requires `callerFactory` — with only an injected
       // caller there is no distinct model to build, and reusing the main caller
       // would let the main model approve its own actions, so the reviewer stays
       // rule-only instead.
+      const mode = this.reviewer?.mode ?? this.config.autoReviewMode ?? 'lenient';
       const rebuilt = new AutoReviewer({
         modelCaller: this.buildCaller(this.models.resolve('review')),
-        mode: this.reviewer.mode,
+        mode,
         workspaceDir: this.config.workspaceDir ?? process.cwd()
       });
       this.reviewer = rebuilt;

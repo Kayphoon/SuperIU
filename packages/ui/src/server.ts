@@ -1060,6 +1060,11 @@ let serverVersion = '0.0.0';
 /** Update hooks backing `/api/update`. */
 let updateHooks: UpdateHooks = {};
 let pendingDrainUpdate: (() => Promise<void>) | null = null;
+/**
+ * A runner rebuild deferred because a turn was in flight when the user saved
+ * settings. Executed by `handleChat`'s `finally` once the runner goes idle.
+ */
+let pendingRebuild: (() => void) | null = null;
 
 export interface PendingResumeMarker {
   sessionId: string;
@@ -1518,11 +1523,70 @@ function settingsView() {
 }
 
 /**
+ * Push the current settings onto the LIVE runner without rebuilding it.
+ *
+ * These are the settings that can change safely mid-session: the role→model
+ * routes (each `setModel` builds the new caller eagerly but the in-flight turn
+ * keeps the caller it started with, so the change lands on the next turn) and
+ * the AutoReview gate. A model/credential swap still needs the full rebuild.
+ */
+function syncRunnerRoutes(): void {
+  const toolModelInfo = getEffectiveToolModel();
+  const auxBase = toolModelInfo.model || settings.modelName;
+  const effectiveModel: Record<ModelRole, string> = {
+    main: settings.modelName,
+    review: settings.reviewModelName || process.env.OPENAI_REVIEW_MODEL_NAME || auxBase,
+    memory: settings.memoryModelName || process.env.OPENAI_MEMORY_MODEL_NAME || auxBase,
+    title: settings.titleModelName || process.env.OPENAI_TITLE_MODEL_NAME || auxBase
+  };
+  for (const role of MODEL_ROLES) {
+    const model = effectiveModel[role];
+    if (!model) continue;
+    const level = levelFor(model);
+    const provider = providerForModel(model);
+    runner.setModel(role, {
+      model,
+      provider: provider?.id,
+      apiKey: provider ? (provider.apiKey || PLACEHOLDER_KEY) : undefined,
+      baseURL: provider?.baseURL || undefined,
+      reasoningEffort: level
+    });
+  }
+}
+
+/**
+ * Swap the live runner for a fresh one built from the current settings,
+ * carrying the active session (or a fresh draft) and emotion state across.
+ */
+function rebuildRunner(): { restarted: boolean; sessionId: string } {
+  const activeSession = runner.getSessionFile();
+  const draft = !runner.session.materialized;
+  const carriedEmotion = runner.emotion;
+  const previousRunner = runner;
+  previousRunner.close();
+  // MCP connections live on the old runner's manager, which close() does not
+  // touch: disconnect explicitly so a settings rebuild cannot leak the stdio
+  // child processes a live server is backed by.
+  void previousRunner.getMcpManager().closeAll().catch(() => undefined);
+  runner = new AgentRunner(
+    runnerOptions(draft ? undefined : activeSession ?? undefined, undefined, draft)
+  );
+  runner.emotion = carriedEmotion;
+  // Reconnect the configured MCP servers on the rebuilt runner. `applySettings`
+  // is synchronous, so this is fire-and-forget: failures are contained per
+  // server by the manager and surface via `/api/mcp`, not in the save response.
+  void runner.initMcp().catch((err) => console.warn('[server] initMcp warning:', err));
+  return { restarted: true, sessionId: runner.getSessionId() };
+}
+
+/**
  * Merge a settings patch, persist it, and rebuild the runner so new credentials
  * and models take effect immediately. The active session is re-opened by path
  * so the conversation survives the swap.
  */
-function applySettings(patch: Record<string, unknown>): { restarted: boolean; sessionId: string } {
+function applySettings(
+  patch: Record<string, unknown>
+): { restarted: boolean; sessionId: string; pendingRebuild?: boolean } {
   const next: UiSettings = { ...settings };
 
   if (typeof patch.apiKey === 'string' && patch.apiKey.length > 0) next.apiKey = patch.apiKey.trim();
@@ -1711,33 +1775,28 @@ function applySettings(patch: Record<string, unknown>): { restarted: boolean; se
   settings = next;
   persistSettings(settings);
 
-  if (!runnerChanged) {
-    return { restarted: false, sessionId: runner.getSessionId() };
+  // Sync runtime settings on the live runner (routes, AutoReview).
+  // These take effect immediately (AutoReview, review model) or on the next turn (main model).
+  syncRunnerRoutes();
+  if (typeof settings.autoReview === 'boolean') {
+    runner.setAutoReview(settings.autoReview);
   }
 
-  const activeSession = runner.getSessionFile();
-  // A draft has no file on disk yet, so `resolveSessionFile` cannot find it and
-  // the rebuild would silently start a different session. Carry the plan
-  // forward as a fresh draft instead — an unsent draft holds no messages, so
-  // nothing is lost and the new session still materializes on its first one.
-  const draft = !runner.session.materialized;
-  const carriedEmotion = runner.emotion;
-  const previousRunner = runner;
-  previousRunner.close();
-  // MCP connections live on the old runner's manager, which close() does not
-  // touch: disconnect explicitly so a settings rebuild cannot leak the stdio
-  // child processes a live server is backed by.
-  void previousRunner.getMcpManager().closeAll().catch(() => undefined);
-  runner = new AgentRunner(
-    runnerOptions(draft ? undefined : activeSession ?? undefined, undefined, draft)
-  );
-  runner.emotion = carriedEmotion;
-  // Reconnect the configured MCP servers on the rebuilt runner. `applySettings`
-  // is synchronous, so this is fire-and-forget: failures are contained per
-  // server by the manager and surface via `/api/mcp`, not in the save response.
-  void runner.initMcp().catch((err) => console.warn('[server] initMcp warning:', err));
+  if (!runnerChanged) {
+    return { restarted: false, pendingRebuild: false, sessionId: runner.getSessionId() };
+  }
 
-  return { restarted: true, sessionId: runner.getSessionId() };
+  if (runner.status === 'idle') {
+    pendingRebuild = null;
+    const rebuilt = rebuildRunner();
+    return { ...rebuilt, pendingRebuild: false };
+  }
+
+  // Runner is busy: defer the rebuild until the in-flight turn finishes.
+  pendingRebuild = () => {
+    rebuildRunner();
+  };
+  return { restarted: false, pendingRebuild: true, sessionId: runner.getSessionId() };
 }
 
 // ---------------------------------------------------------------------------
@@ -1997,22 +2056,12 @@ async function handleApi(
       return true;
     }
 
-    // `language` and `theme` are presentation-only and never touch the runner,
-    // so a patch that carries nothing else must not be gated on an idle agent —
-    // otherwise switching the interface language or the appearance mid-turn
-    // fails with a 409 and the UI visibly snaps back. Any other key still
-    // requires an idle runner.
-    const presentationOnly = Object.keys(body).every(
-      (key) => key === 'language' || key === 'theme' || key === 'advertiseUrl'
-    );
-
-    if (!presentationOnly && runner.status !== 'idle') {
-      sendError(res, 409, 'Cannot apply settings while the agent is busy. Abort the turn first.');
-      return true;
-    }
+    // Settings may be saved at any time. A patch that changes the runner while a
+    // turn is in flight is not rejected: the change is persisted immediately and
+    // the rebuild is deferred until the turn finishes (see `applySettings`).
 
     // Apply first: `settingsView()` must observe the new state, not the old.
-    let applied: { restarted: boolean; sessionId: string };
+    let applied: { restarted: boolean; sessionId: string; pendingRebuild?: boolean };
     try {
       applied = applySettings(body);
     } catch (err) {
@@ -2616,6 +2665,16 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
           process.stderr.write(`superiu-server: drain update failed: ${errorMessage(err)}\n`);
         }
       }, 80).unref();
+    }
+    // A settings save that arrived mid-turn deferred its runner rebuild to now.
+    if (pendingRebuild && runner.status === 'idle') {
+      const rebuild = pendingRebuild;
+      pendingRebuild = null;
+      try {
+        rebuild();
+      } catch (err) {
+        console.error(`[server] pending rebuild failed: ${redactSecrets(errorMessage(err), 300)}`);
+      }
     }
   }
 }

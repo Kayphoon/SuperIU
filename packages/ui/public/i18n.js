@@ -212,6 +212,7 @@ const DICT = {
     'settings.saving': '保存中…',
     'settings.saved': '✓ 已保存',
     'settings.savedRestarted': '✓ 已保存并生效',
+    'settings.savedPending': '✓ 已保存（将在任务完成后生效）',
 
     'settings.nav.general': '通用',
     'settings.nav.autoreview': 'AutoReview',
@@ -862,6 +863,7 @@ const DICT = {
     'settings.saving': 'Saving…',
     'settings.saved': '✓ Saved',
     'settings.savedRestarted': '✓ Saved and applied',
+    'settings.savedPending': '✓ Saved (will apply after task finishes)',
 
     'settings.nav.general': 'General',
     'settings.nav.autoreview': 'AutoReview',

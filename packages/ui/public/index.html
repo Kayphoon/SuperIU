@@ -10528,7 +10528,11 @@
             await postJson('/api/model', { role: 'review', model: view.reviewModelName }).catch(() => {});
           }
           fillSettingsForm(view);
-          message.textContent = view.restarted ? tr('settings.savedRestarted') : tr('settings.saved');
+          message.textContent = view.pendingRebuild
+            ? tr('settings.savedPending')
+            : view.restarted
+            ? tr('settings.savedRestarted')
+            : tr('settings.saved');
           message.className = 'siu-approval-status mr-auto';
           message.dataset.tone = 'ok';
           toast(tr('toast.settingsSaved'), 'ok');
