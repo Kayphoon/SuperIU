@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.66 (2026-10-14)
+
+### 中文
+
+- **Auto 权限审批体系重构与参数智能通配记忆**：
+  - **规则引擎词法解析与误判彻底根治**：引入命令位置分析（`argv[0]`），彻底修复 `-sh`（如 `du -sh`）或 `--shell` 等常规参数被误判为执行 `sh` 脚本的问题；识别并放行 `2>/dev/null`、`2>&1`、`>/dev/null` 等只读丢弃重定向；将 `du`、`df`、`which`、`whoami`、`uname`、`uptime`、`date`、`ps` 等排查命令加入只读快车道（0 延迟直接放行）。
+  - **会话级规则动态记忆（Always Allow in Session）**：审批卡片提供「允许执行」、「本会话始终允许（如 `pnpm test *`）」、「拒绝」三按钮；针对常规开发/测试/构建命令自动建议前缀通配规则，后续传入不同参数自动放行不再弹窗打扰；针对 `rm`、`git reset/clean` 等高危破坏性命令强制采用精确匹配，防止权限扩散；新建/切换会话自动隔离清空。
+  - **CLI 终端交互对齐**：命令行审批卡片展示建议规则，支持 `[y=允许一次 / a=本会话始终允许 / N=拒绝]` 快速审批。
+
+### English
+
+- **Streamlined Auto permissions with syntax-aware rule parsing and session rule memory**:
+  - **Syntax-aware token parsing eliminates false-positive escalations**: Inspects command token positions (`argv[0]`) rather than raw substrings, eliminating false positives on options like `-sh` (e.g. `du -sh`) or `--shell` being flagged as script interpreters; detects and strips harmless discard redirects like `2>/dev/null`, `2>&1`, and `>/dev/null`; adds safe inspection commands (`du`, `df`, `which`, `whoami`, `uname`, `uptime`, `date`, `ps`) directly to the zero-latency allowlist fast path.
+  - **Dynamic session permission memory (Always in Session)**: Interactive approval cards now offer "Approve", "Always in Session (e.g. `pnpm test *`)", and "Reject"; automatically suggests prefix wildcard patterns for routine build and test commands so variations in arguments bypass subsequent prompts, while enforcing strict exact matching on destructive operations (`rm`, `git reset/clean`) to prevent permission escalation; session rules are automatically reset on session switch/create.
+  - **CLI approval parity**: Command line prompts display suggested session rules and accept `[y=once / a=always in session / N=reject]`.
+
 ## v0.2.65 (2026-10-13)
 
 ### 中文
