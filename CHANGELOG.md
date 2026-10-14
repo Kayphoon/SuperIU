@@ -14,6 +14,20 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.71 (2026-10-14)
+
+### 中文
+
+- **修复：静态资源恢复在并发请求下会重复解压**：
+  - 一个页面加载会同时请求外壳与多个静态资源。若资源目录此时已被清理，多个请求会在同一时刻各自触发一次「重新解压」，彼此争用同一个暂存目录（同名 `.staging-<pid>`），可能让其中一个解压失败并回落到临时目录；
+  - 恢复钩子改为**单飞（single-flight）**：同一时刻的并发缺失只触发一次重新解压，其余请求复用同一个 Promise；恢复完成后状态自动清空，后续再次被清理时仍能自愈。
+
+### English
+
+- **Fix: static-asset recovery could extract repeatedly under concurrent requests**:
+  - One page load requests the shell plus several assets at once. If the asset directory has just been swept, those requests each triggered their own re-extraction at the same moment, racing on the same staging directory (identically named `.staging-<pid>`), which could make one of them fail and fall back to a temp directory;
+  - The recovery hook is now **single-flight**: concurrent misses share one re-extraction promise, and the state clears once it settles so a later sweep still recovers.
+
 ## v0.2.70 (2026-10-14)
 
 ### 中文

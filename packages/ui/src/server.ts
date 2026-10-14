@@ -94,8 +94,11 @@ export interface StartServerOptions {
   /** Optional lifecycle hooks to drive the `/api/update` routes. */
   updateHooks?: UpdateHooks;
   /**
-   * Optional recovery callback to re-materialize or verify public directory
-   * if index.html is missing at request time (e.g. daemon assets wiped by tmpwatch).
+   * Optional recovery hook: called when `index.html` is missing under the
+   * resolved `publicDir` (a whole-directory sweep, e.g. a temp cleaner removing
+   * the daemon's extracted assets). It must return the directory to serve from,
+   * or `undefined` to give up. Calls are single-flight, so a burst of misses
+   * from one page load triggers exactly one re-materialization.
    */
   ensurePublicDir?: () => Promise<string | undefined> | string | undefined;
 }
@@ -2758,6 +2761,27 @@ function serveStaticPath(res: http.ServerResponse, pathname: string): boolean {
   return false;
 }
 
+/**
+ * In-flight `ensurePublicDir` call. A browser fetches the shell and several
+ * assets at once, so a sweep produces a burst of misses in the same tick;
+ * without this, each one re-extracts the whole asset set and they race on the
+ * same staging directory. Cleared on settle so a later sweep still recovers.
+ */
+let pendingEnsurePublicDir: Promise<string | undefined> | undefined;
+
+async function ensurePublicDirOnce(): Promise<string | undefined> {
+  const hook = ENSURE_PUBLIC_DIR;
+  if (!hook) return undefined;
+  if (!pendingEnsurePublicDir) {
+    pendingEnsurePublicDir = (async () => hook())()
+      .catch(() => undefined)
+      .finally(() => {
+        pendingEnsurePublicDir = undefined;
+      });
+  }
+  return pendingEnsurePublicDir;
+}
+
 async function handleStatic(req: http.IncomingMessage, res: http.ServerResponse, pathname: string): Promise<void> {
   if (serveStaticPath(res, pathname)) return;
 
@@ -2768,14 +2792,10 @@ async function handleStatic(req: http.IncomingMessage, res: http.ServerResponse,
   // A healthy server therefore never consults the hook, including on the
   // navigation routes that reach this point by design.
   if (ENSURE_PUBLIC_DIR && !fs.existsSync(path.join(PUBLIC_DIR, 'index.html'))) {
-    try {
-      const refreshed = await ENSURE_PUBLIC_DIR();
-      if (refreshed) {
-        PUBLIC_DIR = path.resolve(refreshed);
-        if (serveStaticPath(res, pathname)) return;
-      }
-    } catch {
-      // Fall through to the SPA fallback below.
+    const refreshed = await ensurePublicDirOnce();
+    if (refreshed) {
+      PUBLIC_DIR = path.resolve(refreshed);
+      if (serveStaticPath(res, pathname)) return;
     }
   }
 
@@ -2840,6 +2860,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
 
   PUBLIC_DIR = options.publicDir ? path.resolve(options.publicDir) : path.resolve(HERE, '..', 'public');
   ENSURE_PUBLIC_DIR = options.ensurePublicDir;
+  pendingEnsurePublicDir = undefined;
   SETTINGS_FILE = options.settingsFile
     ? path.resolve(options.settingsFile)
     : path.join(workspaceDir, '.superiu', 'ui-settings.json');
