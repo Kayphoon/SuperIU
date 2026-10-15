@@ -4833,7 +4833,7 @@
         <div class="siu-net-banner-inner no-drag">
           <span class="siu-status-dot" id="net-banner-dot" data-status="running"></span>
           <span id="net-banner-text"></span>
-          <button id="btn-net-retry" type="button" class="siu-net-banner-btn no-drag" data-i18n="net.banner.retry" hidden>立即重试</button>
+          <button id="btn-net-retry" type="button" class="siu-net-banner-btn no-drag" data-i18n="net.banner.reconnectNow" hidden>立即重连</button>
           <button id="btn-net-reload" type="button" class="siu-net-banner-btn no-drag" data-i18n="net.banner.reload" hidden>刷新页面</button>
         </div>
       </div>
@@ -5023,6 +5023,10 @@
                   data-i18n-aria-label="composer.effort.list"
                 ></div>
               </div>
+              <!-- Held-prompt hint: filled by renderComposerQueueHint() only
+                   while the health machine is below HEALTHY and a queue exists,
+                   so the first paint has nothing to translate. -->
+              <div id="composer-queue-hint" class="text-[11px] text-muted px-1 pb-1" hidden></div>
               <div class="siu-composer-well">
                 <textarea
                   id="prompt"
@@ -6263,6 +6267,250 @@
         retrying: false
       };
 
+      // >>> NET-HEALTH-PURE-START
+      // ── Why a pure core ──────────────────────────────────────────────────
+      // The layered escalation is a CLOCK, not a symptom counter: it has to
+      // move RECOVERING → DEGRADED → DOWN as time passes, from the FIRST failure
+      // of an episode, and reset only on a confirmed success. Encoding that in
+      // DOM side effects makes it untestable, so the clock and the transitions
+      // live here — no DOM, no network, no `tr()` — and the caller in the module
+      // wires the effects. The tests extract exactly this region and drive it
+      // with a fake clock, so they exercise the shipped logic, not a copy.
+      //
+      // One config object owns every threshold, so a test can shrink the 3s/15s
+      // windows without hunting for three hardcoded call sites.
+      const NET_HEALTH_CONFIG = {
+        degradedAfterMs: 3000,
+        downAfterMs: 15000,
+        // A GET that failed only because the link is down waits this long for a
+        // confirmed recovery before it rejects; a short outage then reads as a
+        // slow request rather than an error.
+        apiRetryDeadlineMs: 30000,
+        probeBaseMs: 2000,
+        probeMaxMs: 30000
+      };
+
+      /** Pure: machine health → the banner's existing `data-state` vocabulary. */
+      function healthBannerState(health) {
+        if (health === 'DOWN') return 'offline';
+        if (health === 'DEGRADED') return 'degraded';
+        return 'online';
+      }
+
+      /**
+       * Pure health machine.
+       *
+       * States: `HEALTHY` (no episode), `RECOVERING` (0–degradedAfterMs since the
+       * first failure, silent), `DEGRADED` (≥degradedAfterMs, ambient cue only),
+       * `DOWN` (≥downAfterMs, the banner). Time is measured from the first
+       * failure of the episode — seeded from the IPC payload's `downSinceMs`
+       * when present — and cleared only by `succeed()`.
+       *
+       * `now` / `setTimer` / `clearTimer` are injectable so tests can run the
+       * clock by hand instead of sleeping.
+       */
+      function createHealthMachine(options) {
+        const opts = options || {};
+        const config = Object.assign({}, NET_HEALTH_CONFIG, opts.config);
+        const now = opts.now || (() => Date.now());
+        const setTimer = opts.setTimer || ((fn, ms) => setTimeout(fn, ms));
+        const clearTimer = opts.clearTimer || ((id) => clearTimeout(id));
+
+        let state = 'HEALTHY';
+        let downSince = 0; // epoch ms of the episode's first failure; 0 = none
+        let timer = null;
+        const listeners = new Set();
+
+        function emit() {
+          for (const cb of Array.from(listeners)) {
+            try {
+              cb(state);
+            } catch {
+              /* a listener must never break the machine */
+            }
+          }
+        }
+
+        function setState(next) {
+          if (next === state) return;
+          state = next;
+          emit();
+        }
+
+        function elapsedMs() {
+          return downSince ? Math.max(0, now() - downSince) : 0;
+        }
+
+        function clearScheduled() {
+          if (timer !== null) {
+            clearTimer(timer);
+            timer = null;
+          }
+        }
+
+        // Re-arm the single pending transition so the machine advances on its
+        // own as time passes (no further failures required).
+        function scheduleNext() {
+          clearScheduled();
+          if (state === 'HEALTHY' || state === 'DOWN') return;
+          const e = elapsedMs();
+          const target = e < config.degradedAfterMs ? config.degradedAfterMs : config.downAfterMs;
+          timer = setTimer(() => {
+            timer = null;
+            evaluate();
+            // Re-arm so the machine keeps advancing to the next threshold.
+            scheduleNext();
+          }, Math.max(0, target - e));
+        }
+
+        function evaluate(online) {
+          // No episode in progress → nothing to compute. (Checking `downSince`,
+          // not `state`, is what lets the FIRST failure transition: at that
+          // point `state` is still HEALTHY but the clock has just been seeded.)
+          if (downSince === 0) return state;
+          // `navigator.onLine === false` is a hard fast-path to DOWN; `true` is
+          // NOT evidence of health, so it only ever falls through to the clock.
+          if (online === false) {
+            setState('DOWN');
+            return state;
+          }
+          const e = elapsedMs();
+          if (e >= config.downAfterMs) setState('DOWN');
+          else if (e >= config.degradedAfterMs) setState('DEGRADED');
+          else setState('RECOVERING');
+          return state;
+        }
+
+        function subscribe(cb) {
+          listeners.add(cb);
+          return () => listeners.delete(cb);
+        }
+
+        return {
+          get state() {
+            return state;
+          },
+          elapsedMs,
+          downSinceMs: () => downSince || 0,
+          subscribe,
+          fail(meta) {
+            const seed =
+              meta && typeof meta.downSinceMs === 'number' && meta.downSinceMs > 0 ? meta.downSinceMs : now();
+            // Seed the clock only at the START of an episode: later probes must
+            // not reset the window forward, or a persistent outage would never
+            // reach DOWN.
+            if (state === 'HEALTHY' || downSince === 0) downSince = seed;
+            evaluate(meta && meta.online);
+            scheduleNext();
+            return state;
+          },
+          succeed() {
+            clearScheduled();
+            downSince = 0;
+            setState('HEALTHY');
+            return state;
+          },
+          refresh(online) {
+            evaluate(online);
+            scheduleNext();
+            return state;
+          },
+          /**
+           * Resolve `true` when the machine next reaches HEALTHY, or `false`
+           * after `maxWaitMs`. Already-healthy resolves immediately.
+           */
+          waitHealthy(maxWaitMs) {
+            if (state === 'HEALTHY') return Promise.resolve(true);
+            const budget = typeof maxWaitMs === 'number' ? Math.max(0, maxWaitMs) : config.apiRetryDeadlineMs;
+            return new Promise((resolve) => {
+              let settled = false;
+              let t = null;
+              const finish = (ok) => {
+                if (settled) return;
+                settled = true;
+                unsubscribe();
+                if (t !== null) clearTimer(t);
+                resolve(ok);
+              };
+              const unsubscribe = subscribe((s) => {
+                if (s === 'HEALTHY') finish(true);
+              });
+              t = setTimer(() => finish(false), budget);
+            });
+          },
+          dispose() {
+            clearScheduled();
+            listeners.clear();
+          }
+        };
+      }
+
+      /**
+       * Pure pending-prompt queue.
+       *
+       * Persisted so a reload does not lose intent, and shaped so a caller can
+       * peek/retry an item that the server rejects as busy without dropping it.
+       * Storage is injected (a `localStorage`-like object) so tests need no DOM.
+       */
+      function createPendingQueue(options) {
+        const opts = options || {};
+        const storageKey = opts.storageKey || 'superiu.pendingQueue';
+        const storage = opts.storage || null;
+        const now = opts.now || (() => Date.now());
+        let items = [];
+        let seq = 0;
+
+        function persist() {
+          if (!storage) return;
+          try {
+            storage.setItem(storageKey, JSON.stringify(items));
+          } catch {
+            /* private mode / quota: the in-memory queue still works */
+          }
+        }
+
+        return {
+          restore() {
+            if (!storage) return items.slice();
+            try {
+              const raw = storage.getItem(storageKey);
+              const parsed = raw ? JSON.parse(raw) : [];
+              items = Array.isArray(parsed) ? parsed.filter((it) => it && typeof it.text === 'string') : [];
+            } catch {
+              items = [];
+            }
+            // Rewrite the cleaned list so a malformed entry is dropped ONCE,
+            // not re-parsed and re-dropped on every reload.
+            persist();
+            return items.slice();
+          },
+          size: () => items.length,
+          list: () => items.slice(),
+          peek: () => items[0] || null,
+          enqueue(text) {
+            const item = { id: 'q' + ++seq + '-' + now(), text: String(text), at: now() };
+            items.push(item);
+            persist();
+            return item;
+          },
+          remove(id) {
+            const before = items.length;
+            items = items.filter((it) => it.id !== id);
+            if (items.length !== before) persist();
+          },
+          dequeue() {
+            const item = items.shift() || null;
+            if (item) persist();
+            return item;
+          },
+          clear() {
+            items = [];
+            persist();
+          }
+        };
+      }
+      // >>> NET-HEALTH-PURE-END
+
       const $ = (id) => document.getElementById(id);
       const transcript = $('transcript');
       const promptInput = $('prompt');
@@ -6402,22 +6650,15 @@
         showConnectScreen();
       }
 
-      function setConnectionState(next) {
-        if (state.unauthorized) return;
-        const prev = netState.status;
-        netState.status = next;
-        renderNetworkBanner();
-        const stale = $('stale-indicator');
-        if (next === 'online') {
-          if (stale) stale.hidden = true;
-          if (prev !== 'online') {
-            void refreshStatus({ background: true });
-            void refreshSessions({ background: true });
-          }
-        } else if (stale) {
-          stale.hidden = false;
-        }
-      }
+      // =======================================================================
+      // Network health: DOM side effects
+      //
+      // The pure clock above decides WHEN each state is reached; this section
+      // maps it onto the DOM. Every existing id/attribute and the banner's
+      // `data-state` vocabulary (`online|degraded|offline`) are preserved, so
+      // the CSS and the banner tests keep working — only the timing changes.
+      // =======================================================================
+      const netHealth = createHealthMachine();
 
       function onNetworkSuccess() {
         netState.consecutiveFailures = 0;
@@ -6426,17 +6667,201 @@
           clearTimeout(netState.reconnectTimer);
           netState.reconnectTimer = null;
         }
-        netState.reconnectDelay = 2000;
-        if (netState.status !== 'online') {
-          setConnectionState('online');
+        netState.reconnectDelay = NET_HEALTH_CONFIG.probeBaseMs;
+        // A confirmed success is the ONLY thing that clears an episode, and it
+        // collapses straight to HEALTHY with no intermediate flash.
+        netHealth.succeed();
+      }
+
+      /** Start/refresh a failure episode without reporting back to the shell. */
+      function markTransportDown(downSinceMs) {
+        netState.consecutiveFailures += 1;
+        netHealth.fail({ downSinceMs, online: navigator.onLine });
+        scheduleReconnectProbe();
+      }
+
+      function onNetworkFailure(meta) {
+        // Ask the desktop shell to restart the transport. Guarded and
+        // fire-and-forget: a shell that predates this API must not throw, and a
+        // failed report must never block the SPA's own recovery.
+        try {
+          window.superiuDesktop?.reportNetworkFailure?.();
+        } catch {
+          /* the bridge is optional */
+        }
+        markTransportDown(meta?.downSinceMs);
+      }
+
+      /**
+       * Bridge a desktop connection-state push into the machine. The payload's
+       * `transport` is the shell's own verdict; `downSinceMs` seeds the episode
+       * clock so the 3s/15s windows are measured from the real first failure,
+       * not from the moment this tab happened to notice.
+       */
+      function applyTransportSignal(info) {
+        if (!info) return;
+        if (info.transport === 'ok') {
+          onNetworkSuccess();
+          return;
+        }
+        const failing =
+          info.transport === 'tunnel-restarting' ||
+          info.transport === 'gateway-reconnecting' ||
+          info.transport === 'server-unreachable' ||
+          info.state === 'reconnecting';
+        if (failing) markTransportDown(info.downSinceMs);
+      }
+
+      /** Mirror the machine onto the banner, the dot and the queue hint. */
+      function applyHealthState(health) {
+        if (state.unauthorized) return;
+        const prev = netState.status;
+        netState.status = healthBannerState(health);
+
+        // The machine is the SOLE owner of the dot's appearance while an episode
+        // is in progress, so each non-HEALTHY state is fully deterministic and
+        // `updateConnectionUI` stands down (see `machineOwnsDot` below).
+        const dot = $('connection-dot');
+        if (health === 'DEGRADED') {
+          // Ambient cue only: amber + pulse on the titlebar dot, banner hidden.
+          if (dot) {
+            dot.dataset.status = 'tool_calling';
+            dot.classList.add('siu-pulse');
+          }
+        } else if (health === 'DOWN') {
+          // Red, no pulse. Without this the dot would keep DEGRADED's amber once
+          // the outage crossed the 15s line.
+          if (dot) {
+            dot.dataset.status = 'error';
+            dot.classList.remove('siu-pulse');
+          }
+        } else if (health === 'HEALTHY') {
+          if (dot) dot.classList.remove('siu-pulse');
+          // Hand the dot back to the connection UI so the colour is correct on a
+          // probe-driven recovery, without waiting for the next IPC push.
+          if (activeConnectionInfo) updateConnectionUI(activeConnectionInfo);
+        }
+        // RECOVERING is silent: leave the dot exactly as it was.
+
+        renderNetworkBanner();
+
+        const stale = $('stale-indicator');
+        // RECOVERING is deliberately silent: no banner, no stale badge. The
+        // ambient cue only begins at DEGRADED.
+        const ambient = health === 'DEGRADED' || health === 'DOWN';
+        if (stale) stale.hidden = !ambient;
+
+        if (health === 'HEALTHY') {
+          if (prev !== 'online') {
+            void refreshStatus({ background: true });
+            void refreshSessions({ background: true });
+          }
+          // Never lose intent: a recovered link drains the held prompts.
+          void drainPendingQueue();
+        }
+        renderComposerQueueHint();
+      }
+
+      netHealth.subscribe(applyHealthState);
+
+      // =======================================================================
+      // Pending prompt queue (never lose user intent)
+      // =======================================================================
+      const pendingQueue = createPendingQueue({
+        storageKey: 'superiu.pendingQueue',
+        // A storage object rather than `localStorage` directly, so a private-mode
+        // throw is caught inside the queue instead of at module evaluation.
+        storage: {
+          getItem: (key) => localStorage.getItem(key),
+          setItem: (key, value) => localStorage.setItem(key, value)
+        }
+      });
+      let drainingQueue = false;
+
+      function renderComposerQueueHint() {
+        const hint = $('composer-queue-hint');
+        if (!hint) return;
+        const n = pendingQueue.size();
+        if (n > 0) {
+          hint.hidden = false;
+          hint.textContent = tr('net.composer.queuedHint') + ' · ' + tr('net.composer.queued', { n });
+        } else {
+          hint.hidden = true;
+          hint.textContent = '';
         }
       }
 
-      function onNetworkFailure() {
-        netState.consecutiveFailures += 1;
-        const nextState = !navigator.onLine || netState.consecutiveFailures >= 2 ? 'offline' : 'degraded';
-        setConnectionState(nextState);
-        scheduleReconnectProbe();
+      /** A ghosted, cancelable bubble reusing the transcript's own row/note language. */
+      function renderQueuedPrompt(item) {
+        const row = el('div', 'siu-msg-row siu-msg-row--user');
+        row.dataset.queuedId = item.id;
+        row.style.opacity = '0.62';
+        row.appendChild(el('div', 'siu-bubble siu-bubble--user', item.text));
+        const meta = el('div', 'siu-user-meta');
+        meta.appendChild(el('span', 'siu-user-meta-label', tr('net.composer.queuedHint')));
+        const cancel = el('button', 'siu-btn text-[11px] py-0 px-2 h-5', tr('net.queue.cancel'));
+        cancel.type = 'button';
+        cancel.addEventListener('click', () => {
+          pendingQueue.remove(item.id);
+          row.remove();
+          renderComposerQueueHint();
+        });
+        meta.appendChild(cancel);
+        row.appendChild(meta);
+        transcript.appendChild(row);
+        return row;
+      }
+
+      function removeQueuedBubble(id) {
+        const row = transcript.querySelector('[data-queued-id="' + id + '"]');
+        if (row) row.remove();
+      }
+
+      function enqueuePendingPrompt(text) {
+        const item = pendingQueue.enqueue(text);
+        if (transcript.querySelector('.siu-empty')) transcript.innerHTML = '';
+        renderQueuedPrompt(item);
+        renderComposerQueueHint();
+        scrollToBottom(true);
+        return item;
+      }
+
+      /** Restore held prompts after a reload, before the link is confirmed. */
+      function restorePendingQueue() {
+        const items = pendingQueue.restore();
+        if (!items.length) return;
+        if (transcript.querySelector('.siu-empty')) transcript.innerHTML = '';
+        for (const item of items) renderQueuedPrompt(item);
+        renderComposerQueueHint();
+        scrollToBottom(true);
+      }
+
+      /**
+       * Drain the queue in order once healthy. A server `busy` rejection holds
+       * the remainder (the prompt stays queued) and the turn's own `finally`
+       * re-invokes this, so nothing is dropped.
+       */
+      async function drainPendingQueue() {
+        if (netHealth.state !== 'HEALTHY' || drainingQueue || state.running) return;
+        drainingQueue = true;
+        try {
+          for (;;) {
+            if (netHealth.state !== 'HEALTHY' || state.running) break;
+            const item = pendingQueue.peek();
+            if (!item) break;
+            // The real turn takes over from the ghost; restore it on a hold.
+            removeQueuedBubble(item.id);
+            const completed = await sendPrompt(item.text, { fromQueue: true });
+            if (!completed) {
+              renderQueuedPrompt(item);
+              break;
+            }
+            pendingQueue.dequeue();
+          }
+        } finally {
+          drainingQueue = false;
+          renderComposerQueueHint();
+        }
       }
 
       function scheduleReconnectProbe() {
@@ -6450,11 +6875,11 @@
             } else if (probe.status === 401) {
               handleUnauthorized();
             } else {
-              netState.reconnectDelay = Math.min(30000, Math.floor(netState.reconnectDelay * 1.5));
+              netState.reconnectDelay = Math.min(NET_HEALTH_CONFIG.probeMaxMs, Math.floor(netState.reconnectDelay * 1.5));
               scheduleReconnectProbe();
             }
           } catch {
-            netState.reconnectDelay = Math.min(30000, Math.floor(netState.reconnectDelay * 1.5));
+            netState.reconnectDelay = Math.min(NET_HEALTH_CONFIG.probeMaxMs, Math.floor(netState.reconnectDelay * 1.5));
             scheduleReconnectProbe();
           }
         }, netState.reconnectDelay);
@@ -6466,6 +6891,16 @@
       async function handleManualNetworkRetry() {
         if (netState.retrying) return;
         netState.retrying = true;
+
+        // Ask the desktop shell to re-establish the transport (restart the SSH
+        // tunnel / reconnect the gateway). Fire-and-forget and guarded: the
+        // local probe below is what actually confirms recovery, so a missing
+        // bridge must not abort the attempt.
+        try {
+          window.superiuDesktop?.reconnectTransport?.();
+        } catch {
+          /* the bridge is optional */
+        }
 
         if (netState.reconnectTimer) {
           clearTimeout(netState.reconnectTimer);
@@ -6521,7 +6956,7 @@
             netState.retrying = false;
             if (btnRetry) {
               btnRetry.disabled = false;
-              btnRetry.textContent = tr('net.banner.retry');
+              btnRetry.textContent = tr('net.banner.reconnectNow');
             }
             if (dot) dot.dataset.status = 'error';
             handleUnauthorized();
@@ -6554,7 +6989,7 @@
           btnRetry.textContent = tr('net.banner.retryFailedBtn');
           setTimeout(() => {
             if (!netState.retrying && netState.status !== 'online') {
-              btnRetry.textContent = tr('net.banner.retry');
+              btnRetry.textContent = tr('net.banner.reconnectNow');
               delete btnRetry.dataset.state;
             }
           }, 1800);
@@ -6581,6 +7016,13 @@
         const isPair = path === '/api/pair';
         const maxAttempts = isGet || isPair ? 3 : 1;
         const timeoutMs = typeof options.timeout === 'number' ? options.timeout : 10000;
+        // Read-healing budget: a GET that failed only because the transport is
+        // down waits for a confirmed recovery and retries, so a sub-deadline
+        // outage reads as a slow request rather than an error. The deadline
+        // keeps a truly-stuck caller from hanging forever; non-GETs fail fast.
+        const healUntil =
+          Date.now() +
+          (typeof options.healDeadlineMs === 'number' ? options.healDeadlineMs : NET_HEALTH_CONFIG.apiRetryDeadlineMs);
 
         let attempt = 0;
         let lastErr = null;
@@ -6647,6 +7089,28 @@
             }
 
             lastErr = err;
+            // A transport-level failure is either a rejected `fetch` (TypeError)
+            // or the request timeout aborting the controller while the CALLER's
+            // signal is still live. For a GET, report it, then hold until the
+            // machine confirms health and retry — within the per-call deadline.
+            const transportDown =
+              err instanceof TypeError || (err.name === 'AbortError' && !options.signal?.aborted);
+            if (isGet && !options.signal?.aborted && transportDown && Date.now() < healUntil) {
+              onNetworkFailure();
+              const healed = await netHealth.waitHealthy(healUntil - Date.now());
+              // Re-check the budget: the wait itself may have consumed it, and
+              // firing one more request past the deadline would break the
+              // per-call contract. When it is gone, fall through to the normal
+              // failure path instead.
+              if (healed && Date.now() < healUntil) {
+                // A machine oscillating HEALTHY↔DOWN in under a second must not
+                // spin the fetch, so breathe between heal cycles before retrying.
+                await new Promise((resolve) => setTimeout(resolve, 250 + Math.random() * 250));
+                attempt -= 1; // the heal wait is not a consumed retry
+                continue;
+              }
+            }
+
             if (attempt < maxAttempts) {
               const delay = Math.floor(attempt * 600 + Math.random() * 300);
               await new Promise((resolve) => setTimeout(resolve, delay));
@@ -8172,12 +8636,19 @@
         $('btn-abort').hidden = !running;
       }
 
-      async function sendPrompt(rawPrompt) {
-        if (state.running || !rawPrompt.trim()) return;
+      /**
+       * Send one prompt. Returns `false` ONLY when the server was busy and the
+       * prompt must be HELD for a later retry (the caller's queue keeps it);
+       * `true` otherwise — the attempt is finished, whether it streamed a turn
+       * or surfaced its own error affordance.
+       */
+      async function sendPrompt(rawPrompt, opts = {}) {
+        if (state.running || !rawPrompt.trim()) return false;
         const text = rawPrompt.trim();
 
         if (transcript.querySelector('.siu-empty')) transcript.innerHTML = '';
-        transcript.appendChild(userBubble(text));
+        const bubble = userBubble(text);
+        transcript.appendChild(bubble);
 
         // The turn's live tail: steps append here, then collapse on completion.
         const turn = el('div', 'siu-turn');
@@ -8477,6 +8948,16 @@
             signal: controller.signal
           });
 
+          // Queue-driven send that lands on a busy server: another turn is
+          // already running, so hold this prompt (it stays queued) and let the
+          // current turn's `finally` retry. Undo the optimistic DOM first so a
+          // held prompt does not leave a phantom user bubble behind.
+          if (opts.fromQueue && response.status === 409) {
+            bubble.remove();
+            turn.remove();
+            return false;
+          }
+
           if (!response.ok) {
             const payload = await response.json().catch(() => ({}));
             // Same rule as `api()`: a server `error` is already a sentence; a
@@ -8590,8 +9071,12 @@
           } finally {
             setRunning(false);
             scrollToBottom();
+            // A turn just ended: a prompt held because the server was busy can
+            // now be retried (the queue is re-entrancy guarded).
+            void drainPendingQueue();
           }
         }
+        return true;
       }
 
       async function abortTurn() {
@@ -10626,21 +11111,30 @@
           }
         };
 
+        // While the health machine is mid-episode it owns the dot's appearance,
+        // so this function must not fight it: skip only the status/pulse write.
+        // Everything else (label, latency, badge visibility) still runs.
+        const machineOwnsDot = netHealth.state !== 'HEALTHY';
+        const setDotStatus = (status) => {
+          if (machineOwnsDot) return;
+          dot.dataset.status = status;
+        };
+
         badge.hidden = false;
         if (info.mode === 'local') {
-          dot.dataset.status = 'idle';
+          setDotStatus('idle');
           label.textContent = tr('connection.local');
           updateLatencyBadge(null);
           badge.title = tr('connection.local');
         } else if (info.mode === 'remote') {
           const alias = info.alias || tr('connection.remote');
           if (info.state === 'reconnecting') {
-            dot.dataset.status = 'tool_calling';
+            setDotStatus('tool_calling');
             label.textContent = `${alias} · ${tr('connection.reconnecting')}`;
             updateLatencyBadge(null);
             badge.title = `${alias} (${tr('connection.reconnecting')})`;
           } else if (info.state === 'connected') {
-            dot.dataset.status = 'completed';
+            setDotStatus('completed');
             label.textContent = alias;
             updateLatencyBadge(info.rttMs);
             const rttSuffix = typeof info.rttMs === 'number' && !Number.isNaN(info.rttMs)
@@ -10648,7 +11142,7 @@
               : '';
             badge.title = `${alias}${rttSuffix}`;
           } else {
-            dot.dataset.status = 'error';
+            setDotStatus('error');
             label.textContent = `${alias} · ${tr('connection.closed')}`;
             updateLatencyBadge(null);
             badge.title = `${alias} (${tr('connection.closed')})`;
@@ -10664,17 +11158,17 @@
           }
           const fullTarget = info.customUrl || hostName;
           if (info.state === 'reconnecting') {
-            dot.dataset.status = 'tool_calling';
+            setDotStatus('tool_calling');
             label.textContent = `${hostName} · ${tr('connection.reconnecting')}`;
             updateLatencyBadge(null);
             badge.title = `${fullTarget} (${tr('connection.reconnecting')})`;
           } else if (info.state === 'closed') {
-            dot.dataset.status = 'error';
+            setDotStatus('error');
             label.textContent = `${hostName} · ${tr('connection.closed')}`;
             updateLatencyBadge(null);
             badge.title = `${fullTarget} (${tr('connection.closed')})`;
           } else {
-            dot.dataset.status = 'completed';
+            setDotStatus('completed');
             label.textContent = hostName;
             updateLatencyBadge(info.rttMs);
             const rttSuffix = typeof info.rttMs === 'number' && !Number.isNaN(info.rttMs)
@@ -11182,6 +11676,10 @@
       if (window.superiuDesktop?.onConnectionStateChange) {
         window.superiuDesktop.onConnectionStateChange((info) => {
           updateConnectionUI(info);
+          // The shell's own verdict on the transport now DRIVES the machine:
+          // a restarting tunnel / reconnecting gateway enters (or refreshes)
+          // the failure episode, and `transport:'ok'` confirms health.
+          applyTransportSignal(info);
         });
       } else if (window.superiuDesktop?.getConnectionInfo) {
         void window.superiuDesktop.getConnectionInfo().then((info) => {
@@ -11254,43 +11752,27 @@
             } else {
               btnRetry.disabled = false;
               delete btnRetry.dataset.state;
-              btnRetry.textContent = tr('net.banner.retry');
+              btnRetry.textContent = tr('net.banner.reconnectNow');
             }
           }
         } else if (netState.status === 'degraded') {
-          banner.hidden = false;
-          if (dot) dot.dataset.status = 'thinking';
-          msg.textContent = tr('net.banner.reconnecting');
-          if (btnRetry) {
-            btnRetry.hidden = false;
-            if (netState.retrying) {
-              btnRetry.disabled = true;
-              delete btnRetry.dataset.state;
-              btnRetry.textContent = '';
-              const spinner = el('span', 'siu-net-spinner');
-              btnRetry.appendChild(spinner);
-              btnRetry.appendChild(document.createTextNode(tr('net.banner.retrying')));
-            } else {
-              btnRetry.disabled = false;
-              delete btnRetry.dataset.state;
-              btnRetry.textContent = tr('net.banner.retry');
-            }
-          }
+          // Ambient degradation: the titlebar dot carries the cue (see
+          // applyHealthState), and the banner stays hidden so a sub-15s outage
+          // never interrupts the conversation.
+          banner.hidden = true;
+          if (btnRetry) btnRetry.hidden = true;
         } else if (netState.status === 'online') {
           if (dot) dot.dataset.status = 'completed';
-          msg.textContent = tr('net.banner.online');
           if (btnReload) btnReload.hidden = true;
           if (btnRetry) {
             btnRetry.hidden = true;
             btnRetry.disabled = false;
             delete btnRetry.dataset.state;
-            btnRetry.textContent = tr('net.banner.retry');
+            btnRetry.textContent = tr('net.banner.reconnectNow');
           }
-          setTimeout(() => {
-            if (netState.status === 'online') {
-              banner.hidden = true;
-            }
-          }, 2000);
+          // No "back online" flash: recovery is silent — the banner just goes
+          // away and any held prompts send on their own.
+          banner.hidden = true;
         }
       }
 
@@ -12258,6 +12740,9 @@
 
       window.addEventListener('online', () => {
         if (!state.unauthorized) {
+          // Advisory only: `navigator.onLine === true` must NEVER by itself
+          // prove HEALTHY, so this re-evaluates and probes rather than healing.
+          netHealth.refresh(true);
           void refreshStatus({ background: true });
           void refreshSessions({ background: true });
         }
@@ -12265,12 +12750,13 @@
 
       window.addEventListener('offline', () => {
         if (!state.unauthorized) {
-          setConnectionState('offline');
+          // `navigator.onLine === false` fast-paths straight to DOWN.
+          onNetworkFailure();
         }
       });
 
       document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && !state.unauthorized && netState.status !== 'online') {
+        if (document.visibilityState === 'visible' && !state.unauthorized && netHealth.state !== 'HEALTHY') {
           void refreshStatus({ background: true });
           void refreshSessions({ background: true });
         }
@@ -13112,7 +13598,10 @@
 
       function submit() {
         const value = promptInput.value;
-        if (!value.trim() || state.running) return;
+        if (!value.trim()) return;
+        // Mid-turn submits are still ignored while healthy; below HEALTHY the
+        // composer stays usable and the prompt is queued instead of dropped.
+        if (state.running && netHealth.state === 'HEALTHY') return;
         closeCompletions();
         promptInput.value = '';
         autosize();
@@ -13120,6 +13609,10 @@
 
         if (value.trim().startsWith('/')) {
           void runSlash(value.trim());
+          return;
+        }
+        if (netHealth.state !== 'HEALTHY') {
+          enqueuePendingPrompt(value.trim());
           return;
         }
         void sendPrompt(value);
@@ -13487,6 +13980,10 @@
         }
         if (state.unauthorized) return;
 
+        // Restore prompts held before a reload; they render as ghost bubbles
+        // and drain once the link is confirmed healthy (below).
+        restorePendingQueue();
+
         await refreshSessions();
         await refreshHistory();
         try {
@@ -13512,6 +14009,9 @@
         renderNotifyButton();
 
         void checkPairingAvailability();
+
+        // Send anything that was held across the reload, now that boot is done.
+        void drainPendingQueue();
 
         // Emotion decays toward baseline while idle — keep the meters honest.
         setInterval(() => {

@@ -588,8 +588,6 @@ const DICT = {
 
     'net.banner.offline': '网络连接已断开 · 最后同步于 {time}',
     'net.banner.reconnecting': '网络连接不稳定，正在重新连接…',
-    'net.banner.online': '网络连接已恢复',
-    'net.banner.retry': '立即重试',
     'net.banner.retrying': '正在重试…',
     'net.banner.retryFailed': '重新连接失败，服务暂不可用',
     'net.banner.retryFailedBtn': '重试失败',
@@ -598,6 +596,15 @@ const DICT = {
     'net.streamInterrupted': '网络中断，生成未完全完成',
     'net.streamFailed': '网络连接中断，未接收到内容',
     'net.retry': '重试',
+    // Layered reconnection copy. `reconnectNow` labels the DOWN banner's button
+    // (it re-establishes the transport, so "retry" understates it); the queue
+    // keys surface held prompts while the link is down. `stream.resuming` is
+    // consumed by the P4 stream-reattach lane.
+    'net.banner.reconnectNow': '立即重连',
+    'net.composer.queued': '已排队 {n} 条',
+    'net.composer.queuedHint': '连接恢复后将自动发送',
+    'net.queue.cancel': '取消',
+    'net.stream.resuming': '正在恢复生成…',
 
     'settings.nav.pairing': '设备配对',
     'settings.pairing.title': '设备配对与访问控制',
@@ -1237,8 +1244,6 @@ const DICT = {
 
     'net.banner.offline': 'Offline · Last synced at {time}',
     'net.banner.reconnecting': 'Connection unstable, reconnecting…',
-    'net.banner.online': 'Back online',
-    'net.banner.retry': 'Retry now',
     'net.banner.retrying': 'Retrying…',
     'net.banner.retryFailed': 'Reconnection failed, server unavailable',
     'net.banner.retryFailedBtn': 'Retry failed',
@@ -1247,6 +1252,11 @@ const DICT = {
     'net.streamInterrupted': 'Network interrupted, generation incomplete',
     'net.streamFailed': 'Connection failed, no content received',
     'net.retry': 'Retry',
+    'net.banner.reconnectNow': 'Reconnect now',
+    'net.composer.queued': '{n} queued',
+    'net.composer.queuedHint': 'Will send automatically when reconnected',
+    'net.queue.cancel': 'Cancel',
+    'net.stream.resuming': 'Resuming…',
 
     'settings.nav.pairing': 'Pairing',
     'settings.pairing.title': 'Device Pairing & Access Control',
