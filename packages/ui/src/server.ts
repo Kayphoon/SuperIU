@@ -101,6 +101,12 @@ export interface StartServerOptions {
    * from one page load triggers exactly one re-materialization.
    */
   ensurePublicDir?: () => Promise<string | undefined> | string | undefined;
+  /**
+   * How long an agent turn survives after its SSE socket closes, waiting for a
+   * `GET /api/chat/stream` reattach before it is aborted. Defaults to 90s;
+   * tests inject a short window so they need not wait out the production one.
+   */
+  chatGraceMs?: number;
 }
 
 export interface UpdateHooks {
@@ -805,8 +811,9 @@ function maskApiKey(key: string): string {
  * Pending interactive approvals, keyed by `toolCall.id`.
  *
  * A tool call flagged `ask_user` parks inside the core loop until the browser
- * answers; every entry is force-resolved when the stream dies so a turn can
- * never hang on a disconnected client.
+ * answers; every entry is force-resolved when the turn is aborted (the grace
+ * window expiring with no reattach, or an explicit `/api/abort`) so a turn can
+ * never hang on a client that never comes back.
  */
 type ApprovalResolver = (verdict: PermissionVerdict) => void;
 const pendingApprovals = new Map<string, ApprovalResolver>();
@@ -1042,7 +1049,7 @@ function runnerOptions(sessionReference?: string, historyDbPath?: string, newSes
 }
 
 /** Set for the duration of one SSE turn so the gate above can reach the browser. */
-let approvalSink: ((payload: unknown) => void) | null = null;
+let approvalSink: ((payload: Record<string, unknown>) => void) | null = null;
 
 /** Installed by startServer so `POST /api/shutdown` can close the live instance. */
 let shutdownHook: (() => void) | null = null;
@@ -1262,7 +1269,14 @@ function buildStatus() {
     version: serverVersion,
     workstation: runner.getWorkstation(),
     emotion: runner.emotion,
-    posture: describePosture(runner.emotion)
+    posture: describePosture(runner.emotion),
+    /**
+     * Non-null while a turn is in flight, so a reconnecting client knows whether
+     * to reattach with `GET /api/chat/stream` or fall back to history. It is
+     * `null` once the turn is terminal even though the journal is retained for
+     * late catch-up.
+     */
+    activeTurn: activeTurnStatus()
   };
 }
 
@@ -1889,7 +1903,8 @@ const API_METHODS: Record<string, string[]> = {
   '/api/mcp/reload': ['POST'],
   '/api/mcp/raw': ['POST'],
   '/api/mcp/delete': ['POST'],
-  '/api/chat': ['POST']
+  '/api/chat': ['POST'],
+  '/api/chat/stream': ['GET']
 };
 
 async function handleApi(
@@ -2298,6 +2313,11 @@ async function handleApi(
     return true;
   }
 
+  if (pathname === '/api/chat/stream' && method === 'GET') {
+    handleChatStream(req, res);
+    return true;
+  }
+
   // -------------------------------------------------------------------------
   // MCP management: the `/api/mcp*` family edits `mcp.json` through the
   // runner's manager and answers with the fresh payload, so the settings
@@ -2500,6 +2520,145 @@ async function handleApi(
   return false;
 }
 
+// ---------------------------------------------------------------------------
+// Turn journal / seamless reconnection
+// ---------------------------------------------------------------------------
+
+/**
+ * Upper bound on journaled frames per turn. The journal is a short-lived replay
+ * cache for a client that briefly dropped — not durable storage — so it must
+ * not grow without bound when a turn outlives its socket for the whole grace
+ * window.
+ */
+const TURN_JOURNAL_MAX_EVENTS = 2000;
+
+/**
+ * How long a turn keeps running after its socket closes, waiting for a
+ * reattach. Overridden by `startServer`'s `chatGraceMs` so tests need not wait
+ * out the production window.
+ */
+let chatGraceMs = 90_000;
+
+/** Monotonic source of per-turn ids; unique within one server process. */
+let turnCounter = 0;
+
+/** One journaled frame: the payload exactly as written, with `seqId` stamped in. */
+interface JournaledFrame {
+  seqId: number;
+  payload: Record<string, unknown>;
+}
+
+/**
+ * In-memory replay log for the single active turn.
+ *
+ * Decoupling a turn from its socket means frames produced while nobody is
+ * attached must still be recoverable, so every frame is appended here before it
+ * is written anywhere. `seqId` advances even when the ring buffer evicts an old
+ * frame, so a reattaching client can tell a gap from a clean catch-up.
+ */
+class EventJournal {
+  readonly turnId: string;
+  private readonly events: JournaledFrame[] = [];
+  private nextSeqId = 1;
+  private terminal = false;
+  private terminalPayload?: Record<string, unknown>;
+
+  constructor(turnId: string) {
+    this.turnId = turnId;
+  }
+
+  /** Assign the next `seqId`, store the frame, and return it. */
+  append(payload: Record<string, unknown>): JournaledFrame {
+    const frame: JournaledFrame = { seqId: this.nextSeqId, payload: { ...payload, seqId: this.nextSeqId } };
+    this.nextSeqId += 1;
+    this.events.push(frame);
+    const overflow = this.events.length - TURN_JOURNAL_MAX_EVENTS;
+    if (overflow > 0) this.events.splice(0, overflow);
+    return frame;
+  }
+
+  /** Record the terminal frame. Called once, from the settling path. */
+  markTerminal(payload: Record<string, unknown>): void {
+    this.terminal = true;
+    this.terminalPayload = payload;
+  }
+
+  isTerminal(): boolean {
+    return this.terminal;
+  }
+
+  /** Highest `seqId` handed out so far; `0` before the first frame. */
+  get lastSeqId(): number {
+    return this.nextSeqId - 1;
+  }
+
+  /** Buffered frames with `seqId > fromSeqId`, ascending. */
+  since(fromSeqId: number): JournaledFrame[] {
+    return this.events.filter((frame) => frame.seqId > fromSeqId);
+  }
+}
+
+/** A response currently receiving a turn's live frames. */
+interface TurnSink {
+  write(payload: unknown): void;
+  end(): void;
+}
+
+/**
+ * The one turn the server runs at a time, plus whatever is observing it.
+ *
+ * Retained after the turn terminates so a late `GET /api/chat/stream` can still
+ * replay the tail; `activeTurnStatus()` reports `null` once the journal is
+ * terminal, which is what "idle" means to the SPA.
+ */
+interface ActiveTurn {
+  journal: EventJournal;
+  /** The live sink, or `null` while the turn is unobserved (grace window open). */
+  sink: TurnSink | null;
+  /** Armed when no sink is attached; fires `abort` if none reattaches in time. */
+  graceTimer: NodeJS.Timeout | null;
+  /** Aborts the in-flight turn; only the grace timer calls this. */
+  abort: () => void;
+  /** True once the turn has settled (success or failure). */
+  settled: boolean;
+}
+
+let activeTurn: ActiveTurn | null = null;
+
+/** The running turn, or `null` when idle (terminal journals included). */
+function activeTurnStatus(): { turnId: string; lastSeqId: number } | null {
+  if (!activeTurn || activeTurn.journal.isTerminal()) return null;
+  return { turnId: activeTurn.journal.turnId, lastSeqId: activeTurn.journal.lastSeqId };
+}
+
+/** Arm the grace window once, so a turn without a sink is not aborted at once. */
+function armGrace(turn: ActiveTurn): void {
+  if (turn.settled || turn.graceTimer) return;
+  turn.graceTimer = setTimeout(() => {
+    turn.graceTimer = null;
+    // A reattach cancels this timer; if it fired, nobody came back.
+    if (turn.settled || turn.sink) return;
+    turn.abort();
+  }, chatGraceMs);
+  turn.graceTimer.unref();
+}
+
+function cancelGrace(turn: ActiveTurn): void {
+  if (!turn.graceTimer) return;
+  clearTimeout(turn.graceTimer);
+  turn.graceTimer = null;
+}
+
+/** The SSE response headers shared by the chat POST and the reattach GET. */
+function writeSseHead(res: http.ServerResponse): void {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no'
+  });
+}
+
 /**
  * One agent turn streamed over SSE.
  *
@@ -2534,35 +2693,71 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
     return;
   }
 
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream; charset=utf-8',
-    'Cache-Control': 'no-cache, no-transform',
-    Connection: 'keep-alive',
-    'X-Accel-Buffering': 'no'
-  });
+  writeSseHead(res);
 
-  let closed = false;
-  let settled = false;
+  // Capture the runner for this turn: a later rebuild replaces the module-level
+  // `runner`, and a stale grace timer must abort the turn it belongs to.
+  const turnRunner = runner;
+
+  const journal = new EventJournal(`turn-${++turnCounter}`);
+  const turn: ActiveTurn = {
+    journal,
+    sink: null,
+    graceTimer: null,
+    abort: () => {
+      // The gate promise only settles through this map, so the abort must
+      // release a parked approval or the turn would hang instead of ending.
+      resolvePendingApprovals(false);
+      turnRunner.abort();
+    },
+    settled: false
+  };
+  activeTurn = turn;
+
+  let postClosed = false;
   let errorSent = false;
 
-  const write = (payload: unknown): void => {
-    if (closed) return;
-    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  const postSink: TurnSink = {
+    write: (payload) => {
+      if (postClosed || res.writableEnded) return;
+      try {
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      } catch {
+        // The socket can die between the check and the write; the frame is
+        // already journaled, so a reattach still receives it.
+      }
+    },
+    end: () => {
+      if (!postClosed && !res.writableEnded) res.end();
+    }
+  };
+  turn.sink = postSink;
+
+  /**
+   * Journal the frame, then fan it out to the attached sink (if any). The
+   * journal is the turn's record, so a frame produced while no client is
+   * attached is not lost — it is replayed on the next reattach.
+   */
+  const write = (payload: Record<string, unknown>): JournaledFrame => {
+    const frame = journal.append(payload);
+    turn.sink?.write(frame.payload);
+    return frame;
   };
 
   const heartbeat = setInterval(() => {
-    if (!closed) res.write(': ping\n\n');
+    if (!postClosed && !res.writableEnded) res.write(': ping\n\n');
   }, 15_000);
   heartbeat.unref();
 
-  // Client hang-up tears the turn down: pending approvals resolve false and the
-  // abort signal kills the tool process tree, so the turn can never hang.
+  // A dropped client no longer kills the turn: the response is detached and the
+  // turn runs unobserved until a `GET /api/chat/stream` reattaches or the grace
+  // window expires. Approvals stay pending across the gap so a reattached user
+  // can still answer them.
   res.on('close', () => {
-    closed = true;
+    postClosed = true;
     clearInterval(heartbeat);
-    approvalSink = null;
-    resolvePendingApprovals(false);
-    if (!settled) runner.abort();
+    if (turn.sink === postSink) turn.sink = null;
+    if (!turn.settled) armGrace(turn);
   });
 
   /**
@@ -2627,7 +2822,7 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
     // `buildStatus()`: the last step's usage is what the turn's final context
     // size is, and it only exists once the step has reported it.
     const contextUsage = runner.getContextUsage();
-    write({
+    const frame = write({
       type: 'done',
       finalText,
       sessionId: runner.getSessionId(),
@@ -2639,16 +2834,19 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
       emotion: runner.emotion,
       posture: describePosture(runner.emotion)
     });
+    // The `done` frame is the turn's terminal marker: a stream that attaches
+    // after it replays the tail and ends rather than waiting for a live frame.
+    journal.markTerminal(frame.payload);
   };
 
   approvalSink = write;
 
   try {
     const finalText = await runTurn(runner, prompt, 'main', turnModel);
-    settled = true;
+    turn.settled = true;
     finish(finalText);
   } catch (err) {
-    settled = true;
+    turn.settled = true;
     // The same resolved credentials as the `onError` frame above: this path
     // catches a failure raised outside the model call, which can still carry the
     // provider's envelope.
@@ -2660,10 +2858,16 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
     }
     finish('');
   } finally {
+    turn.settled = true;
+    cancelGrace(turn);
     approvalSink = null;
     resolvePendingApprovals(false);
     clearInterval(heartbeat);
-    if (!closed) res.end();
+    // End the POST response (a no-op once the client dropped) and any reattached
+    // stream, so neither waits for a frame that will never come.
+    if (!postClosed && !res.writableEnded) res.end();
+    turn.sink?.end();
+    turn.sink = null;
     if (pendingDrainUpdate) {
       const drain = pendingDrainUpdate;
       pendingDrainUpdate = null;
@@ -2686,6 +2890,77 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
       }
     }
   }
+}
+
+/**
+ * Reattach to the in-flight turn and replay whatever frames were missed.
+ *
+ * The client half of the grace window: a browser that dropped its
+ * `POST /api/chat` socket calls this with the last `seqId` it saw and receives
+ * every later frame from the journal, then continues live. It never starts a
+ * turn — with no active turn it answers a single `sync` frame so the caller can
+ * fall back to history.
+ */
+function handleChatStream(req: http.IncomingMessage, res: http.ServerResponse): void {
+  const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+  const parsed = Number.parseInt(url.searchParams.get('fromSeqId') ?? '', 10);
+  const fromSeqId = Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+
+  const turn = activeTurn;
+  if (!turn) {
+    writeSseHead(res);
+    res.write(`data: ${JSON.stringify({ type: 'sync', activeTurn: null })}\n\n`);
+    res.end();
+    return;
+  }
+
+  writeSseHead(res);
+
+  let closed = false;
+  const heartbeat = setInterval(() => {
+    if (!closed) res.write(': ping\n\n');
+  }, 15_000);
+  heartbeat.unref();
+
+  const sink: TurnSink = {
+    write: (payload) => {
+      if (closed) return;
+      try {
+        res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      } catch {
+        // The socket died between the check and the write; nothing to do.
+      }
+    },
+    end: () => {
+      closed = true;
+      clearInterval(heartbeat);
+      if (!res.writableEnded) res.end();
+    }
+  };
+
+  res.on('close', () => {
+    closed = true;
+    clearInterval(heartbeat);
+    // Re-dropped while observed: reopen the grace window for another reattach.
+    if (turn.sink === sink) {
+      turn.sink = null;
+      if (!turn.settled) armGrace(turn);
+    }
+  });
+
+  // Replay the missed tail in order; the journal guarantees a gapless
+  // continuation because `seqId` advances even across ring-buffer eviction.
+  for (const frame of turn.journal.since(fromSeqId)) sink.write(frame.payload);
+
+  if (turn.journal.isTerminal()) {
+    sink.end();
+    return;
+  }
+
+  // Attach as the live sink and cancel the grace window: the turn is observed
+  // again. A reattach replaces any previous sink.
+  cancelGrace(turn);
+  turn.sink = sink;
 }
 
 // ---------------------------------------------------------------------------
@@ -2852,6 +3127,11 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
   PUBLIC_DIR = options.publicDir ? path.resolve(options.publicDir) : path.resolve(HERE, '..', 'public');
   ENSURE_PUBLIC_DIR = options.ensurePublicDir;
   pendingEnsurePublicDir = undefined;
+  // A fresh boot owns the turn slot: drop any journal or grace timer left by a
+  // previous instance in the same process (tests boot many servers in one run).
+  if (activeTurn?.graceTimer) clearTimeout(activeTurn.graceTimer);
+  activeTurn = null;
+  chatGraceMs = options.chatGraceMs ?? 90_000;
   SETTINGS_FILE = options.settingsFile
     ? path.resolve(options.settingsFile)
     : path.join(workspaceDir, '.superiu', 'ui-settings.json');
