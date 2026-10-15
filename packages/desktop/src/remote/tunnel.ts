@@ -135,6 +135,8 @@ export class SshTunnelManager extends EventEmitter {
   private activeLocalPort: number | null = null;
   private restartAttempts = 0;
   private restartTimer: ReturnType<typeof setTimeout> | null = null;
+  /** True while a `restart()` launch is in flight, so kicks cannot double-launch. */
+  private restarting = false;
   /** True while the manager intends the tunnel to be up. */
   private shouldBeOpen = false;
   private state: SshTunnelState = 'idle';
@@ -377,10 +379,16 @@ export class SshTunnelManager extends EventEmitter {
   }
 
   private async restart(): Promise<void> {
-    if (!this.shouldBeOpen) return;
+    // Guard the launch itself (not just `kick`) so a timer-fired restart and a
+    // concurrent `kick()` can never race into two ssh processes for one tunnel.
+    if (!this.shouldBeOpen || this.restarting) return;
+    this.restarting = true;
     const options = this.openOptions;
     const localPort = this.activeLocalPort;
-    if (!options || localPort === null) return;
+    if (!options || localPort === null) {
+      this.restarting = false;
+      return;
+    }
 
     try {
       await this.launch(localPort);
@@ -389,7 +397,29 @@ export class SshTunnelManager extends EventEmitter {
     } catch (err) {
       this.reportError(err instanceof Error ? err : new Error(String(err)));
       if (this.shouldBeOpen) this.scheduleRestart();
+    } finally {
+      this.restarting = false;
     }
+  }
+
+  /**
+   * Short-circuit the current backoff and restart the tunnel right now.
+   *
+   * A no-op when the tunnel is not meant to be up (closed), already healthy
+   * (`connected`), or already relaunching — the guard in {@link restart} keeps a
+   * concurrent kick from starting a second ssh process. When it does act it only
+   * cancels the pending sleep; the backoff constants are untouched, so a
+   * subsequent failure still resumes normal exponential backoff.
+   */
+  kick(): void {
+    if (!this.shouldBeOpen) return;
+    if (this.state === 'connected') return;
+    if (this.restarting) return;
+    if (this.restartTimer) {
+      clearTimeout(this.restartTimer);
+      this.restartTimer = null;
+    }
+    void this.restart();
   }
 
   /** SIGTERM the child, escalating to SIGKILL after a grace period. */

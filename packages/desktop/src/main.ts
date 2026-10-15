@@ -61,8 +61,10 @@ import {
   decideNavigationFailure,
   decideRenderProcessGone,
   normalizeNavUrl,
+  waitForReadyz,
   MAX_RENDERER_REVIVALS,
-  type RemoteStep
+  type RemoteStep,
+  type SshTunnelState
 } from './remote/index.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -117,42 +119,91 @@ let spaNavStartedAt: number | null = null;
 let remoteRendererRevivals = 0;
 /** Windows already carrying the SPA recovery listeners (mainWindow is reused). */
 const spaRecoveryAttached = new WeakSet<BrowserWindow>();
+/**
+ * When the transport first stopped being `ok`, or null while it is healthy.
+ * Set once on the down edge (not on every poll) so the console can render a
+ * stable "disconnected for Ns" rather than a value that resets each frame.
+ */
+let transportDownSince: number | null = null;
+
+/** Local tunnel port parsed from the active remote URL, or undefined. */
+function remoteTunnelPort(): number | undefined {
+  if (!activeRemoteUrl) return undefined;
+  try {
+    return Number(new URL(activeRemoteUrl).port) || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Map the live tunnel/gateway state onto the coarse `transport` marker and the
+ * elapsed down-time, updating {@link transportDownSince} on the edges.
+ *
+ * `tunnelState` is null in gateway mode (no ssh forward). A transport counts as
+ * healthy only when the gateway is connected AND any tunnel in front of it is
+ * connected too — a connected client on a dead forward is not usable.
+ */
+function resolveTransport(
+  gatewayState: ConnectionInfoPayload['state'],
+  tunnelState: SshTunnelState | null
+): Pick<ConnectionInfoPayload, 'transport' | 'downSinceMs'> {
+  const healthy = gatewayState === 'connected' && (tunnelState === null || tunnelState === 'connected');
+  if (healthy) {
+    transportDownSince = null;
+    return { transport: 'ok' };
+  }
+  if (transportDownSince === null) transportDownSince = Date.now();
+  const transport =
+    tunnelState === 'reconnecting'
+      ? 'tunnel-restarting'
+      : gatewayState === 'reconnecting'
+        ? 'gateway-reconnecting'
+        : 'server-unreachable';
+  return { transport, downSinceMs: Date.now() - transportDownSince };
+}
 
 function getConnectionInfo(): ConnectionInfoPayload {
   if (activeCustomUrl) {
+    transportDownSince = null;
     return {
       mode: 'custom_url',
       customUrl: activeCustomUrl,
-      state: 'connected'
+      state: 'connected',
+      transport: 'ok'
     };
   }
   if (remoteManager && activeRemoteUrl) {
     const config = resolveGatewayConfig(resolveWorkspace());
     const client = remoteManager.gatewayClient;
-    let localPort: number | undefined;
-    try {
-      localPort = Number(new URL(activeRemoteUrl).port) || undefined;
-    } catch {}
+    const localPort = remoteTunnelPort();
     return {
       mode: 'remote',
       alias: config.remote?.alias,
       remoteWorkspace: config.remote?.workspace,
       localPort,
       advertiseUrl: config.remote?.advertiseUrl,
-      state: client?.connectionState ?? 'connected',
-      rttMs: client?.rttMs
+      // A missing client is not a healthy one: during a partial teardown or
+      // before `connect()` finishes there is no gateway, so report `connecting`
+      // rather than letting a null client read as `connected`.
+      state: client?.connectionState ?? 'connecting',
+      rttMs: client?.rttMs,
+      ...resolveTransport(client?.connectionState ?? 'connecting', remoteManager.tunnelState)
     };
   }
   if (gatewayClient) {
     return {
       mode: 'gateway',
       state: gatewayClient.connectionState,
-      rttMs: gatewayClient.rttMs
+      rttMs: gatewayClient.rttMs,
+      ...resolveTransport(gatewayClient.connectionState, null)
     };
   }
+  transportDownSince = null;
   return {
     mode: 'local',
-    state: 'connected'
+    state: 'connected',
+    transport: 'ok'
   };
 }
 
@@ -2036,6 +2087,27 @@ async function startRemoteMode(config: GatewayConfig, opts: RemoteModeOptions = 
         // so a surprise still lets ssh resolve the alias itself.
         return undefined;
       }
+    },
+    onTransportState: (state) => {
+      // Push every tunnel transition to the renderer at once, so the console's
+      // banner appears the instant the forward drops. On recovery, however, the
+      // forward can bind before the daemon behind it answers again — confirm
+      // `/readyz` first so the console does not flip to healthy and immediately
+      // fail. During the initial connect `activeRemoteUrl` is not set yet, so the
+      // probe is skipped (the connect flow probes readiness itself).
+      if (state !== 'connected') {
+        broadcastConnectionInfo();
+        return;
+      }
+      const port = remoteTunnelPort();
+      if (port === undefined) {
+        broadcastConnectionInfo();
+        return;
+      }
+      void waitForReadyz(port).then(
+        () => broadcastConnectionInfo(),
+        () => broadcastConnectionInfo()
+      );
     }
   });
   remoteManager = manager;
@@ -2167,6 +2239,21 @@ async function closeRemote(): Promise<void> {
 // Renderer → main IPC (badge, notifications, quit)
 // ---------------------------------------------------------------------------
 
+/**
+ * Fast-awaken whichever transport is live, skipping any pending backoff.
+ *
+ * The remote manager owns both the tunnel and the gateway client, so its
+ * `wake()` covers that mode; in plain gateway mode there is no manager, so the
+ * client is kicked directly (and only when it is not already connected).
+ */
+function wakeTransport(): void {
+  if (remoteManager) {
+    remoteManager.wake();
+  } else if (gatewayClient && gatewayClient.connectionState !== 'connected') {
+    gatewayClient.kick();
+  }
+}
+
 function installIpcHandlers(): void {
   ipcMain.handle(INVOKE.setBadgeCount, (_event, count: number) => {
     app.setBadgeCount(Number.isFinite(count) ? Math.trunc(count) : 0);
@@ -2250,6 +2337,20 @@ function installIpcHandlers(): void {
       return await remoteManager.upgradeRemoteServer();
     }
     return { ok: false, error: 'No active remote connection' };
+  });
+
+  // Fast-awaken: the renderer detected the network is back (or the user asked to
+  // retry) and wants recovery now rather than after the current backoff sleep.
+  // Both channels share the same wake path; `reconnectTransport` also pushes a
+  // fresh snapshot, while `reportNetworkFailure` is a fire-and-forget hint whose
+  // result arrives through the normal state-change broadcasts.
+  ipcMain.handle(INVOKE.reconnectTransport, () => {
+    wakeTransport();
+    broadcastConnectionInfo();
+  });
+
+  ipcMain.handle(INVOKE.reportNetworkFailure, () => {
+    wakeTransport();
   });
 
   ipcMain.handle(

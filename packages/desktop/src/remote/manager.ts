@@ -25,6 +25,7 @@ import {
   type RemoteRunner,
 } from './bootstrap.js';
 import { SshTunnelManager } from './tunnel.js';
+import type { SshTunnelState } from './tunnel.js';
 import type { SshHostEntry } from './ssh_config.js';
 
 /** Stable identifiers for each step of the connection flow. */
@@ -123,6 +124,12 @@ export interface RemoteConnectionManagerOptions {
   resolveHost?: (alias: string) => Promise<SshHostEntry | undefined>;
   /** Probes the tunnel's local `/readyz` endpoint (injected for tests). */
   probeReadyz?: (tunnelPort: number) => Promise<void>;
+  /**
+   * Observes ssh-tunnel state transitions. The tunnel manager owns the actual
+   * backoff, so the host needs this to push a fresh transport banner to the
+   * renderer the instant the forward drops or recovers.
+   */
+  onTransportState?: (state: SshTunnelState) => void;
 }
 
 const DEFAULT_LOCAL_PORT = 0; // 0 => let the OS choose
@@ -136,6 +143,7 @@ export class RemoteConnectionManager {
   private readonly gatewayClientFactory: (options: GatewayClientOptions) => GatewayClient;
   private readonly resolveHost?: (alias: string) => Promise<SshHostEntry | undefined>;
   private readonly probeReadyz: (tunnelPort: number) => Promise<void>;
+  private readonly onTransportState?: (state: SshTunnelState) => void;
 
   private client: GatewayClient | null = null;
   private lastOptions: RemoteConnectOptions | null = null;
@@ -149,11 +157,35 @@ export class RemoteConnectionManager {
       options.gatewayClientFactory ?? ((opts) => new GatewayClient(opts));
     this.resolveHost = options.resolveHost;
     this.probeReadyz = options.probeReadyz ?? ((port) => waitForReadyz(port));
+    this.onTransportState = options.onTransportState;
+    // Subscribe to the `'state'` event rather than passing `onStateChange` into a
+    // freshly-built tunnel: the event also fires for a tunnel injected by tests
+    // (which was constructed before this manager existed), so both paths forward.
+    // Guarded because some tests inject a minimal tunnel stub that is not an
+    // EventEmitter.
+    this.tunnel.on?.('state', (state: SshTunnelState) => {
+      this.onTransportState?.(state);
+    });
   }
 
   /** The active gateway client, or null when disconnected. */
   get gatewayClient(): GatewayClient | null {
     return this.client;
+  }
+
+  /** Current ssh-tunnel state, forwarded from the tunnel manager. */
+  get tunnelState(): SshTunnelState {
+    return this.tunnel.tunnelState;
+  }
+
+  /**
+   * Force the tunnel and gateway to reconnect immediately, skipping any pending
+   * backoff. Called when the renderer learns the network came back (or asks
+   * explicitly) so recovery is not gated on a sleeping timer.
+   */
+  wake(): void {
+    this.tunnel.kick();
+    this.client?.kick();
   }
 
   private progress(

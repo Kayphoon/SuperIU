@@ -34,7 +34,9 @@ export const INVOKE = {
   getConnectionInfo: 'superiu:get-connection-info',
   disconnectRemote: 'superiu:disconnect-remote',
   upgradeRemote: 'superiu:upgrade-remote',
-  connectCustomUrl: 'superiu:connect-custom-url'
+  connectCustomUrl: 'superiu:connect-custom-url',
+  reconnectTransport: 'superiu:reconnect-transport',
+  reportNetworkFailure: 'superiu:report-network-failure'
 } as const;
 
 export interface CheckForUpdateOptions {
@@ -54,6 +56,27 @@ export interface ConnectionInfoPayload {
   advertiseUrl?: string;
   state: 'idle' | 'connected' | 'connecting' | 'reconnecting' | 'closed';
   rttMs?: number;
+  /**
+   * Coarse transport health the web console renders directly, so it can show a
+   * precise banner the instant the link degrades instead of inferring it from
+   * the gateway client state alone.
+   *
+   *   - `ok`                    — the tunnel (if any) and gateway are both up.
+   *   - `tunnel-restarting`     — the ssh port-forward is in its backoff.
+   *   - `gateway-reconnecting`  — the WebSocket to the gateway is reconnecting.
+   *   - `server-unreachable`    — down for another reason (or still unknown).
+   *
+   * Optional so a payload produced before this field existed (or by a build
+   * that predates it) stays valid.
+   */
+  transport?: 'ok' | 'tunnel-restarting' | 'gateway-reconnecting' | 'server-unreachable';
+  /**
+   * Milliseconds elapsed since the transport first stopped being `ok`. Set once
+   * on the down edge and cleared on recovery, so the console can render a stable
+   * "disconnected for Ns" instead of a value that resets on every state flap.
+   * Omitted while `transport === 'ok'`.
+   */
+  downSinceMs?: number;
 }
 
 /**
@@ -152,4 +175,16 @@ export interface SuperiuDesktopBridge {
   onConnectionStateChange?(callback: (info: ConnectionInfoPayload) => void): () => void;
   disconnectRemote?(): Promise<void>;
   upgradeRemote?(): Promise<{ ok: boolean; error?: string }>;
+  /**
+   * Force an immediate SSH-tunnel / gateway reconnect instead of waiting out the
+   * current exponential-backoff sleep. Fire-and-forget: the transport's own state
+   * transitions push the result back through {@link onConnectionStateChange}.
+   */
+  reconnectTransport?(): Promise<void>;
+  /**
+   * Hint that the renderer just observed a network failure, so the main process
+   * can wake a parked reconnect early. Same fast-awaken path as
+   * {@link reconnectTransport}, but carries no reply payload.
+   */
+  reportNetworkFailure?(): Promise<void>;
 }

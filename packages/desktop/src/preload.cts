@@ -55,6 +55,10 @@ const UPGRADE_REMOTE: typeof import('./ipc.js').INVOKE.upgradeRemote =
   'superiu:upgrade-remote';
 const CONNECT_CUSTOM_URL: typeof import('./ipc.js').INVOKE.connectCustomUrl =
   'superiu:connect-custom-url';
+const RECONNECT_TRANSPORT: typeof import('./ipc.js').INVOKE.reconnectTransport =
+  'superiu:reconnect-transport';
+const REPORT_NETWORK_FAILURE: typeof import('./ipc.js').INVOKE.reportNetworkFailure =
+  'superiu:report-network-failure';
 const CONNECTION_STATE_CHANNEL: typeof import('./ipc.js').CONNECTION_STATE_CHANNEL =
   'superiu:connection-state';
 const REMOTE_PROGRESS_CHANNEL: typeof import('./ipc.js').REMOTE_PROGRESS_CHANNEL = 'superiu:remote-progress';
@@ -186,6 +190,23 @@ const bridge: SuperiuDesktopBridge = {
 
   connectCustomUrl(options: { url: string; token?: string; saveDefault?: boolean }): Promise<void> {
     return ipcRenderer.invoke(CONNECT_CUSTOM_URL, options);
+  },
+
+  /**
+   * Ask the main process to reconnect the tunnel/gateway now, skipping the
+   * pending backoff sleep. Fire-and-forget; the outcome arrives via
+   * `onConnectionStateChange`.
+   */
+  reconnectTransport(): Promise<void> {
+    return ipcRenderer.invoke(RECONNECT_TRANSPORT);
+  },
+
+  /**
+   * Hint that the renderer just saw a network failure, so the main process can
+   * wake a parked reconnect early. No reply payload is expected.
+   */
+  reportNetworkFailure(): Promise<void> {
+    return ipcRenderer.invoke(REPORT_NETWORK_FAILURE);
   }
 };
 

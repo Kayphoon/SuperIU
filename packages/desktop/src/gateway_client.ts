@@ -153,6 +153,22 @@ export class GatewayClient {
     this.openSocket();
   }
 
+  /**
+   * Force an immediate reconnect instead of waiting out the current backoff.
+   *
+   * Only meaningful while parked in a scheduled reconnect wait: `shouldReconnect`
+   * is set and no socket is live. If a socket already exists (connecting, open,
+   * or closing) this is a deliberate no-op — opening a second one would orphan
+   * the first. The pending timer is cancelled and `openSocket` runs now; the
+   * backoff constants themselves are left alone.
+   */
+  kick(): void {
+    if (!this.shouldReconnect) return;
+    if (this.socket !== null) return;
+    this.clearReconnectTimer();
+    this.openSocket();
+  }
+
   /** Permanently close the connection and stop reconnecting. */
   close(code = 1000, reason = 'client shutting down'): void {
     this.shouldReconnect = false;

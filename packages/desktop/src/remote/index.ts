@@ -53,6 +53,7 @@ export type {
 export {
   RemoteConnectionManager,
   RemoteConnectionError,
+  waitForReadyz,
 } from './manager.js';
 export type {
   RemoteConnectOptions,
