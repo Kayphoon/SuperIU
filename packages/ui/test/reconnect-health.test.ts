@@ -63,11 +63,21 @@ interface QueueOptions {
   now?: () => number;
 }
 
+interface SeqTracker {
+  readonly lastSeqId: number;
+  accept(event: { seqId?: number; type?: string }): boolean;
+}
+
 interface PureApi {
   NET_HEALTH_CONFIG: Record<string, number>;
   createHealthMachine(options?: MachineOptions): HealthMachine;
   createPendingQueue(options?: QueueOptions): PendingQueue;
   healthBannerState(health: string): string;
+  createSeqTracker(): SeqTracker;
+  classifyStreamEnd(meta: { aborted?: boolean; terminal?: boolean }): string;
+  MAX_STREAM_REATTACH_ATTEMPTS: number;
+  SSE_FRAME_SYNC: string;
+  STREAM_OUTCOME: Record<string, string>;
 }
 
 function loadPureLogic(): PureApi {
@@ -80,7 +90,9 @@ function loadPureLogic(): PureApi {
   // `new Function` because the region is inline module code with no exports.
   // eslint-disable-next-line no-new-func
   const factory = new Function(
-    source + '\nreturn { NET_HEALTH_CONFIG, createHealthMachine, createPendingQueue, healthBannerState };'
+    source +
+      '\nreturn { NET_HEALTH_CONFIG, createHealthMachine, createPendingQueue, healthBannerState,' +
+      ' createSeqTracker, classifyStreamEnd, MAX_STREAM_REATTACH_ATTEMPTS, SSE_FRAME_SYNC, STREAM_OUTCOME };'
   );
   return factory() as PureApi;
 }
@@ -321,5 +333,57 @@ describe('Pure pending queue', () => {
     queue.enqueue('still works');
     expect(queue.size()).toBe(1);
     expect(queue.restore()).toEqual([]);
+  });
+});
+
+describe('Pure stream-reattach core', () => {
+  const api = loadPureLogic();
+
+  it('tracks the highest seqId and starts at 0', () => {
+    const tracker = api.createSeqTracker();
+    expect(tracker.lastSeqId).toBe(0);
+    expect(tracker.accept({ seqId: 1, type: 'chunk' })).toBe(true);
+    expect(tracker.lastSeqId).toBe(1);
+    expect(tracker.accept({ seqId: 2, type: 'chunk' })).toBe(true);
+    expect(tracker.lastSeqId).toBe(2);
+  });
+
+  it('skips a replayed frame at or below the resume point', () => {
+    const tracker = api.createSeqTracker();
+    tracker.accept({ seqId: 5, type: 'chunk' });
+    // A reattach replays from lastSeqId; the boundary frame and anything older
+    // are duplicates and must not be applied twice.
+    expect(tracker.accept({ seqId: 5, type: 'chunk' })).toBe(false);
+    expect(tracker.accept({ seqId: 4, type: 'chunk' })).toBe(false);
+    expect(tracker.lastSeqId).toBe(5);
+    // A strictly higher id is the next frame: apply it.
+    expect(tracker.accept({ seqId: 6, type: 'chunk' })).toBe(true);
+    expect(tracker.lastSeqId).toBe(6);
+  });
+
+  it('applies a position-less frame without advancing the resume point', () => {
+    const tracker = api.createSeqTracker();
+    tracker.accept({ seqId: 3, type: 'chunk' });
+    // The `sync` probe carries no seqId: it must be handled, but it is not a
+    // position and must not move the resume point.
+    expect(tracker.accept({ type: api.SSE_FRAME_SYNC, activeTurn: null })).toBe(true);
+    expect(tracker.lastSeqId).toBe(3);
+  });
+
+  it('classifies terminal, dropped and aborted stream ends', () => {
+    expect(api.classifyStreamEnd({ terminal: true })).toBe('terminal');
+    expect(api.classifyStreamEnd({})).toBe('dropped');
+    expect(api.classifyStreamEnd({ aborted: true })).toBe('aborted');
+    // An abort wins even if a terminal frame was seen: the explicit Stop owns
+    // the transcript, not the hold machinery.
+    expect(api.classifyStreamEnd({ aborted: true, terminal: true })).toBe('aborted');
+  });
+
+  it('bounds the reattach loop and names its outcomes', () => {
+    expect(api.MAX_STREAM_REATTACH_ATTEMPTS).toBeGreaterThan(0);
+    expect(api.STREAM_OUTCOME.TERMINAL).toBe('terminal');
+    expect(api.STREAM_OUTCOME.INTERRUPTED).toBe('interrupted');
+    expect(api.STREAM_OUTCOME.RECONCILE).toBe('reconcile');
+    expect(api.SSE_FRAME_SYNC).toBe('sync');
   });
 });

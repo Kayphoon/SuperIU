@@ -197,3 +197,72 @@ describe('Layered health machine wiring', () => {
     expect(html).toContain('void drainPendingQueue();');
   });
 });
+
+describe('Stream hold-and-reattach wiring', () => {
+  const html = fs.readFileSync(indexPath, 'utf8');
+
+  it('tracks the resume point and dedupes a replay through the shared dispatch', () => {
+    expect(html).toContain('const seqTracker = createSeqTracker();');
+    // Every frame — initial POST and reattach alike — goes through the dedupe.
+    expect(html).toContain('if (!seqTracker.accept(event)) return;');
+    expect(html).toContain('classifyStreamEnd({ aborted: false, terminal: terminalSeen })');
+    // A position-less `sync` frame is handled but never advances the point.
+    expect(html).toContain('if (event.type === SSE_FRAME_SYNC && event.activeTurn === null) syncIdle = true;');
+  });
+
+  it('holds on a mid-stream drop and reattaches from the last seqId', () => {
+    expect(html).toContain('const pumpTurn = async () => {');
+    expect(html).toContain("showResumeNote();");
+    // The hold waits on the health clock within the shared deadline.
+    expect(html).toContain('netHealth.waitHealthy(maxWaitMs)');
+    expect(html).toContain('waitHealthyOrAbort(controller.signal, NET_HEALTH_CONFIG.apiRetryDeadlineMs)');
+    // Reattach replays exactly the missed tail, then continues live.
+    expect(html).toContain("fetch('/api/chat/stream?fromSeqId=' + seqTracker.lastSeqId");
+  });
+
+  it('reattaches even when the status probe reports no active turn', () => {
+    // The server retains the terminal journal, so a null `activeTurn` does NOT
+    // mean "reconcile": the reattach GET is still attempted so the missed
+    // `chunk` frames (the answer text) replay through the `done` handler.
+    expect(html).not.toContain('if (!statusPayload.activeTurn) return STREAM_OUTCOME.RECONCILE;');
+    // A failed probe is still just another drop.
+    expect(html).toContain('if (!statusPayload) continue;');
+    // RECONCILE is driven ONLY by the reattach stream's `sync` frame.
+    expect(html).toContain('if (syncIdle) return STREAM_OUTCOME.RECONCILE;');
+    // The probe reads the status but the flow falls through to the reattach GET.
+    expect(html).toContain('const statusPayload = await refreshStatus({ signal: controller.signal });');
+  });
+
+  it('forwards the abort signal into the status probe so Stop is responsive', () => {
+    expect(html).toContain("api('/api/status', { signal: options.signal })");
+    expect(html).toContain('const statusPayload = await refreshStatus({ signal: controller.signal });');
+  });
+
+  it('renders the resuming indicator with the existing note and key, and removes it', () => {
+    expect(html).toContain("resumeNote = systemNote(tr('net.stream.resuming'));");
+    // Cleared on every exit: terminal, abort, reconcile and fallback.
+    expect(html).toContain('clearResumeNote();');
+    expect(html).toContain('resumeNote.remove();');
+    // No new visual language: the indicator is a plain note row.
+    expect(html).not.toContain('siu-stream-resuming');
+  });
+
+  it('no longer unconditionally appends net.streamInterrupted on a mid-stream drop', () => {
+    // The old "any non-abort read failure → interrupted" catch is gone.
+    expect(html).not.toContain("if (err.name !== 'AbortError') {");
+    // The note now appears in exactly ONE place: the spent-budget fallback.
+    const sites = html.split("tr('net.streamInterrupted')").length - 1;
+    expect(sites).toBe(1);
+    expect(html).toContain('if (outcome === STREAM_OUTCOME.INTERRUPTED) {');
+    expect(html).toContain("if (contentReceived) turn.appendChild(systemNote(tr('net.streamInterrupted'), 'error'));");
+    // Reconcile closes the turn cleanly instead of erroring.
+    expect(html).toContain('if (outcome === STREAM_OUTCOME.RECONCILE) {');
+    expect(html).toContain('collapseTurnSteps();');
+  });
+
+  it('keeps the explicit abort path untouched', () => {
+    expect(html).toContain("if (outcome === STREAM_OUTCOME.ABORTED) {");
+    expect(html).toContain("turn.appendChild(systemNote(tr('transcript.aborted')));");
+    expect(html).toContain('async function abortTurn() {');
+  });
+});

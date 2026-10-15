@@ -6509,6 +6509,81 @@
           }
         };
       }
+
+      // A reattach is bounded: if the link keeps flapping, an unbounded hold
+      // would keep the turn "in flight" forever. After this many reattach
+      // attempts the client gives up and shows the existing interrupted note.
+      const MAX_STREAM_REATTACH_ATTEMPTS = 3;
+
+      // The `sync` frame type the reattach endpoint answers with when no turn is
+      // live. Named here (not as a bare literal in `sendPrompt`) because the
+      // i18n guard reads an unknown lowercase token inside a guarded function as
+      // possible copy; a protocol token is data, and this is its one definition.
+      const SSE_FRAME_SYNC = 'sync';
+
+      /**
+       * Named results for the stream state machines. The values are internal
+       * state and are NEVER rendered, so they are named constants rather than
+       * inline literals — same reason as `SSE_FRAME_SYNC`.
+       *
+       *  - `TERMINAL`    — a `done`/`error` frame arrived: the turn is over.
+       *  - `ABORTED`     — the user hit Stop (`AbortError`): the explicit abort
+       *    path owns the transcript note, so hold/reattach must stand down.
+       *  - `DROPPED`     — the socket closed (or the read threw) without a
+       *    terminal frame and without an abort: the server keeps the turn alive
+       *    for a grace window, so the caller holds and reattaches.
+       *  - `RECONCILE`   — the server has no live turn: it finished while the
+       *    client was away, so the caller closes the turn from committed state.
+       *  - `INTERRUPTED` — the reattach budget is spent; fall back to the note.
+       *  - `FAILED`      — the request never reached a turn (HTTP/connect error).
+       *  - `BUSY`        — a queued send hit a busy server; keep it queued.
+       */
+      const STREAM_OUTCOME = Object.freeze({
+        TERMINAL: 'terminal',
+        ABORTED: 'aborted',
+        DROPPED: 'dropped',
+        RECONCILE: 'reconcile',
+        INTERRUPTED: 'interrupted',
+        FAILED: 'failed',
+        BUSY: 'busy'
+      });
+
+      /**
+       * Pure: how a turn's SSE read loop ended, and what the caller must do.
+       * Returns a `STREAM_OUTCOME` value.
+       */
+      function classifyStreamEnd(meta) {
+        const m = meta || {};
+        if (m.aborted) return STREAM_OUTCOME.ABORTED;
+        if (m.terminal) return STREAM_OUTCOME.TERMINAL;
+        return STREAM_OUTCOME.DROPPED;
+      }
+
+      /**
+       * Pure: the resume point of a turn's frame stream.
+       *
+       * Every `/api/chat` frame carries a per-turn monotonic `seqId`. A reattach
+       * replays from the last id the client applied, so a frame at or below it is
+       * a duplicate and must be dropped — applying it again would double a
+       * bubble's text. A frame WITHOUT a `seqId` (the `sync` probe) carries no
+       * position: it is always applied, but never advances the resume point.
+       */
+      function createSeqTracker() {
+        let last = 0;
+        return {
+          get lastSeqId() {
+            return last;
+          },
+          // `true` → apply the frame; `false` → a replay the client already saw.
+          accept(event) {
+            const seq = event && typeof event.seqId === 'number' ? event.seqId : null;
+            if (seq === null) return true;
+            if (seq <= last) return false;
+            last = seq;
+            return true;
+          }
+        };
+      }
       // >>> NET-HEALTH-PURE-END
 
       const $ = (id) => document.getElementById(id);
@@ -8456,14 +8531,22 @@
       }
 
       async function refreshStatus(options = {}) {
-        if (state.unauthorized) return;
+        if (state.unauthorized) return null;
         try {
-          renderStatus(await api('/api/status'));
+          // Forward the caller's signal so Stop aborts the probe instead of
+          // waiting out `api()`'s heal/retry budget. `api()` throws AbortError,
+          // which the catch below turns into a null return.
+          const payload = await api('/api/status', { signal: options.signal });
+          renderStatus(payload);
+          // Returned so the stream-reattach path can read `activeTurn` without a
+          // second probe. Callers that only want the side effect ignore it.
+          return payload;
         } catch (err) {
-          if (state.unauthorized) return;
+          if (state.unauthorized) return null;
           if (!options.background && netState.status === 'online') {
             toast(tr('toast.statusUnavailable', { message: err.message }), 'error');
           }
+          return null;
         }
       }
 
@@ -8769,6 +8852,27 @@
           group.meta.textContent = parts.join(' · ');
         };
 
+        /**
+         * Collapse every step of this turn except the newest, and inside the
+         * newest fold thinking + tools so only the final answer shows. Shared by
+         * the `done` frame and the reconcile-after-reconnect path, so a turn that
+         * finished while the socket was down ends in exactly the same shape as
+         * one that streamed all the way to its `done`.
+         */
+        const collapseTurnSteps = () => {
+          // "每一个 loop 结束后 除了最后的消息 其他都折叠起来"
+          const steps = [...turn.querySelectorAll(':scope > details[data-kind="step"]')];
+          steps.forEach((stepDetails, index) => {
+            const isLast = index === steps.length - 1;
+            stepDetails.open = isLast;
+            for (const fold of stepDetails.querySelectorAll('details')) {
+              if (fold.dataset.kind !== 'thinking') fold.open = false;
+            }
+          });
+          for (const card of turn.querySelectorAll('details[data-kind="tool"]')) card.open = false;
+          for (const grp of turn.querySelectorAll('details[data-kind="tool-group"]')) grp.open = false;
+        };
+
         const handle = (event) => {
           if (event.phase) phase = event.phase;
 
@@ -8883,19 +8987,7 @@
               settleOpenApprovals();
               if (group) updateStepMeta();
 
-              // "每一个 loop 结束后 除了最后的消息 其他都折叠起来":
-              // collapse every step of this turn except the newest, and inside
-              // the newest collapse thinking + tools so only the final answer shows.
-              const steps = [...turn.querySelectorAll(':scope > details[data-kind="step"]')];
-              steps.forEach((stepDetails, index) => {
-                const isLast = index === steps.length - 1;
-                stepDetails.open = isLast;
-                for (const fold of stepDetails.querySelectorAll('details')) {
-                  if (fold.dataset.kind !== 'thinking') fold.open = false;
-                }
-              });
-              for (const card of turn.querySelectorAll('details[data-kind="tool"]')) card.open = false;
-              for (const grp of turn.querySelectorAll('details[data-kind="tool-group"]')) grp.open = false;
+              collapseTurnSteps();
 
               if (!turn.querySelector('.siu-md')) {
                 turn.appendChild(el('div', 'siu-label', tr('transcript.noOutput')));
@@ -8929,48 +9021,37 @@
         const controller = new AbortController();
         state.controller = controller;
 
-        try {
-          // Both must be inside the `try` so the `finally` below always pairs
-          // with them: `state.running` gates re-entrant submits AND the language
-          // re-render, and the turn appends its DOM directly, so a throw between
-          // here and the `finally` would strand `running` true forever —
-          // permanently hiding Send, disabling submit/new/switch, and arming the
-          // beforeunload prompt.
-          setRunning(true);
-          // Any DOM the restored history did not produce invalidates its cache,
-          // so a language switch will not reconcile against a stale snapshot.
-          state.transcriptDirty = true;
+        // ── Stream hold-and-reattach ────────────────────────────────────────
+        // The server no longer kills a turn when its socket drops: it journals
+        // every frame and keeps running through a grace window, so the client's
+        // job on a drop is to HOLD and reattach, not to declare an error. The two
+        // pure helpers own the resume point and the end classification; the
+        // state machine below wires them to the DOM and the health clock.
+        const seqTracker = createSeqTracker();
+        // A terminal frame (`done`/`error`) ends the turn for good.
+        let terminalSeen = false;
+        // A `sync` frame with `activeTurn:null` means the server has no live turn
+        // to attach to — the same verdict as an `activeTurn === null` status.
+        let syncIdle = false;
 
-          const response = await fetch('/api/chat', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ prompt: text, model: $('model-select').value || undefined }),
-            signal: controller.signal
-          });
+        const handleFrame = (event) => {
+          // A reattach replays from `lastSeqId`, so a frame at or below it is a
+          // duplicate: applying it twice would double a bubble's text.
+          if (!seqTracker.accept(event)) return;
+          if (event.type === 'done' || event.type === 'error') terminalSeen = true;
+          if (event.type === SSE_FRAME_SYNC && event.activeTurn === null) syncIdle = true;
+          handle(event);
+        };
 
-          // Queue-driven send that lands on a busy server: another turn is
-          // already running, so hold this prompt (it stays queued) and let the
-          // current turn's `finally` retry. Undo the optimistic DOM first so a
-          // held prompt does not leave a phantom user bubble behind.
-          if (opts.fromQueue && response.status === 409) {
-            bubble.remove();
-            turn.remove();
-            return false;
-          }
-
-          if (!response.ok) {
-            const payload = await response.json().catch(() => ({}));
-            // Same rule as `api()`: a server `error` is already a sentence; a
-            // bare status line is not, so it stays in the console.
-            if (payload.error) throw new Error(payload.error);
-            console.error(`[api] /api/chat failed: ${response.status} ${response.statusText}`);
-            throw new Error(tr('toast.requestFailed'));
-          }
-
+        /**
+         * Read one SSE response to its end, feeding every frame through the same
+         * dispatch. Shared by the initial POST and every reattach GET so the two
+         * cannot drift in framing or handling.
+         */
+        const consumeStream = async (response) => {
           const reader = response.body.getReader();
           const decoder = new TextDecoder();
           let buffer = '';
-
           for (;;) {
             const { done, value } = await reader.read();
             if (done) break;
@@ -8985,7 +9066,7 @@
                 const raw = line.slice(5).trim();
                 if (!raw) continue;
                 try {
-                  handle(JSON.parse(raw));
+                  handleFrame(JSON.parse(raw));
                 } catch {
                   /* ignore malformed frame */
                 }
@@ -8993,28 +9074,199 @@
               boundary = buffer.indexOf('\n\n');
             }
           }
-        } catch (err) {
-          if (err.name !== 'AbortError') {
-            if (contentReceived) {
-              turn.appendChild(systemNote(tr('net.streamInterrupted'), 'error'));
-            } else {
-              const noteRow = el('div', 'siu-msg-row ' + enterClass());
-              noteRow.style.justifyContent = 'center';
-              const noteBox = el('div', 'siu-note siu-note--error flex items-center gap-2');
-              noteBox.appendChild(el('span', '', tr('net.streamFailed')));
-              const retryBtn = el('button', 'siu-btn text-[11px] py-0 px-2 h-5', tr('net.retry'));
-              retryBtn.type = 'button';
-              retryBtn.addEventListener('click', () => {
-                noteRow.remove();
-                void sendPrompt(text);
-              });
-              noteBox.appendChild(retryBtn);
-              noteRow.appendChild(noteBox);
-              turn.appendChild(noteRow);
-            }
-          } else {
-            turn.appendChild(systemNote(tr('transcript.aborted')));
+        };
+
+        // The thin, non-alarming "resuming" tail shown while held. It reuses the
+        // existing note row, so no new visual language is introduced.
+        let resumeNote = null;
+        const showResumeNote = () => {
+          if (resumeNote) return;
+          resumeNote = systemNote(tr('net.stream.resuming'));
+          turn.appendChild(resumeNote);
+          scrollToBottom();
+        };
+        const clearResumeNote = () => {
+          if (!resumeNote) return;
+          resumeNote.remove();
+          resumeNote = null;
+        };
+
+        // The existing no-content failure affordance, kept for the fallback path.
+        const showStreamFailed = () => {
+          const noteRow = el('div', 'siu-msg-row ' + enterClass());
+          noteRow.style.justifyContent = 'center';
+          const noteBox = el('div', 'siu-note siu-note--error flex items-center gap-2');
+          noteBox.appendChild(el('span', '', tr('net.streamFailed')));
+          const retryBtn = el('button', 'siu-btn text-[11px] py-0 px-2 h-5', tr('net.retry'));
+          retryBtn.type = 'button';
+          retryBtn.addEventListener('click', () => {
+            noteRow.remove();
+            void sendPrompt(text);
+          });
+          noteBox.appendChild(retryBtn);
+          noteRow.appendChild(noteBox);
+          turn.appendChild(noteRow);
+        };
+
+        /**
+         * Race the health wait against the user's abort. `waitHealthy` has no
+         * signal of its own, and an abort during the hold must not be ignored
+         * until the 30s budget expires — Stop has to stay responsive.
+         */
+        // Resolves `true` on HEALTHY, `false` on the deadline, or
+        // `STREAM_OUTCOME.ABORTED` if the user aborts first.
+        const waitHealthyOrAbort = (signal, maxWaitMs) => {
+          if (signal.aborted) return Promise.resolve(STREAM_OUTCOME.ABORTED);
+          return new Promise((resolve) => {
+            const onAbort = () => {
+              signal.removeEventListener('abort', onAbort);
+              resolve(STREAM_OUTCOME.ABORTED);
+            };
+            signal.addEventListener('abort', onAbort, { once: true });
+            void netHealth.waitHealthy(maxWaitMs).then((ok) => {
+              signal.removeEventListener('abort', onAbort);
+              resolve(ok);
+            });
+          });
+        };
+
+        /**
+         * Drive the turn to a terminal frame, holding and reattaching across
+         * drops. Returns a `STREAM_OUTCOME` so the caller renders the tail ONCE
+         * (see the vocabulary on `STREAM_OUTCOME` for what each one means).
+         */
+        const pumpTurn = async () => {
+          let attempts = 0;
+
+          // Initial POST. A rejected fetch means the request never reached the
+          // server, so there is no turn to reattach to: keep the existing failure
+          // affordance rather than holding for a turn that never started.
+          let response;
+          try {
+            response = await fetch('/api/chat', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ prompt: text, model: $('model-select').value || undefined }),
+              signal: controller.signal
+            });
+          } catch (err) {
+            return err.name === 'AbortError' ? STREAM_OUTCOME.ABORTED : STREAM_OUTCOME.FAILED;
           }
+
+          // Queue-driven send that lands on a busy server: another turn is
+          // already running, so hold this prompt (it stays queued) and let the
+          // current turn's `finally` retry. Undo the optimistic DOM first so a
+          // held prompt does not leave a phantom user bubble behind.
+          if (opts.fromQueue && response.status === 409) {
+            bubble.remove();
+            turn.remove();
+            return STREAM_OUTCOME.BUSY;
+          }
+
+          if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            // Same rule as `api()`: a server `error` is already a sentence; a
+            // bare status line is not, so it stays in the console.
+            if (payload.error) console.error(`[api] /api/chat failed: ${payload.error}`);
+            else console.error(`[api] /api/chat failed: ${response.status} ${response.statusText}`);
+            return STREAM_OUTCOME.FAILED;
+          }
+
+          // From here the server owns a turn; a dropped socket must not lose it.
+          for (;;) {
+            try {
+              await consumeStream(response);
+            } catch (err) {
+              if (err.name === 'AbortError') return STREAM_OUTCOME.ABORTED;
+              // Any other read error is a drop: fall through to the hold.
+            }
+            if (controller.signal.aborted) return STREAM_OUTCOME.ABORTED;
+            if (classifyStreamEnd({ aborted: false, terminal: terminalSeen }) === STREAM_OUTCOME.TERMINAL) {
+              return STREAM_OUTCOME.TERMINAL;
+            }
+            if (syncIdle) return STREAM_OUTCOME.RECONCILE;
+
+            // The socket dropped (or closed) without a terminal frame and the
+            // user did not abort: the turn is still running server-side. Hold.
+            attempts += 1;
+            if (attempts > MAX_STREAM_REATTACH_ATTEMPTS) return STREAM_OUTCOME.INTERRUPTED;
+
+            // Mark the transport down so `waitHealthy` has an episode to wait
+            // out — the same report `api()` makes on a failed GET.
+            onNetworkFailure();
+            showResumeNote();
+
+            const heal = await waitHealthyOrAbort(controller.signal, NET_HEALTH_CONFIG.apiRetryDeadlineMs);
+            if (heal === STREAM_OUTCOME.ABORTED) return STREAM_OUTCOME.ABORTED;
+            if (!heal) return STREAM_OUTCOME.INTERRUPTED;
+
+            // Probe the server only to tell a failed status call (still a drop)
+            // from a reachable one. Do NOT treat `activeTurn: null` as
+            // "reconcile": the server RETAINS the terminal journal, so the missed
+            // `chunk` frames — the answer text; the `done` handler does not draw
+            // `finalText` — are still replayable. The authoritative "no journal
+            // for us" signal is the `sync` frame from the reattach GET, which the
+            // `syncIdle` check turns into RECONCILE. So the reattach is always
+            // attempted: a retained journal replays to TERMINAL, a gone journal
+            // answers `sync`, and a foreign live turn is bounded by the budget.
+            const statusPayload = await refreshStatus({ signal: controller.signal });
+            if (controller.signal.aborted) return STREAM_OUTCOME.ABORTED;
+            if (!statusPayload) continue;
+
+            // Reattach: replay every frame after the last one applied, then
+            // live-stream to the terminal frame.
+            try {
+              response = await fetch('/api/chat/stream?fromSeqId=' + seqTracker.lastSeqId, {
+                signal: controller.signal
+              });
+            } catch (err) {
+              if (err.name === 'AbortError') return STREAM_OUTCOME.ABORTED;
+              continue; // the reattach GET itself failed: hold again
+            }
+            if (!response.ok) return STREAM_OUTCOME.INTERRUPTED;
+            // Loop: consume the reattached stream.
+          }
+        };
+
+        try {
+          // Both must be inside the `try` so the `finally` below always pairs
+          // with them: `state.running` gates re-entrant submits AND the language
+          // re-render, and the turn appends its DOM directly, so a throw between
+          // here and the `finally` would strand `running` true forever —
+          // permanently hiding Send, disabling submit/new/switch, and arming the
+          // beforeunload prompt.
+          setRunning(true);
+          // Any DOM the restored history did not produce invalidates its cache,
+          // so a language switch will not reconcile against a stale snapshot.
+          state.transcriptDirty = true;
+
+          const outcome = await pumpTurn();
+          // Every exit from the hold must drop the indicator, so it never lingers
+          // over a finished or failed turn.
+          clearResumeNote();
+
+          if (outcome === STREAM_OUTCOME.BUSY) return false;
+
+          if (outcome === STREAM_OUTCOME.ABORTED) {
+            turn.appendChild(systemNote(tr('transcript.aborted')));
+          } else if (outcome === STREAM_OUTCOME.RECONCILE) {
+            // The turn finished while we were disconnected. Close it the way
+            // `done` would — no error — and let the `finally` re-read
+            // /api/status, /api/sessions and /api/messages to catch up.
+            collapseTurnSteps();
+            if (!turn.querySelector('.siu-md')) {
+              turn.appendChild(el('div', 'siu-label', tr('transcript.noOutput')));
+            }
+            if (lastTextBubble && !lastTextBubble.textContent.trim()) lastTextBubble.remove();
+            scrollToBottom();
+          } else if (outcome === STREAM_OUTCOME.INTERRUPTED) {
+            // The reattach budget is spent: fall back to today's behaviour.
+            if (contentReceived) turn.appendChild(systemNote(tr('net.streamInterrupted'), 'error'));
+            else showStreamFailed();
+          } else if (outcome === STREAM_OUTCOME.FAILED) {
+            showStreamFailed();
+          }
+          // STREAM_OUTCOME.TERMINAL → the `done`/`error` handler already drew it.
         } finally {
           closeThinking();
           closeBubble();
