@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.73 (2026-10-15)
+
+### 中文
+
+- **AutoReview 统一单开关（免人工确认原生接管）**：
+  - **消除冗余开关**：去除多余的「全自动接管审批」二级开关，将免人工确认能力原生内聚于「启用 AutoReview 自动化审核」本身；开启 AutoReview 即代表由系统自动化把控安全规则与审查模型，全自动放行常规及敏感操作，全程无需手动审批卡片交互；
+  - **底线防护不变**：仅对破坏性与恶意操作（如格式化、删除系统根目录、扇区覆盖等）进行硬阻断（`deny`），兼顾无感流转与系统安全；
+  - **界面与文案优化**：精简设置面板，AutoReview 设置区恢复单开关极简设计，文案明确传达「全自动接管权限审批，免除人工确认卡片，仅拦截毁灭性破坏指令」。
+
+### English
+
+- **Unified single-toggle AutoReview (natively unattended approval)**:
+  - **Removed redundant secondary switch**: Eliminated the duplicate "Auto-Approve All" toggle and consolidated unattended approval natively into "Enable AutoReview". Turning on AutoReview directly implies autonomous tool-call auditing and approval without popping interactive approval cards;
+  - **Strict safety guardrails preserved**: Continues to hard-deny catastrophic and malicious commands (`rm -rf /`, format, raw disk overwrite) while allowing all other safe and sensitive operations smoothly;
+  - **Settings simplification**: Streamlined the AutoReview settings pane to a single toggle with clear bilingual copy indicating full automated takeover without manual prompts.
+
 ## v0.2.72 (2026-10-14)
 
 ### 中文

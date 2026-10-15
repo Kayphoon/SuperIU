@@ -439,7 +439,7 @@ export class AgentRunner {
       this.config.autoReview ?? (process.env.SUPERIU_AUTO_REVIEW ?? '1') !== '0';
     this.config.autoReview = autoReviewEnabled;
     this.config.autoApprove =
-      this.config.autoApprove ?? (process.env.SUPERIU_AUTO_APPROVE ?? '0') === '1';
+      this.config.autoApprove ?? (process.env.SUPERIU_AUTO_APPROVE !== '0');
     this.config.autoReviewMode =
       this.config.autoReviewMode ??
       (process.env.SUPERIU_AUTO_REVIEW_MODE === 'strict' ? 'strict' : 'lenient');
@@ -734,7 +734,7 @@ export class AgentRunner {
       this.config.autoApprove = autoApprove;
     }
     const currentMode = mode ?? this.config.autoReviewMode ?? 'lenient';
-    const currentAutoApprove = autoApprove ?? this.config.autoApprove ?? false;
+    const currentAutoApprove = autoApprove ?? this.config.autoApprove ?? (process.env.SUPERIU_AUTO_APPROVE !== '0');
 
     if (enabled) {
       const reviewCaller = this.callerFactory ? this.buildCaller(this.models.resolve('review')) : undefined;
@@ -782,6 +782,7 @@ export class AgentRunner {
       const rebuilt = new AutoReviewer({
         modelCaller: this.buildCaller(this.models.resolve('review')),
         mode,
+        autoApprove: this.config.autoApprove ?? (process.env.SUPERIU_AUTO_APPROVE !== '0'),
         workspaceDir: this.config.workspaceDir ?? process.cwd()
       });
       this.reviewer = rebuilt;

@@ -506,8 +506,6 @@ interface UiSettings {
   /** Memory model — for extracting long-term memories. */
   memoryModelName?: string;
   autoReview: boolean;
-  /** Automatically approve escalated calls without prompting the user. */
-  autoApprove: boolean;
   /**
    * Provider reasoning effort applied to every reasoning-capable route.
    * `''` means "derive": the env value, else the core default (`medium`).
@@ -577,7 +575,6 @@ function loadSettings(): UiSettings {
     titleModelName: process.env.OPENAI_TITLE_MODEL_NAME ?? '',
     memoryModelName: process.env.OPENAI_MEMORY_MODEL_NAME ?? '',
     autoReview: (process.env.SUPERIU_AUTO_REVIEW ?? '1') !== '0',
-    autoApprove: (process.env.SUPERIU_AUTO_APPROVE ?? '0') === '1',
     reasoningEffort: parseReasoningEffort(process.env.OPENAI_REASONING_EFFORT) ?? '',
     language: parseLanguage(process.env.SUPERIU_LANGUAGE) ?? DEFAULT_LANGUAGE,
     theme: DEFAULT_THEME,
@@ -700,7 +697,6 @@ function loadSettings(): UiSettings {
       titleModelName: typeof raw.titleModelName === 'string' ? raw.titleModelName.trim() : defaults.titleModelName,
       memoryModelName: typeof raw.memoryModelName === 'string' ? raw.memoryModelName.trim() : defaults.memoryModelName,
       autoReview: typeof raw.autoReview === 'boolean' ? raw.autoReview : defaults.autoReview,
-      autoApprove: typeof raw.autoApprove === 'boolean' ? raw.autoApprove : defaults.autoApprove,
       reasoningEffort: parseReasoningEffort(raw.reasoningEffort) ?? defaults.reasoningEffort,
       language: parseLanguage(raw.language) ?? defaults.language,
       theme: parseTheme(raw.theme) ?? defaults.theme,
@@ -736,7 +732,6 @@ const SERVER_OWNED_KEY_FLAGS = {
   titleModelName: true,
   memoryModelName: true,
   autoReview: true,
-  autoApprove: true,
   reasoningEffort: true,
   language: true,
   theme: true,
@@ -1004,7 +999,6 @@ function runnerOptions(sessionReference?: string, historyDbPath?: string, newSes
     modelName: settings.modelName || undefined,
     reviewModelName: effectiveModel.review || undefined,
     autoReview: settings.autoReview,
-    autoApprove: settings.autoApprove,
     // `''` means derive (env, else core's `medium`). An explicit option wins
     // over `OPENAI_REASONING_EFFORT`, matching how the other settings resolve.
     // This is the user's GLOBAL preference and must stay exactly that: it is the
@@ -1255,7 +1249,6 @@ function buildStatus() {
     model: settings.modelName,
     reviewModel: settings.reviewModelName || runner.getModelRoutes().review?.model || '',
     autoReview: settings.autoReview,
-    autoApprove: settings.autoApprove,
     // Only what the user configured: the shipped catalog is a suggestion list,
     // and serving it here is what put 12 models in the ⌘J selector of an
     // install with none configured.
@@ -1489,7 +1482,6 @@ function settingsView() {
     titleModelName: settings.titleModelName || '',
     memoryModelName: settings.memoryModelName || '',
     autoReview: settings.autoReview,
-    autoApprove: settings.autoApprove,
     advertiseUrl: settings.advertiseUrl || '',
     language: settings.language,
     theme: settings.theme,
@@ -1625,7 +1617,6 @@ function applySettings(
     next.memoryModelName = patch.memoryModelName.trim();
   }
   if (typeof patch.autoReview === 'boolean') next.autoReview = patch.autoReview;
-  if (typeof patch.autoApprove === 'boolean') next.autoApprove = patch.autoApprove;
   if (typeof patch.advertiseUrl === 'string') {
     next.advertiseUrl = patch.advertiseUrl.trim();
     if (activeAuth) activeAuth.setAdvertiseUrl(next.advertiseUrl || undefined);
@@ -1796,8 +1787,8 @@ function applySettings(
   // Sync runtime settings on the live runner (routes, AutoReview).
   // These take effect immediately (AutoReview, review model) or on the next turn (main model).
   syncRunnerRoutes();
-  if (typeof settings.autoReview === 'boolean' || typeof settings.autoApprove === 'boolean') {
-    runner.setAutoReview(settings.autoReview, undefined, settings.autoApprove);
+  if (typeof settings.autoReview === 'boolean') {
+    runner.setAutoReview(settings.autoReview);
   }
 
   if (!runnerChanged) {

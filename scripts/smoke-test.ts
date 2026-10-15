@@ -1016,6 +1016,11 @@ async function runSmokeTests() {
       });
       assert(review.decision === 'allow', `command '${cmd}' should be auto-approved, got ${review.decision}`);
     }
+
+    // AgentRunner with autoReview defaults autoApprove to true
+    const runner = new AgentRunner({ workspaceDir: autoWorkspace, autoReview: true });
+    assert(runner.reviewer !== undefined, 'runner reviewer must be defined');
+    assert((runner.reviewer as AutoReviewer).autoApprove === true, 'runner reviewer must have autoApprove=true by default');
   });
 
   await test('sensitive reads escalate, and without a gate the loop reports pending approval', async () => {
@@ -1596,6 +1601,7 @@ async function runSmokeTests() {
       workspaceDir: runnerGateWorkspace,
       memoryDir: path.join(sandbox, 'runner-gate-memory'),
       spilloverDir: path.join(sandbox, 'runner-gate-spill'),
+      autoApprove: false,
       stepCaller: new MockStepAdapter([
         { text: 'cleaning', toolCalls: [{ id: 'rg-1', name: 'bash', args: { command: 'rm -rf dist' } }] },
         { text: 'done' }
