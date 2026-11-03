@@ -7,6 +7,24 @@ import { sessionSummary, sessionTitle } from './title.js';
 export interface SessionDescriptor extends SessionHeader {
   filePath: string;
   mtimeMs: number;
+  /**
+   * Epoch milliseconds of the session's last recorded ACTIVITY, i.e. the
+   * timestamp of its last appended entry (message, `/clear` boundary,
+   * compaction ...). When tail lines cannot be parsed it falls back to the
+   * previous readable entry, then to the header timestamp, and finally to mtime
+   * for a header with an unparseable timestamp — so it is always a finite
+   * number.
+   *
+   * This — not the file mtime — is what the session list sorts by. A header
+   * rewrite is not activity: opening a conversation rewrites line 1 to record
+   * the model in force (`updateModel`), and the automatic title/summary job
+   * rewrites it every turn. mtime therefore says "when was the file last
+   * touched", which promotes a conversation the user merely OPENED to the top
+   * of the list, and demotes a busy one whose header was written earlier.
+   * `mtimeMs` is kept on the descriptor for diagnostics, but it is deliberately
+   * not part of the ordering.
+   */
+  updatedAtMs: number;
 }
 
 /**
@@ -30,7 +48,55 @@ function hasMessageEntry(content: string): boolean {
 }
 
 /**
- * All sessions in one workspace bucket, newest first.
+ * Epoch milliseconds of the last activity recorded in one session file.
+ *
+ * Activity is the timestamp of the last parseable ENTRY, read from the tail
+ * rather than from the header: the header is metadata about the session, while
+ * entries are the conversation itself. An unreadable tail walks back to the
+ * previous readable entry; only a file with no readable entry at all falls
+ * through to the header's own `timestamp`, which is the creation time.
+ *
+ * The scan walks BACKWARDS from the end with `lastIndexOf` instead of splitting
+ * the file into lines: `/api/sessions` is polled by every shell, so this runs
+ * repeatedly over transcripts that may be tens of megabytes, and a full
+ * `split('\n')` would allocate one array string per line on every request. A
+ * corrupt tail costs a few line slices rather than a whole-file pass.
+ */
+function lastActivityMs(content: string, header: SessionHeader, mtimeMs: number): number {
+  let end = content.length;
+  while (end > 0) {
+    // Skip the trailing newline(s) that every append leaves behind.
+    const last = content[end - 1];
+    if (last === '\n' || last === '\r') {
+      end--;
+      continue;
+    }
+    const start = content.lastIndexOf('\n', end - 1) + 1;
+    const line = content.slice(start, end).trim();
+    if (line) {
+      try {
+        const entry = JSON.parse(line) as { timestamp?: unknown };
+        const parsed = typeof entry.timestamp === 'string' ? Date.parse(entry.timestamp) : NaN;
+        // Line 0 is the header; parsing it yields the creation time, which is
+        // the same value the fallback below returns, so no special case is owed.
+        if (Number.isFinite(parsed)) return parsed;
+      } catch {
+        // Corrupt line: keep walking towards the header.
+      }
+    }
+    if (start === 0) break;
+    end = start - 1;
+  }
+  const createdAt = Date.parse(header.timestamp);
+  return Number.isFinite(createdAt) ? createdAt : mtimeMs;
+}
+
+/**
+ * All sessions in one workspace bucket, most recently ACTIVE first.
+ *
+ * "Recently active" is the timestamp of the last entry in the file — see
+ * `updatedAtMs`. File mtime is deliberately NOT the sort key: see the field's
+ * comment for the opened-but-not-updated inversion it causes.
  *
  * Header-only files are skipped: see `hasMessageEntry`.
  */
@@ -70,15 +136,31 @@ export function listSessions(
       const summary = sessionSummary(header);
       if (summary === undefined) delete header.summary;
       else header.summary = summary;
-      descriptors.push({ ...header, filePath, mtimeMs: stat.mtimeMs });
+      descriptors.push({
+        ...header,
+        filePath,
+        mtimeMs: stat.mtimeMs,
+        updatedAtMs: lastActivityMs(content, header, stat.mtimeMs)
+      });
     } catch {
       continue;
     }
   }
 
-  // mtime is authoritative for recency: files created within the same millisecond
-  // share a header timestamp, but only one was written last.
-  return descriptors.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  // Activity timestamp is the sort key. Neither secondary key is mtime: mtime
+  // changes on a mere header rewrite, which is the inversion this ordering
+  // exists to remove. Creation time (newer first) and then the file path make
+  // the order total and reproducible, so an unchanged bucket cannot reshuffle
+  // between two requests.
+  return descriptors.sort((a, b) => {
+    if (b.updatedAtMs !== a.updatedAtMs) return b.updatedAtMs - a.updatedAtMs;
+    const aCreated = Date.parse(a.timestamp);
+    const bCreated = Date.parse(b.timestamp);
+    if (Number.isFinite(aCreated) && Number.isFinite(bCreated) && aCreated !== bCreated) {
+      return bCreated - aCreated;
+    }
+    return a.filePath < b.filePath ? -1 : a.filePath > b.filePath ? 1 : 0;
+  });
 }
 
 /** Newest session file in the workspace bucket, or null when none exists. */

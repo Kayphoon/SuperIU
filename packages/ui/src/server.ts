@@ -2104,7 +2104,12 @@ async function handleApi(
       // string, so its presence check is a plain truthiness test and never
       // has to distinguish `undefined` from an empty summary.
       summary: session.summary ?? '',
+      // Creation time of the session, kept for shells that show it verbatim.
       timestamp: session.timestamp,
+      // The sort key: last recorded activity, as an ISO string so every shell
+      // can render it with the same `shortTime` helper it uses for `timestamp`
+      // instead of converting milliseconds of its own.
+      updatedAt: new Date(session.updatedAtMs).toISOString(),
       cwd: session.cwd,
       filePath: session.filePath,
       mtimeMs: session.mtimeMs,

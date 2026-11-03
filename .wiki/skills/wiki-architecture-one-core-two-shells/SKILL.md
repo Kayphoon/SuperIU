@@ -46,7 +46,7 @@ description: |
 - **特殊条目**: `reset_boundary`（`/clear`，无 payload）、`compaction`（`summary` + `firstKeptEntryId`）、`branch_summary`（`fromId` + `summary`）。
 - **`buildSessionContext(leafId?)`**: 沿 `parentId` 回溯到根 → reverse 成时间正序 → 从链尾向前找最近 `reset_boundary` 截断 → 仅保留 `message` 条目 → 剔除悬空工具调用与孤儿工具结果。
 - **草稿语义**: `create()` 不落盘（header 与规划文件路径只在内存）；首个 entry（首条消息或 `/clear` 的 `reset_boundary`）落盘时才写出 header 行，此后每次 append 各加一行；`getFilePath()` 对草稿仍返回该规划路径（会话身份）；`listSessions` / `findMostRecentSession` 跳过无 message 的文件（兼容旧版遗留的 header-only 文件，不删除）；显式绝对路径仍可由 `resolveSessionFile` 打开。`open()` 对已落盘文件不变，`createAt()`（损坏/缺失修复）仍按设计立即落盘。
-- **发现** (`discovery.ts`): `listSessions`（按 **mtime** 降序，非 header.timestamp，避免同毫秒打平）、`findMostRecentSession`、`resolveSessionFile`（绝对路径 / 文件名 / id / id 前缀）。
+- **发现** (`discovery.ts`): `listSessions`（按 **最后活动时间 `updatedAtMs`** 降序 = 文件中最后一条 entry 的 `timestamp`；**绝不用 mtime**——header 行会被 `updateModel()` / 标题摘要任务非活动性地重写，mtime 会把「只是打开看一下」的会话顶到最前；也不用 `header.timestamp`，那是创建时间；同级以创建时间 + `filePath` 兜底保证全序）、`findMostRecentSession`、`resolveSessionFile`（绝对路径 / 文件名 / id / id 前缀）。
 
 ### 2. Prompt History 独立存储 (`src/storage/history.ts`)
 - 与会话分叉树**完全解耦**，独立数据库 `.superiu/history.db`（`node:sqlite`）。

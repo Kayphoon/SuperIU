@@ -8,11 +8,21 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 ### 中文
 
-- 暂无新变更；滚动 `latest` 渠道当前分发最近一个标签版本的内容。
+- **修复：打开任意会话会把它顶到消息列表最顶层**：
+  - **根因**：会话列表按文件 **mtime** 排序，而 mtime 会被**非活动性写入**刷新——`/api/sessions/load` 恢复会话时调用 `updateModel()` 把当前模型/推理强度写回 header 行，标题与滚动摘要任务每回合也会重写 header 行。于是「只是点开看了一眼」的会话立刻爬到最前，真正在用的会话反而下沉；
+  - **改为按最后活动时间排序**：`SessionDescriptor` 新增 `updatedAtMs`，取自文件中**最后一条 entry 的 `timestamp`**（消息、`/clear` 边界、压缩摘要皆算），语义是「这个会话最近一次发生了什么」；`GET /api/sessions` 同时返回 ISO 的 `updatedAt`；
+  - **排序不再使用 mtime**：`mtimeMs` 仍保留在描述符上供诊断，但**不参与排序**；同级以创建时间、再以路径兜底，保证顺序是全序且两次请求间不会抖动；
+  - **列表时间显示同步修正**：Web 侧边栏行、会话下拉、`/sessions` 卡片与 CLI `/sessions` 原本显示 `timestamp`（创建时间，永不变化），现在显示最后活动时间——否则「排在最前的行」配着旧时间看着像排序坏了；
+  - **无需迁移**：`updatedAtMs` 在读取时从既有 JSONL 计算，不重写任何会话文件。
 
 ### English
 
-- No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
+- **Fix: opening any conversation jumped it to the top of the message list**:
+  - **Root cause**: the session list sorted by file **mtime**, which non-activity writes refresh — `/api/sessions/load` calls `updateModel()` to record the model in force on the header line, and the title/rolling-summary job rewrites that same line every turn. A conversation the user merely clicked on therefore climbed to the top, while the one actually being used slid down;
+  - **Sorted by last activity instead**: `SessionDescriptor` gained `updatedAtMs`, the `timestamp` of the file's **last entry** (a message, a `/clear` boundary, a compaction — anything that actually happened in the conversation); `GET /api/sessions` also returns it as the ISO `updatedAt`;
+  - **mtime is no longer an ordering key**: `mtimeMs` stays on the descriptor for diagnostics but is not sorted by. Creation time and then the file path break ties, so the order is total and cannot reshuffle between two requests;
+  - **Row timestamps corrected to match**: the web sidebar row, the session selector, the `/sessions` card, and the CLI `/sessions` all displayed `timestamp` (creation time, never changes); they now display last activity — otherwise the row at the top carries a stale time and reads like the sort is broken;
+  - **No migration**: `updatedAtMs` is computed on read from the JSONL already on disk; no session file is rewritten.
 
 ## v0.2.73 (2026-10-15)
 

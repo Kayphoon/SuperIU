@@ -222,7 +222,10 @@ export async function startCli() {
           console.log(pc.bold(`\n${tr('cli.sessions.header', { count: sessions.length })}`));
           for (const session of sessions) {
             const active = session.id === runner.getSessionId() ? pc.green('* ') : '  ';
-            const stamp = session.timestamp.slice(0, 19).replace('T', ' ');
+            // Last ACTIVITY, not creation: the listing is sorted by it, and a
+            // creation stamp on a row that just moved to the top reads like the
+            // sort is broken.
+            const stamp = new Date(session.updatedAtMs).toISOString().slice(0, 19).replace('T', ' ');
             // No file path here: `/status` reports the log of the active session,
             // and a routine listing is about picking a conversation, not a file.
             // An unnamed session carries no title, so a bare `${title ?? ''}`

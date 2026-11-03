@@ -8557,6 +8557,19 @@
       }
 
       /**
+       * The timestamp a session row shows and sorts by: its last ACTIVITY.
+       *
+       * `timestamp` is when the conversation was created and never changes, so
+       * a row showing it is stale the moment the user sends another message.
+       * `updatedAt` (server-side: the last entry's timestamp) is what makes a
+       * row mean "last touched at". It falls back to `timestamp` for a payload
+       * that predates the field, so an older server still renders.
+       */
+      function sessionUpdatedAt(session) {
+        return session.updatedAt || session.timestamp;
+      }
+
+      /**
        * The row label for one session.
        *
        * Core stores titles as data and no longer invents an English default, so
@@ -8620,8 +8633,8 @@
             option.value = session.id;
             option.textContent =
               (session.active ? '● ' : '  ') + session.id.slice(0, 8) + '  ' +
-              shortTime(session.timestamp) + '  ' + sessionLabel(session);
-            option.title = session.timestamp + '  ' + sessionLabel(session);
+              shortTime(sessionUpdatedAt(session)) + '  ' + sessionLabel(session);
+            option.title = sessionUpdatedAt(session) + '  ' + sessionLabel(session);
             select.appendChild(option);
             if (session.active) select.value = session.id;
           }
@@ -8643,7 +8656,7 @@
               const titleEl = el('div', 'siu-session-item-title', titleText);
 
               const metaEl = el('div', 'siu-session-item-meta');
-              const timeSpan = el('span', '', shortTime(session.timestamp));
+              const timeSpan = el('span', '', shortTime(sessionUpdatedAt(session)));
               const idSpan = el('span', 'opacity-60 font-mono', session.id.slice(0, 8));
               metaEl.appendChild(timeSpan);
               metaEl.appendChild(idSpan);
@@ -9432,7 +9445,7 @@
                 .map((s) => {
                   const row =
                     (s.active ? '* ' : '  ') + s.id.slice(0, 8) + '  ' +
-                    shortTime(s.timestamp) + '  ' + sessionLabel(s);
+                    shortTime(sessionUpdatedAt(s)) + '  ' + sessionLabel(s);
                   return s.summary ? row + '\n' + `   ${s.summary}` : row;
                 })
                 .join('\n')

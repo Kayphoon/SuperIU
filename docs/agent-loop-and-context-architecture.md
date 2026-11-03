@@ -186,11 +186,17 @@ flowchart TD
 
 | 函数 | 作用 |
 |---|---|
-| `listSessions(cwd, workspaceDir)` | 列出工作区桶内全部会话，**按 mtime 降序**；跳过不含任何 `message` 条目的文件（草稿从未落盘，旧版遗留的 header-only 文件同样被忽略，但不删除） |
+| `listSessions(cwd, workspaceDir)` | 列出工作区桶内全部会话，**按最后活动时间（`updatedAtMs`）降序**；跳过不含任何 `message` 条目的文件（草稿从未落盘，旧版遗留的 header-only 文件同样被忽略，但不删除） |
 | `findMostRecentSession(cwd, workspaceDir)` | 最新会话文件路径，无则 `null`；同样跳过无 message 的文件 |
 | `resolveSessionFile(ref, cwd, workspaceDir)` | 按绝对路径 / 文件名 / session id / **id 前缀**解析 |
 
-> **为什么按 mtime 而不是 header.timestamp 排序**：同一毫秒内创建的多个会话，`header.timestamp` 会打平，排序结果不确定。mtime 反映的是"最后被写入的文件"，语义更准确。`SessionDescriptor` 因此额外携带 `mtimeMs`。这也正是未使用的新会话必须保持草稿、不落盘的原因：一个只写了 header 的幽灵文件会带着最新 mtime 赢得排序，在下次启动时顶替掉真正的当前会话。
+> **为什么按「最后活动时间」而不是 mtime 排序**：`SessionDescriptor` 的 `updatedAtMs` 取自文件**最后一条 entry 的 `timestamp`**（message / `reset_boundary` / `compaction` 皆算），它才是「这个会话最近一次发生了什么」。
+>
+> **不能用 mtime**：mtime 语义是「文件最后一次被写」，而 header 行会被**非活动性地重写**——`loadSession()` / `/api/sessions/load` 会调 `updateModel()` 把当前模型/推理强度写回 header；标题与滚动摘要任务每回合也会 `rewriteHeader()`。于是**打开一个会话**（只是看，没有发消息）就会刷新 mtime，把它顶到列表最前，而真正在用的会话反而下沉。这正是「打开任意会话 → 它立刻跳到最顶层」这个 bug 的根因。
+>
+> **也不能用 `header.timestamp`**：它是创建时间，永不随对话推进；用它排序等同于固定顺序。它现在只作同级 tie-break，最后再以 `filePath` 兜底，保证顺序是全序、可复现。
+>
+> `mtimeMs` 仍保留在 descriptor 上供诊断，但**不参与排序**。旧实现里它与「未使用的新会话必须保持草稿」共同维持最新会话指针；`findMostRecentSession()` 现在跟随 `updatedAtMs`，所以幽灵 header-only 文件依旧被 `hasMessageEntry` 过滤掉，不会顶替真正的当前会话。
 
 ### 2.7 会话元数据生成：标题与滚动摘要
 
@@ -728,7 +734,7 @@ runner.getStatus();             // { sessionId, sessionFile, sessionPersisted, l
 runner.getWorkstation();        // OS / arch / node / cwd / git / timestamp
 
 // 会话导航
-runner.listSessions();          // 本工作区全部已落盘会话（mtime 降序；草稿不在内）
+runner.listSessions();          // 本工作区全部已落盘会话（最后活动时间降序；草稿不在内）
 runner.loadSession('f4f33977'); // 按 id 前缀切换
 runner.createSession('新会话');  // 新建并切换
 
@@ -790,7 +796,7 @@ runner.close();  // 关闭会话与 history 数据库
 | `packages/core/src/session/types.ts` | `SessionHeader` / `SessionEntry` 联合类型契约、`CURRENT_SESSION_VERSION` |
 | `packages/core/src/session/paths.ts` | `encodeCwd`、`getSessionDir`、`createSessionFilePath`、`createSessionId` |
 | `packages/core/src/session/manager.ts` | JSONL 追加写、树/叶子索引、`buildSessionContext`、悬空清理 |
-| `packages/core/src/session/discovery.ts` | 会话列举、最新会话查找、引用解析；`SessionDescriptor` 是 header 全部字段 + `filePath` / `mtimeMs`，故一并携带已归一化的可选 `summary` |
+| `packages/core/src/session/discovery.ts` | 会话列举、最新会话查找、引用解析；`SessionDescriptor` 是 header 全部字段 + `filePath` / `mtimeMs`（仅诊断）/ `updatedAtMs`（排序键，= 最后一条 entry 的 timestamp），故一并携带已归一化的可选 `summary` |
 | `packages/core/src/session/title.ts` | 标题/摘要读取侧归一化：`sessionTitle()` 过滤旧版占位标题、`sessionSummary()` 把缺失/空白读作"无摘要"；`SESSION_SUMMARY_MAX_CHARS`(240) |
 | `packages/core/src/session/metadata.ts` | `SessionMetadataGenerator`：一次性的标题生成与每回合重算的滚动摘要，全部走 `title` 路由；`deriveTitleFromPrompt()` 为标题调用失败时的确定性回落；`SESSION_TITLE_MAX_CHARS`(60) |
 | `packages/core/src/storage/history.ts` | `node:sqlite` Prompt 检索库 |
