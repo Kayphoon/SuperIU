@@ -8,6 +8,16 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 ### 中文
 
+- 暂无新变更；滚动 `latest` 渠道当前分发最近一个标签版本的内容。
+
+### English
+
+- No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
+
+## v0.2.74 (2026-11-03)
+
+### 中文
+
 - **修复：打开任意会话会把它顶到消息列表最顶层**：
   - **根因**：会话列表按文件 **mtime** 排序，而 mtime 会被**非活动性写入**刷新——`/api/sessions/load` 恢复会话时调用 `updateModel()` 把当前模型/推理强度写回 header 行，标题与滚动摘要任务每回合也会重写 header 行。于是「只是点开看了一眼」的会话立刻爬到最前，真正在用的会话反而下沉；
   - **改为按最后活动时间排序**：`SessionDescriptor` 新增 `updatedAtMs`，取自文件中**最后一条 entry 的 `timestamp`**（消息、`/clear` 边界、压缩摘要皆算），语义是「这个会话最近一次发生了什么」；`GET /api/sessions` 同时返回 ISO 的 `updatedAt`；
