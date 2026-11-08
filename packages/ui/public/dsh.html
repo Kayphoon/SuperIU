@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DeepSeek Harness · DSH</title>
+    <link rel="icon" type="image/png" href="/app-icon.png">
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f7f9;
+        --panel: #fff;
+        --fg: #1f2328;
+        --muted: #606a75;
+        --line: #d5d5d5;
+        --accent: #0b66e4;
+        --accent-contrast: #fff;
+      }
+      :root[data-theme='dark'] {
+        color-scheme: dark;
+        --bg: #0d1117;
+        --panel: #161b22;
+        --fg: #e6edf3;
+        --muted: #8b949e;
+        --line: #30363d;
+        --accent: #58a6ff;
+        --accent-contrast: #0d1117;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root:not([data-theme='light']) {
+          color-scheme: dark;
+          --bg: #0d1117;
+          --panel: #161b22;
+          --fg: #e6edf3;
+          --muted: #8b949e;
+          --line: #30363d;
+          --accent: #58a6ff;
+          --accent-contrast: #0d1117;
+        }
+      }
+      * { box-sizing: border-box; }
+      ::selection { background: var(--accent); color: var(--accent-contrast); }
+      [hidden] { display: none !important; }
+      html, body { margin: 0; width: 100%; height: 100%; }
+      body {
+        height: 100dvh;
+        overflow: hidden;
+        background: var(--bg);
+        color: var(--fg);
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        font-size: 13px;
+      }
+      .topbar {
+        height: 45px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 0 12px;
+        border-bottom: 1px solid var(--line);
+        background: var(--panel);
+      }
+      .back {
+        display: block;
+        line-height: 44px;
+        min-height: 44px;
+        min-width: 44px;
+        max-width: 80px;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        flex-shrink: 0;
+        color: var(--fg);
+        text-decoration: none;
+        font-weight: 500;
+      }
+      .back:hover { color: var(--accent); }
+      .back:active { opacity: 0.65; }
+      .back:focus-visible, .retry:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+      .title { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-weight: 500; }
+      .status {
+        margin-left: auto;
+        color: var(--muted);
+        min-width: 0;
+        max-width: 180px;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        font-size: 12px;
+        text-align: right;
+      }
+      main { position: relative; height: calc(100dvh - 45px); }
+      .frame { display: block; width: 100%; height: 100%; border: 0; background: var(--bg); }
+      .state {
+        position: absolute;
+        inset: 0;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        place-content: center;
+        justify-items: center;
+        gap: 12px;
+        padding: 24px;
+        text-align: center;
+      }
+      .state h1 { margin: 0; max-width: 100%; overflow-wrap: anywhere; font-size: 18px; font-weight: 500; }
+      .state p { margin: 0; width: 100%; max-width: 400px; color: var(--muted); font-size: 14px; line-height: 1.6; overflow-wrap: anywhere; }
+      .spinner {
+        width: 20px;
+        height: 20px;
+        color: var(--accent);
+        opacity: 0;
+        animation: reveal-progress 0s linear 1s forwards;
+      }
+      .spinner svg { animation: spin 0.8s linear 1s infinite; }
+      .retry {
+        min-height: 36px;
+        max-width: 100%;
+        padding: 8px 16px;
+        overflow-wrap: anywhere;
+        line-height: 1.5;
+        border: 1px solid var(--accent);
+        border-radius: 7px;
+        background: var(--accent);
+        color: var(--accent-contrast);
+        font: inherit;
+        font-weight: 500;
+        cursor: pointer;
+      }
+      .retry:hover { filter: brightness(1.08); }
+      .retry:active { filter: brightness(0.9); }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes reveal-progress { to { opacity: 1; } }
+      @media (prefers-reduced-motion: reduce) {
+        .spinner svg { animation-duration: 1.6s; }
+      }
+      @media (max-width: 600px) {
+        .topbar { gap: 8px; padding: 0 10px; }
+        .title { font-size: 12px; }
+        .state h1 { font-size: 20px; }
+        .state p { font-size: 16px; }
+        .retry { min-height: 44px; font-size: 16px; }
+      }
+    </style>
+    <script>
+      (() => {
+        const query = '(prefers-color-scheme: dark)';
+        const media = window.matchMedia(query);
+        let theme = 'system';
+        try { theme = localStorage.getItem('superiu.theme') || 'system'; } catch {}
+        const resolve = (value) => value === 'dark' || value === 'light' ? value : (media.matches ? 'dark' : 'light');
+        const applyTheme = (value) => {
+          document.documentElement.dataset.theme = resolve(value);
+          document.documentElement.style.colorScheme = resolve(value);
+        };
+        applyTheme(theme);
+        media.addEventListener('change', () => applyTheme(theme));
+        window.SuperIUI18nSettings = fetch('/api/settings').then((r) => r.ok ? r.json() : null).then((settings) => {
+          if (settings && settings.theme) {
+            theme = settings.theme;
+            try { localStorage.setItem('superiu.theme', theme); } catch {}
+            applyTheme(theme);
+          }
+          return settings;
+        }).catch(() => null);
+      })();
+    </script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="back" href="/" data-i18n="dsh.back">‹ SuperIU</a>
+      <div class="title">DeepSeek Harness</div>
+      <span id="status" class="status" data-i18n="dsh.connecting">正在连接本机 DSH…</span>
+    </header>
+    <main>
+      <iframe id="dsh-frame" class="frame" title="DeepSeek Harness" hidden></iframe>
+      <section id="state" class="state" aria-live="polite">
+        <div id="spinner" class="spinner" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-dasharray="42 15"></circle></svg></div>
+        <h1 id="state-title" data-i18n="dsh.connecting">正在连接本机 DSH…</h1>
+        <p id="state-detail" data-i18n="dsh.loading">正在准备真实 DSH 界面。</p>
+        <button id="retry" class="retry" type="button" data-i18n="dsh.retry" hidden>重新连接</button>
+      </section>
+    </main>
+    <script type="module" src="/dsh.js"></script>
+  </body>
+</html>

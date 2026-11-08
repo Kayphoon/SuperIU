@@ -232,7 +232,7 @@ export class AuthLayer {
     if (!this.isEnabled()) return false;
 
     // Static assets, `/readyz` and `/favicon*` are always public.
-    if (!pathname.startsWith('/api/')) return false;
+    if (!pathname.startsWith('/api/') && pathname !== '/dsh' && !pathname.startsWith('/dsh/')) return false;
 
     // A loopback peer is trusted (desktop remote mode over an SSH tunnel).
     if (isLoopbackPeer(req)) return false;
@@ -250,29 +250,44 @@ export class AuthLayer {
     req: http.IncomingMessage,
     res: http.ServerResponse
   ): AuthenticatedKey | null {
+    const result = this.verifyRequest(req);
+    if (result.key) {
+      if (result.key.raw) this.maybeRefreshCookie(req, res, result.key.id, result.key.raw);
+      return result.key;
+    }
+    if (result.failureStatus === 429) {
+      sendJson(res, 429, { error: 'too_many_requests' });
+    } else {
+      this.sendUnauthorized(req, res);
+    }
+    return null;
+  }
+
+  authorize(req: http.IncomingMessage): boolean {
+    return !this.isEnabled() || this.verifyRequest(req).key !== null;
+  }
+
+  private verifyRequest(
+    req: http.IncomingMessage
+  ): { key: AuthenticatedKey | null; failureStatus?: 401 | 429 } {
     if (isLoopbackPeer(req)) {
-      return { id: '', label: 'local', raw: '' };
+      return { key: { id: '', label: 'local', raw: '' } };
     }
 
     const peer = peerAddress(req);
-    if (this.throttled(peer)) {
-      sendJson(res, 429, { error: 'too_many_requests' });
-      return null;
-    }
+    if (this.throttled(peer)) return { key: null, failureStatus: 429 };
 
     const credential = extractCredential(req);
     if (credential) {
       const record = this.store.verify(credential);
       if (record) {
         this.store.markUsed(credential);
-        this.maybeRefreshCookie(req, res, record.id, credential);
-        return { id: record.id, label: record.label, raw: credential };
+        return { key: { id: record.id, label: record.label, raw: credential } };
       }
     }
 
     this.recordFailure(peer);
-    this.sendUnauthorized(req, res);
-    return null;
+    return { key: null, failureStatus: 401 };
   }
 
   /** Reject a `/api/pair` attempt, honouring the same throttle. */

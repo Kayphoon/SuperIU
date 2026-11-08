@@ -20,6 +20,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
+import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
@@ -98,6 +99,31 @@ function rawGet(url: string, headers: Record<string, string>): Promise<RawRespon
       res.on('end', () => resolve({ status: res.statusCode ?? 0, headers: res.headers, body }));
     });
     req.on('error', reject);
+  });
+}
+
+function rawUpgrade(host: string, port: number, hostHeader: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const socket = net.connect(port, host);
+    let data = '';
+    socket.on('data', (chunk) => {
+      data += chunk.toString('utf8');
+      if (data.includes('\r\n\r\n')) {
+        resolve(data);
+        socket.destroy();
+      }
+    });
+    socket.on('error', reject);
+    socket.once('connect', () => {
+      socket.write(
+        'GET /dsh/socket HTTP/1.1\r\n' +
+        `Host: ${hostHeader}\r\n` +
+        'Upgrade: websocket\r\n' +
+        'Connection: Upgrade\r\n' +
+        'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n' +
+        'Sec-WebSocket-Version: 13\r\n\r\n'
+      );
+    });
   });
 }
 
@@ -435,14 +461,24 @@ describe('AuthLayer over HTTP', () => {
 
     const res = await fetch(`http://127.0.0.1:${handle.port}/api/pairing`);
     expect(res.status).toBe(200);
+    expect(res.headers.get('set-cookie')).toBeNull();
     const body = (await res.json()) as { keys: unknown[]; ttlDays: number };
     expect(body.ttlDays).toBe(30);
     expect(body.keys).toEqual([]);
 
     const mintRes = await fetch(`http://127.0.0.1:${handle.port}/api/pairing/code`, { method: 'POST' });
     expect(mintRes.status).toBe(200);
+    expect(mintRes.headers.get('set-cookie')).toBeNull();
     const mintBody = (await mintRes.json()) as { code: string; url: string };
     expect(mintBody.url).toContain('/auth/connect/');
+  });
+
+  it('survives a malformed Host header on a DSH upgrade', async () => {
+    const handle = await startAuthServer('127.0.0.1', false);
+    const upgrade = await rawUpgrade('127.0.0.1', handle.port, '[');
+    expect(upgrade).toContain('503 Service Unavailable');
+    const status = await fetch(`http://127.0.0.1:${handle.port}/api/status`);
+    expect(status.status).toBe(200);
   });
 
   const lanIp = nonLoopbackIPv4();
@@ -456,6 +492,16 @@ describe('AuthLayer over HTTP', () => {
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ error: 'unauthorized' });
     expect(res.headers.get('www-authenticate')).toBeNull();
+  });
+
+  enforced('gates DSH HTTP and WebSocket routes with pairing auth', async () => {
+    const handle = await startAuthServer('0.0.0.0', true);
+    const res = await fetch(`http://${lanIp}:${handle.port}/dsh/`, {
+      headers: { 'sec-fetch-mode': 'cors' }
+    });
+    expect(res.status).toBe(401);
+    const upgrade = await rawUpgrade(lanIp, handle.port, `${lanIp}:${handle.port}`);
+    expect(upgrade).toContain('401 Unauthorized');
   });
 
   enforced('sends a WWW-Authenticate challenge only for navigation', async () => {

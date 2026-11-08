@@ -30,6 +30,8 @@ import type { PermissionVerdict, ReviewResult } from '@agent/core';
 import { AuthLayer, authModeFromEnv } from './auth/middleware.js';
 import { GatewayServer, DeviceRegistry, EventHub } from './gateway/index.js';
 import type { GatewayRunner } from './gateway/index.js';
+import { DshManager } from './dsh.js';
+import { DshProxy, isDshPath } from './dsh_proxy.js';
 
 // Re-export the gateway surface so `@agent/ui` is the single import a host needs
 // to boot both the web shell and the WebSocket gateway.
@@ -1067,6 +1069,7 @@ let gatewayRef: GatewayServer | undefined;
 let settings: UiSettings = loadSettings();
 let runner: AgentRunner = null as unknown as AgentRunner;
 let activeAuth: AuthLayer | null = null;
+let activeDshManager: DshManager | undefined;
 let activeWorkspaceDir = process.cwd();
 /** MCP config path pinned by `startServer`; `undefined` = the manager default. */
 let activeMcpConfigPath: string | null | undefined;
@@ -1896,6 +1899,8 @@ const API_METHODS: Record<string, string[]> = {
   '/api/abort': ['POST'],
   '/api/approve': ['POST'],
   '/api/shutdown': ['POST'],
+  '/api/dsh/status': ['GET'],
+  '/api/dsh/connect': ['POST'],
   '/api/update': ['GET', 'POST'],
   '/api/mcp': ['GET'],
   '/api/mcp/server': ['POST', 'DELETE'],
@@ -1923,6 +1928,20 @@ async function handleApi(
 
   if (pathname === '/readyz' && method === 'GET') {
     sendJson(res, 200, { status: 'ready', version: serverVersion, pid: process.pid });
+    return true;
+  }
+
+  if (pathname === '/api/dsh/status' && method === 'GET') {
+    sendJson(res, 200, activeDshManager?.getStatus() ?? { state: 'idle', managed: false });
+    return true;
+  }
+
+  if (pathname === '/api/dsh/connect' && method === 'POST') {
+    if (!activeDshManager || !activeAuth) {
+      sendError(res, 503, 'DSH manager is unavailable.');
+      return true;
+    }
+    sendJson(res, 200, await activeDshManager.connect(activeAuth.publicOrigin(req)));
     return true;
   }
 
@@ -3182,6 +3201,9 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
     advertiseUrl: settings.advertiseUrl || process.env.SUPERIU_ADVERTISE_URL
   });
   activeAuth = auth;
+  const dshManager = new DshManager({ workspaceDir });
+  const dshProxy = new DshProxy(dshManager);
+  activeDshManager = dshManager;
 
   // The single request handler both listeners share, so the SPA and API answer
   // identically whether a client reaches the server over TCP or the socket.
@@ -3192,6 +3214,10 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
     void (async () => {
       try {
         if (await auth.handle(req, res, url)) return;
+        if (isDshPath(pathname)) {
+          dshProxy.handle(req, res, url);
+          return;
+        }
         if (await handleApi(req, res, pathname)) return;
         if (req.method === 'GET' || req.method === 'HEAD') {
           await handleStatic(req, res, pathname);
@@ -3251,6 +3277,22 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
   }
 
   if (socketPath) secureSocketPath(socketPath);
+
+  const attachDshUpgrades = (listener: http.Server): void => {
+    listener.on('upgrade', (req, socket, head) => {
+      let pathname: string;
+      try {
+        pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+      } catch {
+        socket.destroy();
+        return;
+      }
+      if (!isDshPath(pathname)) return;
+      dshProxy.upgrade(req, socket, head, () => auth.authorize(req));
+    });
+  };
+  attachDshUpgrades(server);
+  if (socketServer) attachDshUpgrades(socketServer);
 
   // Boot the VPS Gateway on the SAME server so `@agent/ui` serves the SPA and
   // the WebSocket endpoint from one port. `gatewayPath: null` opts out.
@@ -3320,7 +3362,8 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
       // Close the gateway first so its upgrade listeners stop and every client
       // receives a clean close before the HTTP servers go down.
       const gatewayClose = gateway ? gateway.close() : Promise.resolve();
-      void gatewayClose.then(() => {
+      dshProxy.close();
+      void Promise.all([gatewayClose, dshManager.close()]).then(() => {
         // Both listeners must be down before the runner is released; the socket
         // file is removed once they are.
         let remaining = socketServer ? 2 : 1;
@@ -3335,6 +3378,7 @@ export async function startServer(options: StartServerOptions = {}): Promise<Ser
             }
           }
           runner.close();
+          activeDshManager = undefined;
           // MCP stdio servers are child processes owned by the runner's
           // manager, which runner.close() does not reach: disconnect them
           // before resolving so close() leaves no spawned server behind.
