@@ -59,6 +59,10 @@
         border-bottom: 1px solid var(--line);
         background: var(--panel);
       }
+      /* The Electron shell draws macOS traffic lights at x = 20/40/60 (right
+         edge 72px) via `titleBarStyle: 'hiddenInset'`; 84px clears them with a
+         12px gutter, matching the chat titlebar. */
+      html[data-vibrancy='under-window'] .topbar { padding-left: 84px; }
       .back {
         display: block;
         line-height: 44px;
@@ -145,6 +149,9 @@
     </style>
     <script>
       (() => {
+        // Same shell signal the chat titlebar uses to reserve room for the
+        // native macOS traffic lights.
+        document.documentElement.dataset.vibrancy = window.superiuDesktop ? 'under-window' : 'none';
         const query = '(prefers-color-scheme: dark)';
         const media = window.matchMedia(query);
         let theme = 'system';
