@@ -3,3 +3,10 @@ packages:
 
 allowBuilds:
   esbuild: true
+  # DSH ships native/prebuilt helpers that its local-subprocess capability needs.
+  # Without these the managed harness installs but cannot spawn processes.
+  '@deepseek-ai/dsh-subprocess-local': true
+  koffi: true
+  node-pty: true
+  protobufjs: true
+  '@google/genai': true
