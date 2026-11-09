@@ -14,6 +14,26 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.75 (2026-11-09)
+
+### 中文
+
+- **新增本机 DeepSeek Harness（DSH）集成**：聊天页顶栏新增 DSH 入口，打开 `/dsh.html` 即可在同一界面使用本机 DSH 的真实 Web UI；页面文案与现有界面一样支持中英双语。
+  - **自动发现**：默认探测 `127.0.0.1:3080`（`SUPERIU_DSH_PORT` 可改），仅接管身份与启动令牌都可验证的真实 DSH；端口上只是普通 HTTP 服务时不会被误认领，会回退到托管启动；已有可访问实例直接复用，不会重复拉起第二个。
+  - **托管启动**：没有可用实例时，SuperIU 以固定版本 `@deepseek-ai/dsh@0.2.2-rc.1` 在空闲回环端口执行 `dsh --profile web --no-open`，等到真实就绪信号后才展示界面；自建实例在 SuperIU 退出时按进程组关闭，接管的实例不受影响。
+  - **同源代理**：HTTP 与 WebSocket 统一走 `/dsh/` 同源代理，剥离挂载前缀、保留浏览器侧 Host、按挂载路径重写 Cookie；启动令牌只留在服务端；SuperIU 自身的授权头与配对 Cookie 不会转发给 DSH，DSH 自己的会话 Cookie 保持有效；`/dsh` 路径沿用既有配对鉴权。
+  - **可见错误与重试**：CLI 缺失或不可用时给出本地化的原因与处理提示，并提供可用的重试按钮；未就绪的 iframe 不会被伪装成已加载；聊天页与既有会话在 DSH 故障期间照常可用，修复后同一页面重试即可恢复。
+  - **可调项**：`SUPERIU_DSH_URL`（显式本机 DSH 地址）、`SUPERIU_DSH_PORT`、`SUPERIU_DSH_NODE` 与 `SUPERIU_DSH_BIN`。
+
+### English
+
+- **Local DeepSeek Harness (DSH) integration**: a new DSH entry in the chat toolbar opens `/dsh.html`, which embeds the real local DSH web UI in the same product; the wrapper is bilingual like the rest of SuperIU.
+  - **Discovery**: probes `127.0.0.1:3080` by default (`SUPERIU_DSH_PORT` overrides it) and adopts only a genuine DSH whose identity and launch token can be verified. A plain HTTP server on that port is never adopted — SuperIU falls back to a managed instance instead — and an already reachable instance is reused without starting a duplicate.
+  - **Managed startup**: when no usable instance exists, SuperIU runs `dsh --profile web --no-open` from the pinned `@deepseek-ai/dsh@0.2.2-rc.1` on a free loopback port and waits for the real readiness signal before revealing the UI. Instances it started are torn down by process group when SuperIU exits; adopted instances are left running.
+  - **Same-origin proxy**: HTTP and WebSocket traffic share the `/dsh/` same-origin proxy, which strips the mount prefix, preserves the browser-facing Host, and rewrites cookies onto the mount. The launch token stays server-side; SuperIU's own Authorization header and pairing cookie are never forwarded to DSH, while DSH's own session cookie survives. `/dsh` keeps the existing pairing authentication.
+  - **Visible errors and retry**: a missing or unusable CLI produces a localized cause with actionable guidance and an enabled retry control; an unready iframe is never presented as loaded. Chat and existing sessions keep working while DSH is broken, and a same-page retry recovers once the runtime is fixed.
+  - **Overrides**: `SUPERIU_DSH_URL` (explicit local DSH root), `SUPERIU_DSH_PORT`, `SUPERIU_DSH_NODE`, and `SUPERIU_DSH_BIN`.
+
 ## v0.2.74 (2026-11-03)
 
 ### 中文
