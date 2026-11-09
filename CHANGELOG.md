@@ -14,6 +14,22 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.76 (2026-11-09)
+
+### 中文
+
+- **修复：桌面端 DSH 页左上角返回按钮被 macOS 窗口按钮遮住**：
+  - 顶栏原本只留 12px 内边距，而桌面壳把红黄绿窗口按钮画在 72px 以内，导致「‹ SuperIU」直接叠在按钮下方；
+  - 现在顶栏在 Electron 壳内为交通灯预留 84px（72px 按钮区 + 12px 间距），与聊天页标题栏的既有规则一致；
+  - 该留白只在桌面壳内生效，浏览器中 DSH 页布局不变。
+
+### English
+
+- **Fix: the DSH page's top-left back button sat under the macOS window controls**:
+  - The topbar reserved only 12px, while the desktop shell draws the traffic lights inside 72px, so "‹ SuperIU" rendered beneath them;
+  - The topbar now reserves 84px for the lights inside the Electron shell (72px controls + 12px gutter), matching the chat titlebar's existing rule;
+  - The inset applies only in the desktop shell; the DSH page layout is unchanged in a browser.
+
 ## v0.2.75 (2026-11-09)
 
 ### 中文
