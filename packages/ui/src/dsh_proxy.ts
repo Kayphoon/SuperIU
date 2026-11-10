@@ -18,6 +18,16 @@ export function isDshPath(pathname: string): boolean {
   return pathname === '/dsh' || pathname.startsWith('/dsh/');
 }
 
+/**
+ * Detect Vite-style content-hashed static assets served under DSH's assets directory.
+ * e.g. `/dsh/assets/vendor-BUMdD3V7.js`, `/dsh/assets/fonts/montserrat-light-Cvd2VjE_.woff2`,
+ * `/dsh/assets/langs/python-B6aJPvgy.js`.
+ * Non-hashed files (e.g. `/dsh/assets/fonts/Montserrat-OFL.txt`, HTML roots, plugins) return false.
+ */
+export function isHashedDshAsset(pathname: string): boolean {
+  return /^\/dsh\/assets\/.+-[A-Za-z0-9_-]{8,}\.(?:js|css|woff2?|ttf|eot|png|jpe?g|gif|svg|ico|webp|wasm)$/i.test(pathname);
+}
+
 function targetPath(url: URL): string {
   const pathname = url.pathname.slice('/dsh'.length) || '/';
   return `${pathname}${url.search}`;
@@ -110,6 +120,9 @@ export class DshProxy {
       }
       const cookies = backend.headers['set-cookie'];
       if (cookies) headers['set-cookie'] = cookies.map((cookie) => rewriteCookie(cookie, requestIsSecure(req)));
+      if (isHashedDshAsset(url.pathname) && (backend.statusCode === 200 || backend.statusCode === 304)) {
+        headers['cache-control'] = 'public, max-age=31536000, immutable';
+      }
       res.writeHead(backend.statusCode ?? 502, backend.statusMessage, headers);
       backend.pipe(res);
     });

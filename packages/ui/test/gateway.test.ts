@@ -606,6 +606,18 @@ describe('GatewayServer', () => {
     expect(server.registry.get('dev-1')!.identity.clientType).toBe('desktop');
   });
 
+  it('negotiates permessage-deflate extension with connecting clients', async () => {
+    const { url } = await makeServer({ token: 'shibboleth' });
+    const ws = connect(url);
+    let negotiated = '';
+    ws.on('upgrade', (res) => {
+      negotiated = res.headers['sec-websocket-extensions'] ?? '';
+    });
+    const ack = await register(ws, { deviceId: 'dev-deflate', token: 'shibboleth' });
+    expect(ack.ok).toBe(true);
+    expect(negotiated).toContain('permessage-deflate');
+  });
+
   it('rejects a registration with the wrong token and closes the socket', async () => {
     const { server, url } = await makeServer({ token: 'shibboleth' });
     const ws = connect(url);

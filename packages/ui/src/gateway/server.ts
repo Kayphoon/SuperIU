@@ -412,7 +412,10 @@ export class GatewayServer {
   // -------------------------------------------------------------------------
 
   private createSocketServer(server: http.Server): WebSocketServer {
-    const wss = new WebSocketServer({ noServer: true });
+    const wss = new WebSocketServer({
+      noServer: true,
+      perMessageDeflate: true
+    });
 
     server.on('upgrade', (req, socket: Duplex, head: Buffer) => {
       this.routeUpgrade(wss, req, socket, head);

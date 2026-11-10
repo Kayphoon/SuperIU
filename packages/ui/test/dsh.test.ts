@@ -6,7 +6,7 @@ import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DshManager } from '../src/dsh.js';
-import { DshProxy } from '../src/dsh_proxy.js';
+import { DshProxy, isHashedDshAsset } from '../src/dsh_proxy.js';
 
 const cleanups: Array<() => Promise<void> | void> = [];
 afterEach(async () => {
@@ -259,6 +259,150 @@ describe('DSH proxy', () => {
       url: '/socket', host: `127.0.0.1:${frontendPort}`,
       cookie: 'dsh-auth-ws=ws-cookie', authorization: undefined
     });
+    socket.destroy();
+  });
+
+  it('identifies hashed DSH static assets and ignores non-hashed paths', () => {
+    expect(isHashedDshAsset('/dsh/assets/vendor-BUMdD3V7.js')).toBe(true);
+    expect(isHashedDshAsset('/dsh/assets/index-lh_YM6sT.css')).toBe(true);
+    expect(isHashedDshAsset('/dsh/assets/fonts/montserrat-light-Cvd2VjE_.woff2')).toBe(true);
+    expect(isHashedDshAsset('/dsh/assets/langs/python-B6aJPvgy.js')).toBe(true);
+
+    expect(isHashedDshAsset('/dsh/assets/fonts/Montserrat-OFL.txt')).toBe(false);
+    expect(isHashedDshAsset('/dsh/')).toBe(false);
+    expect(isHashedDshAsset('/dsh/dsh.html')).toBe(false);
+    expect(isHashedDshAsset('/dsh/plugins/api-gateway/client.js')).toBe(false);
+    expect(isHashedDshAsset('/dsh/api/status')).toBe(false);
+    expect(isHashedDshAsset('/api/dsh/status')).toBe(false);
+  });
+
+  it('rewrites Cache-Control to immutable for hashed assets on 200/304 and preserves upstream headers otherwise', async () => {
+    const upstream = http.createServer((req: IncomingMessage, res: ServerResponse) => {
+      const url = req.url ?? '/';
+      if (url === '/assets/vendor-BUMdD3V7.js') {
+        res.writeHead(200, {
+          'content-type': 'application/javascript',
+          'cache-control': 'no-cache',
+          etag: '"hash-123"'
+        });
+        res.end('console.log("vendor");');
+        return;
+      }
+      if (url === '/assets/cached-BUMdD3V7.js') {
+        res.writeHead(304, {
+          'cache-control': 'no-cache',
+          etag: '"hash-123"'
+        });
+        res.end();
+        return;
+      }
+      if (url === '/assets/missing-BUMdD3V7.js') {
+        res.writeHead(404, {
+          'content-type': 'text/plain',
+          'cache-control': 'no-cache'
+        });
+        res.end('Not found');
+        return;
+      }
+      if (url === '/assets/fonts/Montserrat-OFL.txt') {
+        res.writeHead(200, {
+          'content-type': 'text/plain',
+          'cache-control': 'no-cache'
+        });
+        res.end('License');
+        return;
+      }
+      res.writeHead(200, {
+        'content-type': 'text/html',
+        'cache-control': 'no-cache, must-revalidate'
+      });
+      res.end('<html></html>');
+    });
+
+    const upstreamPort = await listen(upstream);
+    const proxy = new DshProxy(readyManager(`http://127.0.0.1:${upstreamPort}/`));
+    const frontend = http.createServer((req, res) => {
+      proxy.handle(req, res, new URL(req.url ?? '/', 'http://127.0.0.1'));
+    });
+    const frontendPort = await listen(frontend);
+    cleanups.push(() => proxy.close());
+
+    // 1. Hashed 200 -> immutable
+    const hashed200 = await fetch(`http://127.0.0.1:${frontendPort}/dsh/assets/vendor-BUMdD3V7.js`);
+    expect(hashed200.status).toBe(200);
+    expect(hashed200.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(hashed200.headers.get('etag')).toBe('"hash-123"');
+
+    // 2. Hashed 304 -> immutable
+    const hashed304 = await fetch(`http://127.0.0.1:${frontendPort}/dsh/assets/cached-BUMdD3V7.js`);
+    expect(hashed304.status).toBe(304);
+    expect(hashed304.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+
+    // 3. Hashed 404 -> preserves original cache-control, NOT immutable
+    const hashed404 = await fetch(`http://127.0.0.1:${frontendPort}/dsh/assets/missing-BUMdD3V7.js`);
+    expect(hashed404.status).toBe(404);
+    expect(hashed404.headers.get('cache-control')).toBe('no-cache');
+
+    // 4. Non-hashed asset -> preserves original cache-control
+    const plainText = await fetch(`http://127.0.0.1:${frontendPort}/dsh/assets/fonts/Montserrat-OFL.txt`);
+    expect(plainText.status).toBe(200);
+    expect(plainText.headers.get('cache-control')).toBe('no-cache');
+
+    // 5. HTML root -> preserves original cache-control
+    const htmlPage = await fetch(`http://127.0.0.1:${frontendPort}/dsh/`);
+    expect(htmlPage.status).toBe(200);
+    expect(htmlPage.headers.get('cache-control')).toBe('no-cache, must-revalidate');
+  });
+
+  it('forwards Sec-WebSocket-Extensions for compression negotiation over WebSocket upgrade', async () => {
+    let receivedExtension: string | undefined;
+    const upstream = http.createServer();
+    upstream.on('upgrade', (req, socket) => {
+      receivedExtension = req.headers['sec-websocket-extensions'] as string | undefined;
+      const accept = createHash('sha1')
+        .update(`${req.headers['sec-websocket-key']}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`)
+        .digest('base64');
+      socket.write(
+        'HTTP/1.1 101 Switching Protocols\r\n' +
+        'Upgrade: websocket\r\n' +
+        'Connection: Upgrade\r\n' +
+        `Sec-WebSocket-Accept: ${accept}\r\n` +
+        'Sec-WebSocket-Extensions: permessage-deflate\r\n\r\n' +
+        'deflate-ok'
+      );
+      cleanups.push(() => socket.destroy());
+    });
+
+    const upstreamPort = await listen(upstream);
+    const proxy = new DshProxy(readyManager(`http://127.0.0.1:${upstreamPort}/`));
+    const frontend = http.createServer();
+    frontend.on('upgrade', (req, socket, head) => proxy.upgrade(req, socket, head, () => true));
+    const frontendPort = await listen(frontend);
+    cleanups.push(() => proxy.close());
+
+    const socket = net.connect(frontendPort, '127.0.0.1');
+    const upgraded = new Promise<string>((resolve, reject) => {
+      let data = '';
+      socket.on('data', (chunk) => {
+        data += chunk.toString('utf8');
+        if (data.includes('deflate-ok')) resolve(data);
+      });
+      socket.on('error', reject);
+    });
+    await new Promise<void>((resolve) => socket.once('connect', resolve));
+    socket.write(
+      'GET /dsh/socket HTTP/1.1\r\n' +
+      `Host: 127.0.0.1:${frontendPort}\r\n` +
+      'Upgrade: websocket\r\n' +
+      'Connection: Upgrade\r\n' +
+      'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n' +
+      'Sec-WebSocket-Version: 13\r\n' +
+      'Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits\r\n\r\n'
+    );
+    const reply = await upgraded;
+    expect(reply).toContain('101 Switching Protocols');
+    expect(reply.toLowerCase()).toContain('sec-websocket-extensions: permessage-deflate');
+    expect(receivedExtension).toBe('permessage-deflate; client_max_window_bits');
     socket.destroy();
   });
 });

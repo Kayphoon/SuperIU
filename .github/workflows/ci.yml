@@ -17,6 +17,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Use official npm registry in CI
+        run: rm -f .npmrc
+
       - uses: pnpm/action-setup@v4
         with:
           version: "12"
@@ -43,6 +46,9 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Use official npm registry in CI
+        run: rm -f .npmrc
 
       - uses: pnpm/action-setup@v4
         with:
