@@ -137,4 +137,30 @@ describe('Session deletion API endpoints', () => {
     const listAfter = await api('/api/sessions');
     expect(listAfter.body.some((s: any) => s.id === s1Id)).toBe(false);
   });
+
+  it('defines in-place two-step confirmation keys in i18n and styles in index.html', () => {
+    const i18nPath = path.resolve(__dirname, '../public/i18n.js');
+    const indexPath = path.resolve(__dirname, '../public/index.html');
+    const i18n = fs.readFileSync(i18nPath, 'utf8');
+    const html = fs.readFileSync(indexPath, 'utf8');
+
+    // i18n keys
+    expect(i18n).toContain("'sidebar.delete.confirmButton': '确认'");
+    expect(i18n).toContain("'sidebar.delete.confirmAction': '确认删除'");
+    expect(i18n).toContain("'sidebar.delete.confirmButton': 'Confirm'");
+    expect(i18n).toContain("'sidebar.delete.confirmAction': 'Confirm delete'");
+
+    // In-place confirmation styles
+    expect(html).toContain('.siu-session-item-delete.is-confirming');
+    expect(html).toContain('.siu-session-item-delete-text');
+
+    // No window.confirm modal in deleteSession
+    expect(html).not.toMatch(/async function deleteSession[^{]*\{[^}]*confirm\(/);
+
+    // In-place click handler handles two-step deletion
+    expect(html).toContain('delBtn.classList.add(\'is-confirming\')');
+    expect(html).toContain('CHECK_GLYPH');
+    expect(html).toContain('sidebar.delete.confirmButton');
+    expect(html).toContain('sidebar.delete.confirmAction');
+  });
 });

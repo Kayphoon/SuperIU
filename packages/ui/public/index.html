@@ -930,7 +930,8 @@
       }
       .siu-session-item:hover .siu-session-item-delete,
       .siu-session-item:focus-within .siu-session-item-delete,
-      .siu-session-item-delete:focus {
+      .siu-session-item-delete:focus,
+      .siu-session-item-delete.is-confirming {
         opacity: 1;
         pointer-events: auto;
       }
@@ -938,6 +939,22 @@
         background: var(--siu-danger-bg);
         color: var(--siu-danger-fg);
         border-color: var(--siu-danger-bd);
+      }
+      .siu-session-item-delete.is-confirming {
+        width: auto;
+        min-width: 22px;
+        padding: 0 6px;
+        gap: 3px;
+        background: var(--siu-danger-bg);
+        color: var(--siu-danger-fg);
+        border-color: var(--siu-danger-bd);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      }
+      .siu-session-item-delete-text {
+        font-size: 11px;
+        font-weight: 500;
+        line-height: 1;
+        white-space: nowrap;
       }
       /* Non-geometric :active style as required by SuperIU UI design system */
       .siu-session-item-delete:active {
@@ -4479,6 +4496,12 @@
           min-width: 36px;
           min-height: 36px;
         }
+        .siu-session-item-delete.is-confirming {
+          padding: 0 8px;
+        }
+        .siu-session-item-delete.is-confirming .siu-session-item-delete-text {
+          font-size: 12px;
+        }
         .siu-popover-star {
           min-width: 44px;
           min-height: 44px;
@@ -7744,6 +7767,10 @@
         '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
         '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>';
 
+      const CHECK_GLYPH =
+        '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<path d="m5 12.5 4.5 4.5L19 7"/></svg>';
+
       // =======================================================================
       // Transcript primitives
       // =======================================================================
@@ -8656,6 +8683,14 @@
         }
       }
 
+      let activeDeleteReset = null;
+
+      document.addEventListener('pointerdown', (event) => {
+        if (activeDeleteReset && !event.target.closest('.siu-session-item-delete')) {
+          activeDeleteReset();
+        }
+      });
+
       /** Pure: renders from a list, so a language switch can re-run it from the
        *  cached payload instead of paying another round trip. */
       function renderSessions(sessions) {
@@ -8726,21 +8761,64 @@
               if (session.summary) item.appendChild(el('div', 'siu-session-item-summary', session.summary));
               item.appendChild(metaEl);
 
+              let delBtnTimer = null;
+              const resetDelBtn = () => {
+                clearTimeout(delBtnTimer);
+                if (delBtn.classList.contains('is-confirming')) {
+                  delBtn.classList.remove('is-confirming');
+                  delBtn.innerHTML = TRASH_GLYPH;
+                  delBtn.title = tr('sidebar.delete');
+                  delBtn.setAttribute('aria-label', tr('sidebar.delete'));
+                  if (activeDeleteReset === resetDelBtn) {
+                    activeDeleteReset = null;
+                  }
+                }
+              };
+
+              const armDelBtn = () => {
+                if (activeDeleteReset && activeDeleteReset !== resetDelBtn) {
+                  activeDeleteReset();
+                }
+                delBtn.classList.add('is-confirming');
+                delBtn.innerHTML = CHECK_GLYPH;
+                delBtn.appendChild(el('span', 'siu-session-item-delete-text', tr('sidebar.delete.confirmButton')));
+                delBtn.title = tr('sidebar.delete.confirmAction');
+                delBtn.setAttribute('aria-label', tr('sidebar.delete.confirmAction'));
+                activeDeleteReset = resetDelBtn;
+                clearTimeout(delBtnTimer);
+                delBtnTimer = setTimeout(() => {
+                  resetDelBtn();
+                }, 3500);
+              };
+
+              const handleDelClick = (event) => {
+                event.stopPropagation();
+                event.preventDefault();
+                if (state.running) {
+                  toast(tr('toast.abortFirst'), 'error');
+                  return;
+                }
+                if (!delBtn.classList.contains('is-confirming')) {
+                  armDelBtn();
+                  return;
+                }
+                resetDelBtn();
+                void deleteSession(session.id);
+              };
+
               const delBtn = el('button', 'siu-session-item-delete');
               delBtn.type = 'button';
               delBtn.title = tr('sidebar.delete');
               delBtn.setAttribute('aria-label', tr('sidebar.delete'));
               delBtn.innerHTML = TRASH_GLYPH;
-              delBtn.addEventListener('click', (event) => {
-                event.stopPropagation();
-                event.preventDefault();
-                void deleteSession(session.id);
-              });
+              delBtn.addEventListener('click', handleDelClick);
               delBtn.addEventListener('keydown', (event) => {
                 if (event.key === 'Enter' || event.key === ' ') {
+                  handleDelClick(event);
+                } else if (event.key === 'Escape') {
                   event.stopPropagation();
                   event.preventDefault();
-                  void deleteSession(session.id);
+                  resetDelBtn();
                 }
               });
               item.appendChild(delBtn);
@@ -13303,8 +13381,6 @@
         '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M2 12s3.6-6 10-6 10 6 10 6-3.6 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="2.6"/></svg>';
       const TOOLS_GLYPH =
         '<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.8-3.8a6 6 0 0 1-7.9 7.9l-6.9 6.9a2.1 2.1 0 0 1-3-3l6.9-6.9a6 6 0 0 1 7.9-7.9z"/></svg>';
-      const CHECK_GLYPH =
-        '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7"/></svg>';
       /** The "off" half of the enable toggle. Same 12×12 grid and stroke weight
        *  as `CHECK_GLYPH`, so switching a model on and off does not shift the
        *  row's baseline. Drawn rather than typed: a bare `☐`/`✓` mixes two
@@ -14082,7 +14158,6 @@
           toast(tr('toast.abortFirst'), 'error');
           return;
         }
-        if (!confirm(tr('sidebar.delete.confirm'))) return;
         try {
           const payload = await postJson('/api/sessions/delete', { sessionIdOrPath: reference });
           toast(tr('toast.sessionDeleted'), 'ok');
