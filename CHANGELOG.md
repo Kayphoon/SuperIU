@@ -14,6 +14,30 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.78 (2026-11-10)
+
+### 中文
+
+- **优化：DSH 前端哈希静态资源启用 immutable 强缓存**：
+  - 在 DSH 反向代理层（`DshProxy`）自动识别 Vite 打包产出的内容哈希资源（`/dsh/assets/*-[hash].ext`），对 200/304 响应重写 `Cache-Control: public, max-age=31536000, immutable`，实现客户端 100% 磁盘缓存命中与秒开，大幅压降 VPS 出网流量；
+  - **安全边界保护**：入口 HTML、动态插件模块、非哈希静态文件及 404/500 异常保持原始协商缓存策略不变，杜绝版本脱节与白屏风险。
+- **优化：WebSocket 传输层压缩支持**：
+  - SuperIU Gateway WebSocketServer 开启 `perMessageDeflate: true`，支持与客户端透明协商压缩；
+  - `DshProxy.upgrade` 保持对 `Sec-WebSocket-Extensions` 的透明双向透传，减少实时对话文本流与终端输出的传输消耗。
+- **构建：CI 依赖源稳定性提升**：
+  - 在 GitHub Actions 工作流中显式配置官方 npm registry，解决 npmmirror 超时导致构建失败的问题。
+
+### English
+
+- **Optimization: immutable caching for DSH content-hashed static assets**:
+  - In `DshProxy`, automatically detect Vite content-hashed assets (`/dsh/assets/*-[hash].ext`) and rewrite response headers on 200/304 to `Cache-Control: public, max-age=31536000, immutable`, enabling 100% client disk cache hits and instant loading while drastically reducing VPS bandwidth;
+  - **Safety boundary**: entry HTML, dynamic plugin bundles, non-hashed assets, and error responses preserve original revalidation cache policies, eliminating version mismatch risks.
+- **Optimization: WebSocket transport-layer compression**:
+  - Enable `perMessageDeflate: true` on the Gateway `WebSocketServer`, transparently negotiating frame compression with connecting clients;
+  - Ensure `DshProxy.upgrade` forwards `Sec-WebSocket-Extensions` bi-directionally, compressing high-redundancy streaming text and terminal output.
+- **Build: CI dependency registry reliability**:
+  - Explicitly configure the official npm registry in GitHub Actions workflows to eliminate intermittent npmmirror timeout failures.
+
 ## v0.2.77 (2026-11-10)
 
 ### 中文
