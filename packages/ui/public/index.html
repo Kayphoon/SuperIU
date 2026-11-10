@@ -11559,13 +11559,26 @@
             updateLatencyBadge(null);
             badge.title = `${alias} (${tr('connection.reconnecting')})`;
           } else if (info.state === 'connected') {
-            setDotStatus('completed');
+            const ver = info.versionStatus;
+            let versionNote = '';
+            if (ver && ver.state === 'upgrade_failed') {
+              setDotStatus('tool_calling');
+              const vRemote = ver.remoteVersion ? `v${ver.remoteVersion}` : '';
+              const vDesktop = ver.desktopVersion ? `v${ver.desktopVersion}` : '';
+              versionNote = ` · ${tr('connection.versionUpgradeFailed', { remote: vRemote, desktop: vDesktop })}`;
+            } else if (ver && ver.state === 'remote_ahead') {
+              setDotStatus('completed');
+              const vRemote = ver.remoteVersion ? `v${ver.remoteVersion}` : '';
+              versionNote = ` · ${tr('connection.remoteAhead', { remote: vRemote })}`;
+            } else {
+              setDotStatus('completed');
+            }
             label.textContent = alias;
             updateLatencyBadge(info.rttMs);
             const rttSuffix = typeof info.rttMs === 'number' && !Number.isNaN(info.rttMs)
               ? ` (${Math.round(info.rttMs)}ms)`
               : '';
-            badge.title = `${alias}${rttSuffix}`;
+            badge.title = `${alias}${rttSuffix}${versionNote}`;
           } else {
             setDotStatus('error');
             label.textContent = `${alias} · ${tr('connection.closed')}`;

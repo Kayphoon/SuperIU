@@ -22,9 +22,11 @@ import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
 
 import {
+  GATEWAY_PROTOCOL_VERSION,
   isClientRegisterMessage,
   isPingMessage,
   isPongMessage,
+  isProtocolCompatible,
   isRpcRequest,
   isServerRegisterAckMessage,
   JSON_RPC_VERSION,
@@ -116,6 +118,12 @@ export class GatewayClient {
   private session: ActiveSession | null = null;
   /** Set while the client intends to stay connected (false after `close`). */
   private shouldReconnect = false;
+  /** Server version reported during registration ack. */
+  private serverVersion?: string;
+  /** Protocol version reported during registration ack. */
+  private serverProtocolVersion?: string;
+  /** Flagged when rejected due to breaking protocol mismatch. */
+  private protocolMismatch = false;
 
   constructor(options: GatewayClientOptions) {
     if (!options.url) throw new Error('GatewayClient requires a url');
@@ -137,6 +145,21 @@ export class GatewayClient {
   /** Session id assigned by the gateway, or `null` before registration. */
   get sessionId(): string | null {
     return this.session?.sessionId ?? null;
+  }
+
+  /** Server version reported by the remote gateway, or undefined. */
+  get remoteServerVersion(): string | undefined {
+    return this.serverVersion;
+  }
+
+  /** Protocol version reported by the remote gateway, or undefined. */
+  get remoteProtocolVersion(): string | undefined {
+    return this.serverProtocolVersion;
+  }
+
+  /** Whether the gateway rejected this client due to breaking protocol mismatch. */
+  get isProtocolIncompatible(): boolean {
+    return this.protocolMismatch;
   }
   /** Most recent round-trip latency measured via ping/pong. */
   get rttMs(): number | undefined {
@@ -223,6 +246,7 @@ export class GatewayClient {
       deviceName: this.deviceName,
       clientType: this.clientType,
       token: this.token,
+      protocolVersion: GATEWAY_PROTOCOL_VERSION,
     };
     this.send(register);
     this.startPingTimer();
@@ -349,9 +373,22 @@ export class GatewayClient {
   }
 
   private handleRegisterAck(ack: ServerRegisterAckMessage): void {
+    this.serverVersion = ack.serverVersion;
+    this.serverProtocolVersion = ack.protocolVersion;
+
     if (!ack.ok) {
       console.error('[gateway] registration rejected:', ack.error ?? 'unknown');
       this.shouldReconnect = false;
+      return;
+    }
+
+    if (!isProtocolCompatible(GATEWAY_PROTOCOL_VERSION, ack.protocolVersion)) {
+      console.error(
+        `[gateway] incompatible protocol version: client=${GATEWAY_PROTOCOL_VERSION}, server=${ack.protocolVersion ?? 'unknown'}`
+      );
+      this.protocolMismatch = true;
+      this.shouldReconnect = false;
+      this.socket?.close(4002, 'protocol mismatch');
       return;
     }
 

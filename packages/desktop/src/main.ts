@@ -188,6 +188,7 @@ function getConnectionInfo(): ConnectionInfoPayload {
       // rather than letting a null client read as `connected`.
       state: client?.connectionState ?? 'connecting',
       rttMs: client?.rttMs,
+      versionStatus: remoteManager.versionStatus ?? undefined,
       ...resolveTransport(client?.connectionState ?? 'connecting', remoteManager.tunnelState)
     };
   }

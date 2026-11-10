@@ -651,6 +651,29 @@ describe('GatewayServer', () => {
     await expect(waitForClose(ws)).resolves.toBe(4001);
   });
 
+  it('rejects registration with code 4002 when protocol version is incompatible', async () => {
+    const { url } = await makeServer({ allowAnonymous: true });
+    const ws = connect(url);
+    await open(ws);
+    const ack = waitForMessage(ws);
+    ws.send(
+      JSON.stringify({
+        type: 'client.register',
+        deviceId: 'dev-breaking',
+        deviceName: 'future-device',
+        clientType: 'desktop',
+        token: 'anything',
+        protocolVersion: '99.0.0',
+      })
+    );
+
+    const reply = (await ack) as { type: string; ok: boolean; error?: string };
+    expect(reply.type).toBe('server.register.ack');
+    expect(reply.ok).toBe(false);
+    expect(reply.error).toMatch(/Incompatible gateway protocol version/i);
+    await expect(waitForClose(ws)).resolves.toBe(4002);
+  });
+
   it('round-trips an outbound callClientRpc over real ws', async () => {
     const { server, url } = await makeServer({ allowAnonymous: true });
     const ws = connect(url);

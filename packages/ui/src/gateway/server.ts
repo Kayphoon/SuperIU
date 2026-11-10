@@ -36,6 +36,7 @@ import type {
   StreamEvent
 } from '@agent/protocol';
 import {
+  GATEWAY_PROTOCOL_VERSION,
   JSON_RPC_VERSION,
   RpcErrorCode,
   createPing,
@@ -43,6 +44,7 @@ import {
   isClientCatchUpRequest,
   isClientRegisterMessage,
   isPingMessage,
+  isProtocolCompatible,
   isRpcRequest
 } from '@agent/protocol';
 import { DeviceRegistry, type ConnectedClient } from './registry.js';
@@ -477,6 +479,14 @@ export class GatewayServer {
           ws.close(4001, 'handshake required');
           return;
         }
+        if (!isProtocolCompatible(parsed.protocolVersion, GATEWAY_PROTOCOL_VERSION)) {
+          this.sendRegisterAck(ws, {
+            ok: false,
+            error: `Incompatible gateway protocol version (client: ${parsed.protocolVersion ?? 'unknown'}, server: ${GATEWAY_PROTOCOL_VERSION})`
+          });
+          ws.close(4002, 'protocol mismatch');
+          return;
+        }
         const accepted = this.authenticate(parsed);
         if (!accepted.ok) {
           this.sendRegisterAck(ws, { ok: false, error: accepted.error });
@@ -774,6 +784,7 @@ export class GatewayServer {
       ok: body.ok,
       sessionId: body.sessionId ?? '',
       serverVersion: this.serverVersion,
+      protocolVersion: GATEWAY_PROTOCOL_VERSION,
       ...(body.error ? { error: body.error } : {})
     };
     this.send(ws, ack);

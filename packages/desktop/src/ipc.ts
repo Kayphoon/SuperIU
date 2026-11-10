@@ -47,6 +47,13 @@ export const REMOTE_PROGRESS_CHANNEL = 'superiu:remote-progress';
 export const UPDATE_STATE_CHANNEL = 'superiu:update-state';
 export const CONNECTION_STATE_CHANNEL = 'superiu:connection-state';
 
+export interface RemoteVersionStatusPayload {
+  desktopVersion: string;
+  remoteVersion?: string;
+  state: 'synced' | 'remote_ahead' | 'remote_stale' | 'upgrade_failed';
+  upgradeError?: string;
+}
+
 export interface ConnectionInfoPayload {
   mode: 'local' | 'remote' | 'gateway' | 'custom_url';
   alias?: string;
@@ -56,6 +63,10 @@ export interface ConnectionInfoPayload {
   advertiseUrl?: string;
   state: 'idle' | 'connected' | 'connecting' | 'reconnecting' | 'closed';
   rttMs?: number;
+  /**
+   * Version sync status between desktop and remote server, populated in remote mode.
+   */
+  versionStatus?: RemoteVersionStatusPayload;
   /**
    * Coarse transport health the web console renders directly, so it can show a
    * precise banner the instant the link degrades instead of inferring it from

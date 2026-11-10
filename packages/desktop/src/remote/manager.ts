@@ -99,6 +99,14 @@ export interface RemoteConnectResult {
   gatewayClient: GatewayClient;
 }
 
+/** Version sync status between desktop and remote daemon. */
+export interface RemoteVersionStatus {
+  desktopVersion: string;
+  remoteVersion?: string;
+  state: 'synced' | 'remote_ahead' | 'remote_stale' | 'upgrade_failed';
+  upgradeError?: string;
+}
+
 /** Which step of the flow failed. */
 export class RemoteConnectionError extends Error {
   readonly step: RemoteStepId;
@@ -148,6 +156,7 @@ export class RemoteConnectionManager {
   private client: GatewayClient | null = null;
   private lastOptions: RemoteConnectOptions | null = null;
   private lastTunnelPort: number | null = null;
+  private currentVersionStatus: RemoteVersionStatus | null = null;
 
   constructor(options: RemoteConnectionManagerOptions = {}) {
     this.bootstrapper =
@@ -171,6 +180,11 @@ export class RemoteConnectionManager {
   /** The active gateway client, or null when disconnected. */
   get gatewayClient(): GatewayClient | null {
     return this.client;
+  }
+
+  /** Version sync status relative to desktop. */
+  get versionStatus(): RemoteVersionStatus | null {
+    return this.currentVersionStatus;
   }
 
   /** Current ssh-tunnel state, forwarded from the tunnel manager. */
@@ -253,6 +267,7 @@ export class RemoteConnectionManager {
       !probe.installed ||
       (options.version !== undefined && probe.version !== options.version) ||
       staleByTarget;
+    let upgradeFailureError: string | undefined;
     if (needsInstall) {
       this.progress(onProgress, { id: 'install', status: 'active' });
       try {
@@ -284,6 +299,7 @@ export class RemoteConnectionManager {
           });
           throw new RemoteConnectionError('install', `Install failed: ${messageOf(err)}`, err);
         }
+        upgradeFailureError = messageOf(err);
         this.progress(onProgress, {
           id: 'install',
           status: 'done',
@@ -311,6 +327,26 @@ export class RemoteConnectionManager {
         // and fall back to the transport it described.
       }
     }
+
+    const currentRemoteVersion = probe.version ?? installedVersion;
+    let versionState: RemoteVersionStatus['state'] = 'synced';
+    if (upgradeFailureError) {
+      versionState = 'upgrade_failed';
+    } else if (options.daemonTargetVersion && currentRemoteVersion) {
+      if (semverGt(options.daemonTargetVersion, currentRemoteVersion)) {
+        versionState = 'remote_stale';
+      } else if (semverGt(currentRemoteVersion, options.daemonTargetVersion)) {
+        versionState = 'remote_ahead';
+      } else {
+        versionState = 'synced';
+      }
+    }
+    this.currentVersionStatus = {
+      desktopVersion: options.daemonTargetVersion ?? '',
+      remoteVersion: currentRemoteVersion,
+      state: versionState,
+      ...(upgradeFailureError ? { upgradeError: upgradeFailureError } : {}),
+    };
 
     // 3. Workspace -------------------------------------------------------------
     this.progress(onProgress, { id: 'workspace', status: 'active' });
@@ -521,6 +557,7 @@ export class RemoteConnectionManager {
   async disconnect(): Promise<void> {
     this.client?.close();
     this.client = null;
+    this.currentVersionStatus = null;
     await this.tunnel.close();
   }
 
@@ -535,6 +572,26 @@ export class RemoteConnectionManager {
     const res = await this.bootstrapper.runCommand(alias, `${REMOTE_BIN_PATH} update`);
     if (res.exitCode !== 0) {
       return { ok: false, error: res.stderr || res.stdout };
+    }
+    if (this.lastOptions?.daemonTargetVersion) {
+      try {
+        const probe = await this.bootstrapper.probe(alias);
+        const newVer = probe.version;
+        const desktopVer = this.lastOptions.daemonTargetVersion;
+        let state: RemoteVersionStatus['state'] = 'synced';
+        if (desktopVer && newVer) {
+          if (semverGt(desktopVer, newVer)) state = 'remote_stale';
+          else if (semverGt(newVer, desktopVer)) state = 'remote_ahead';
+          else state = 'synced';
+        }
+        this.currentVersionStatus = {
+          desktopVersion: desktopVer,
+          remoteVersion: newVer,
+          state,
+        };
+      } catch {
+        // Probe refresh non-fatal
+      }
     }
     return { ok: true, stdout: res.stdout };
   }
