@@ -14,6 +14,26 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.77 (2026-11-10)
+
+### 中文
+
+- **新增：左侧消息列表（Sessions）会话删除功能**：
+  - 左侧边栏各会话卡片增加删除按钮（悬停/聚焦呈现垃圾桶图标，触屏设备自适应常显），点击后弹出二次确认提示，确认后安全删除对应会话；
+  - **隔离保护**：删除非活动会话时，安全清理磁盘对应 `.jsonl` 文件并刷新侧栏，不中断当前正在进行的对话；
+  - **活动会话自适应重置**：删除当前正在打开的会话时，主动关闭连接与文件句柄、清理落盘文件，并自动初始化全新的空会话草稿，主界面与侧栏无缝进入空闲状态；
+  - **服务端支持**：新增 `POST /api/sessions/delete` 与 `DELETE /api/sessions` 接口，具备完善的参数校验、状态回填与敏感信息脱敏保护；
+  - **双语支持**：删除提示、确认弹窗与反馈 Toast 均具备完整的中英双语本地化支持。
+
+### English
+
+- **Feature: session deletion in the left sidebar message list**:
+  - Added a delete button to session cards in the left sidebar (reveals trash icon on hover/focus, auto-visible on touch screens), with confirmation prompt to safely remove sessions;
+  - **Safe isolation**: deleting an inactive session cleanly unlinks its `.jsonl` transcript file and refreshes the list without disturbing the active turn or transcript;
+  - **Active session reset**: deleting the currently active session closes its file handle, unlinks the transcript, and automatically initializes a fresh draft session, cleanly returning the main view and sidebar to an empty idle state;
+  - **Backend endpoints**: added `POST /api/sessions/delete` and `DELETE /api/sessions` routes with full validation, state synchronization, and secret redaction;
+  - **Bilingual support**: delete tooltips, confirmation prompts, and completion toasts are fully localized in both Chinese and English.
+
 ## v0.2.76 (2026-11-09)
 
 ### 中文
