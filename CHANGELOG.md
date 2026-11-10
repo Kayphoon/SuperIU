@@ -14,6 +14,24 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.79 (2026-11-10)
+
+### 中文
+
+- **优化：侧边栏会话删除改为原地两段式确认交互**：
+  - 彻底移除浏览器阻断式弹窗（`window.confirm`），采用无感畅快的原地确认（In-place Two-step Confirmation）体验；
+  - **连续点击删除**：鼠标悬停点击垃圾桶图标后，按钮在原地直接变换为红色危险确认按钮（呈现 `✓ 确认`），鼠标位置无需移动，连续点击两下即可直接完成删除与二次确认；
+  - **防误触保护**：提供 3.5 秒无操作自动缩回复原、点击外部区域自动取消、按 `Escape` 立即取消以及多会话间单例互斥机制；
+  - **多端与无障碍适配**：触屏设备自适应舒适触控尺寸，支持键盘 `Enter` / `Space` 连续敲击确认，提示文案具备完整中英双语支持。
+
+### English
+
+- **Optimization: in-place two-step confirmation for session deletion in sidebar**:
+  - Removed disruptive browser modal dialogs (`window.confirm`) in favor of a seamless in-place two-step confirmation interaction;
+  - **Consecutive two-click deletion**: clicking the trash icon instantly transforms the button in-place into a danger confirmation button (displaying `✓ Confirm`), allowing users to click twice in the same spot to delete and confirm without moving the cursor;
+  - **Accidental click safeguards**: includes automatic timeout revert after 3.5s of inactivity, auto-dismissal when clicking outside, immediate cancellation on `Escape`, and single-instance mutual exclusion across session cards;
+  - **Mobile & accessibility support**: responsive touch-target sizing for touch screens, keyboard support via consecutive `Enter`/`Space` presses, and complete bilingual localization for all confirmation labels and tooltips.
+
 ## v0.2.78 (2026-11-10)
 
 ### 中文
