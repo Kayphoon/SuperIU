@@ -36,7 +36,8 @@ import {
   resolveSessionFile,
   sessionSummary,
   sessionTitle,
-  type SessionDescriptor
+  type SessionDescriptor,
+  type MessageAttachment
 } from './session/index.js';
 import { PromptHistoryStorage, type PromptHistoryEntry } from './storage/index.js';
 import { MemorySynthesizer, type MemoryUpdateResult } from './memory/synthesizer.js';
@@ -1097,7 +1098,11 @@ export class AgentRunner {
   public async run(
     prompt: string,
     callbacks?: RunnerCallbacks,
-    options: { model?: string; modelRoute?: Partial<ModelRoute> } = {}
+    options: {
+      model?: string;
+      modelRoute?: Partial<ModelRoute>;
+      attachments?: MessageAttachment[];
+    } = {}
   ): Promise<string> {
     if (this.status !== 'idle') {
       this.abort();
@@ -1121,6 +1126,7 @@ export class AgentRunner {
         signal,
         model: options.model,
         modelRoute: options.modelRoute,
+        attachments: options.attachments,
         callbacks: {
           onStepStart: (stepIndex) => {
             callbacks?.onStepStart?.(stepIndex);

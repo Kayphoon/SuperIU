@@ -2671,6 +2671,119 @@
         background: var(--siu-bg-hover);
         color: var(--siu-text-primary);
       }
+      /* Attachment previews in composer well */
+      .siu-composer-attachments {
+        display: flex;
+        flex-wrap: nowrap;
+        gap: 8px;
+        padding: 10px 12px 2px 12px;
+        overflow-x: auto;
+        scrollbar-width: thin;
+      }
+      .siu-composer-attachments.hidden {
+        display: none !important;
+      }
+      .siu-attachment-chip {
+        position: relative;
+        flex: 0 0 60px;
+        width: 60px;
+        height: 60px;
+        border-radius: 8px;
+        border: 1px solid var(--siu-border);
+        background: var(--siu-bg-card);
+        overflow: hidden;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+      }
+      .siu-attachment-chip img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+      }
+      .siu-attachment-chip-delete {
+        position: absolute;
+        top: 3px;
+        right: 3px;
+        width: 20px;
+        height: 20px;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.65);
+        color: #ffffff;
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        padding: 0;
+        transition: background var(--siu-dur-fast) var(--siu-ease-out), transform var(--siu-dur-fast) var(--siu-ease-out);
+        z-index: 2;
+      }
+      .siu-attachment-chip-delete:hover {
+        background: rgba(0, 0, 0, 0.85);
+        transform: scale(1.1);
+      }
+      /* User message bubble attachment layout */
+      .siu-user-attachments {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 6px;
+      }
+      .siu-user-attachment-img {
+        max-width: 200px;
+        max-height: 200px;
+        width: auto;
+        height: auto;
+        object-fit: cover;
+        border-radius: 8px;
+        cursor: pointer;
+        border: 1px solid rgba(0, 0, 0, 0.1);
+        transition: opacity var(--siu-dur-fast) var(--siu-ease-out), transform var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-user-attachment-img:hover {
+        opacity: 0.92;
+        transform: scale(1.02);
+      }
+      /* Drag-over indicator on composer well */
+      .siu-composer-well.is-dragover {
+        border-color: var(--siu-accent);
+        box-shadow: 0 0 0 2px var(--siu-accent-weak);
+      }
+      /* Fullscreen lightbox for viewing attachments */
+      .siu-lightbox {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        background: rgba(0, 0, 0, 0.85);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+        cursor: zoom-out;
+      }
+      .siu-lightbox img {
+        max-width: 95vw;
+        max-height: 95vh;
+        object-fit: contain;
+        border-radius: 8px;
+        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+      }
+      .siu-lightbox-close {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.2);
+        color: #ffffff;
+        border: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        font-size: 20px;
+      }
       /* The composer's own pills sit flat inside the toolbar: no resting chrome,
          just the level colour and a hover wash, so the row reads as one control
          strip rather than three buttons. Scoped to the toolbar so the shared
@@ -5103,6 +5216,7 @@
                    so the first paint has nothing to translate. -->
               <div id="composer-queue-hint" class="text-[11px] text-muted px-1 pb-1" hidden></div>
               <div class="siu-composer-well">
+                <div id="composer-attachments" class="siu-composer-attachments hidden"></div>
                 <textarea
                   id="prompt"
                   rows="1"
@@ -5115,10 +5229,18 @@
                 <div class="siu-composer-toolbar">
                   <!-- Left controls -->
                   <div class="flex items-center gap-1 min-w-0">
+                    <input
+                      type="file"
+                      id="composer-file-input"
+                      accept="image/*"
+                      multiple
+                      class="hidden"
+                      style="display:none"
+                    />
                     <button
                       type="button"
                       id="btn-attach"
-                      class="siu-btn-icon siu-btn-attach hidden"
+                      class="siu-btn-icon siu-btn-attach"
                       title="添加图片和文件"
                       aria-label="添加图片和文件"
                       data-i18n-title="composer.attach"
@@ -7799,14 +7921,59 @@
         transcript.appendChild(wrap);
       }
 
-      function userBubble(text) {
+      function openLightbox(src) {
+        const box = el('div', 'siu-lightbox');
+        const img = el('img');
+        img.src = src;
+        const closeBtn = el('button', 'siu-lightbox-close');
+        closeBtn.type = 'button';
+        closeBtn.title = tr('composer.attachment.remove');
+        closeBtn.setAttribute('aria-label', tr('composer.attachment.remove'));
+        closeBtn.innerHTML = '&times;';
+        box.appendChild(img);
+        box.appendChild(closeBtn);
+        const close = () => {
+          box.remove();
+          document.removeEventListener('keydown', onKey);
+        };
+        const onKey = (e) => {
+          if (e.key === 'Escape') close();
+        };
+        box.addEventListener('click', (e) => {
+          if (e.target !== img) close();
+        });
+        document.addEventListener('keydown', onKey);
+        document.body.appendChild(box);
+      }
+
+      function userBubble(text, attachments) {
         const row = el('div', 'siu-msg-row siu-msg-row--user ' + enterClass());
-        row.appendChild(el('div', 'siu-bubble siu-bubble--user', text));
+        const bubble = el('div', 'siu-bubble siu-bubble--user');
+        if (Array.isArray(attachments) && attachments.length > 0) {
+          const grid = el('div', 'siu-user-attachments');
+          for (const att of attachments) {
+            const img = el('img', 'siu-user-attachment-img');
+            img.src = att.url || att.dataUrl || att.data || '';
+            img.alt = att.name || '';
+            img.loading = 'lazy';
+            img.title = tr('composer.attachment.view');
+            img.setAttribute('aria-label', tr('composer.attachment.view'));
+            img.addEventListener('click', () => {
+              openLightbox(img.src);
+            });
+            grid.appendChild(img);
+          }
+          bubble.appendChild(grid);
+        }
+        if (text) {
+          bubble.appendChild(el('div', 'siu-user-text', text));
+        }
+        row.appendChild(bubble);
         // The meta row sits under the bubble: the model (or role) that answered
         // plus a hover-revealed copy affordance, mirroring the assistant bubble.
         const meta = el('div', 'siu-user-meta');
         meta.appendChild(el('span', 'siu-user-meta-label', state.currentModel || tr('transcript.orchestrator')));
-        attachCopy(meta, () => text, 'siu-user-meta-copy');
+        attachCopy(meta, () => text || '', 'siu-user-meta-copy');
         row.appendChild(meta);
         return row;
       }
@@ -8373,7 +8540,9 @@
         for (const message of messages) {
           if (message.role === 'user') {
             flushTurn();
-            if (message.content) transcript.appendChild(userBubble(message.content));
+            if (message.content || (message.attachments && message.attachments.length)) {
+              transcript.appendChild(userBubble(message.content, message.attachments));
+            }
             continue;
           }
           if (message.role !== 'assistant') continue;
@@ -8899,11 +9068,12 @@
        * or surfaced its own error affordance.
        */
       async function sendPrompt(rawPrompt, opts = {}) {
-        if (state.running || !rawPrompt.trim()) return false;
+        const promptAttachments = Array.isArray(opts.attachments) ? opts.attachments : [];
+        if (state.running || (!rawPrompt.trim() && promptAttachments.length === 0)) return false;
         const text = rawPrompt.trim();
 
         if (transcript.querySelector('.siu-empty')) transcript.innerHTML = '';
-        const bubble = userBubble(text);
+        const bubble = userBubble(text, promptAttachments);
         transcript.appendChild(bubble);
 
         // The turn's live tail: steps append here, then collapse on completion.
@@ -9274,7 +9444,7 @@
           retryBtn.type = 'button';
           retryBtn.addEventListener('click', () => {
             noteRow.remove();
-            void sendPrompt(text);
+            void sendPrompt(text, { attachments: promptAttachments });
           });
           noteBox.appendChild(retryBtn);
           noteRow.appendChild(noteBox);
@@ -9319,7 +9489,17 @@
             response = await fetch('/api/chat', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ prompt: text, model: $('model-select').value || undefined }),
+              body: JSON.stringify({
+                prompt: text,
+                model: $('model-select').value || undefined,
+                attachments: promptAttachments.length > 0 ? promptAttachments.map((a) => ({
+                  type: 'image',
+                  name: a.name,
+                  mimeType: a.mimeType,
+                  data: a.dataUrl || a.data,
+                  url: a.url
+                })) : undefined
+              }),
               signal: controller.signal
             });
           } catch (err) {
@@ -14016,13 +14196,104 @@
       });
 
       // =======================================================================
-      // Input bar
+      // Input bar & Attachments
       // =======================================================================
+      const pendingAttachments = [];
+
+      function clearAttachments() {
+        pendingAttachments.length = 0;
+        renderAttachments();
+        syncComposerState();
+      }
+
+      function removeAttachment(index) {
+        if (index >= 0 && index < pendingAttachments.length) {
+          pendingAttachments.splice(index, 1);
+          renderAttachments();
+          syncComposerState();
+        }
+      }
+
+      function renderAttachments() {
+        const container = $('composer-attachments');
+        if (!container) return;
+        if (pendingAttachments.length === 0) {
+          container.innerHTML = '';
+          container.classList.add('hidden');
+          return;
+        }
+        container.classList.remove('hidden');
+        container.innerHTML = '';
+        pendingAttachments.forEach((att, idx) => {
+          const chip = el('div', 'siu-attachment-chip');
+          const img = el('img');
+          img.src = att.dataUrl || att.url || '';
+          img.alt = att.name || '';
+          chip.appendChild(img);
+
+          const delBtn = el('button', 'siu-attachment-chip-delete');
+          delBtn.type = 'button';
+          delBtn.title = tr('composer.attachment.remove');
+          delBtn.setAttribute('aria-label', tr('composer.attachment.remove'));
+          delBtn.innerHTML = '&times;';
+          delBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            removeAttachment(idx);
+          });
+          chip.appendChild(delBtn);
+          container.appendChild(chip);
+        });
+      }
+
+      const MAX_ATTACHMENT_SIZE_MB = 10;
+
+      async function processImageFile(file) {
+        if (!file.type || !file.type.startsWith('image/')) {
+          return null;
+        }
+        if (file.size > MAX_ATTACHMENT_SIZE_MB * 1024 * 1024) {
+          toast(tr('composer.attachment.oversized', { max: MAX_ATTACHMENT_SIZE_MB }), 'error');
+          return null;
+        }
+        return new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const dataUrl = reader.result;
+            resolve({
+              id: 'att-' + Math.random().toString(36).slice(2, 10),
+              type: 'image',
+              name: file.name,
+              mimeType: file.type,
+              size: file.size,
+              dataUrl: typeof dataUrl === 'string' ? dataUrl : ''
+            });
+          };
+          reader.onerror = () => {
+            toast(tr('composer.attachment.failed'), 'error');
+            resolve(null);
+          };
+          reader.readAsDataURL(file);
+        });
+      }
+
+      async function addFiles(files) {
+        if (!files || !files.length) return;
+        for (const file of Array.from(files)) {
+          const item = await processImageFile(file);
+          if (item) {
+            pendingAttachments.push(item);
+          }
+        }
+        renderAttachments();
+        syncComposerState();
+      }
+
       function syncComposerState() {
         const hasText = Boolean(promptInput.value.trim());
+        const hasAttachments = pendingAttachments.length > 0;
         const sendBtn = $('btn-send');
         if (sendBtn) {
-          sendBtn.dataset.ready = String(hasText);
+          sendBtn.dataset.ready = String(hasText || hasAttachments);
         }
       }
 
@@ -14034,12 +14305,14 @@
 
       function submit() {
         const value = promptInput.value;
-        if (!value.trim()) return;
+        const attachments = pendingAttachments.slice();
+        if (!value.trim() && attachments.length === 0) return;
         // Mid-turn submits are still ignored while healthy; below HEALTHY the
         // composer stays usable and the prompt is queued instead of dropped.
         if (state.running && netHealth.state === 'HEALTHY') return;
         closeCompletions();
         promptInput.value = '';
+        clearAttachments();
         autosize();
         syncComposerState();
 
@@ -14051,7 +14324,7 @@
           enqueuePendingPrompt(value.trim());
           return;
         }
-        void sendPrompt(value);
+        void sendPrompt(value, { attachments });
       }
 
       promptInput.addEventListener('input', () => {
@@ -14139,6 +14412,54 @@
 
       $('btn-send').addEventListener('click', submit);
       $('btn-abort').addEventListener('click', () => void abortTurn());
+
+      const attachBtn = $('btn-attach');
+      const fileInput = $('composer-file-input');
+      if (attachBtn && fileInput) {
+        attachBtn.addEventListener('click', () => {
+          fileInput.value = '';
+          fileInput.click();
+        });
+        fileInput.addEventListener('change', () => {
+          if (fileInput.files && fileInput.files.length) {
+            void addFiles(fileInput.files);
+          }
+        });
+      }
+
+      promptInput.addEventListener('paste', (event) => {
+        const items = event.clipboardData?.items;
+        if (!items) return;
+        const imageFiles = [];
+        for (const item of items) {
+          if (item.type && item.type.startsWith('image/')) {
+            const file = item.getAsFile();
+            if (file) imageFiles.push(file);
+          }
+        }
+        if (imageFiles.length > 0) {
+          void addFiles(imageFiles);
+        }
+      });
+
+      const composerWell = document.querySelector('.siu-composer-well');
+      if (composerWell) {
+        composerWell.addEventListener('dragover', (e) => {
+          e.preventDefault();
+          composerWell.classList.add('is-dragover');
+        });
+        composerWell.addEventListener('dragleave', (e) => {
+          e.preventDefault();
+          composerWell.classList.remove('is-dragover');
+        });
+        composerWell.addEventListener('drop', (e) => {
+          e.preventDefault();
+          composerWell.classList.remove('is-dragover');
+          if (e.dataTransfer?.files && e.dataTransfer.files.length) {
+            void addFiles(e.dataTransfer.files);
+          }
+        });
+      }
 
       transcript.addEventListener('scroll', syncScrollEdges, { passive: true });
       new ResizeObserver(syncScrollEdges).observe(transcript);

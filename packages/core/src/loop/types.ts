@@ -1,5 +1,6 @@
 import type { CoreMessage } from 'ai';
 import type { ToolCallItem } from '../context/types.js';
+import type { MessageAttachment } from '../session/types.js';
 import type { PermissionGate } from '../review/types.js';
 import type { ModelRoute } from '../model/router.js';
 
@@ -61,4 +62,6 @@ export interface LoopExecutionOptions {
   model?: string;
   /** Pin this turn to a partial route merged over the router's `main` route. */
   modelRoute?: Partial<ModelRoute>;
+  /** Optional image attachments for the user turn. */
+  attachments?: MessageAttachment[];
 }

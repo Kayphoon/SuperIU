@@ -1,3 +1,5 @@
+import type { MessageAttachment } from '../session/types.js';
+
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool';
 
 export interface ToolCallItem {
@@ -19,6 +21,7 @@ export interface ContextMessage {
   content?: string;
   toolCalls?: ToolCallItem[];
   toolResults?: ToolResultItem[];
+  attachments?: MessageAttachment[];
   createdAt: number;
 }
 

@@ -86,6 +86,10 @@ const DICT = {
     'composer.send': '发送',
     'composer.send.title': '发送',
     'composer.attach': '添加图片和文件',
+    'composer.attachment.remove': '移除附件',
+    'composer.attachment.oversized': '图片大小不能超过 {max}MB',
+    'composer.attachment.failed': '图片加载失败',
+    'composer.attachment.view': '查看图片',
 
     'composer.effort.title': '推理强度',
     'composer.effort.aria': '推理强度',
@@ -774,6 +778,10 @@ const DICT = {
     'composer.send': 'Send',
     'composer.send.title': 'Send',
     'composer.attach': 'Add images and files',
+    'composer.attachment.remove': 'Remove attachment',
+    'composer.attachment.oversized': 'Image size cannot exceed {max}MB',
+    'composer.attachment.failed': 'Failed to load image',
+    'composer.attachment.view': 'View image',
 
     'composer.effort.title': 'Reasoning effort',
     'composer.effort.aria': 'Reasoning effort',

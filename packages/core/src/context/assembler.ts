@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import type { CoreMessage, CoreAssistantMessage, CoreToolMessage, CoreUserMessage, CoreSystemMessage } from 'ai';
 import type { SessionManager } from '../session/manager.js';
 import type { ContextMessage, AssembledContext, ToolCallItem, ToolResultItem } from './types.js';
@@ -73,10 +74,65 @@ export class ContextAssembler {
 
     for (const msg of messages) {
       if (msg.role === 'user') {
-        coreMessages.push({
-          role: 'user',
-          content: msg.content ?? ''
-        } as CoreUserMessage);
+        if (msg.attachments && msg.attachments.length > 0) {
+          const parts: Array<
+            | { type: 'text'; text: string }
+            | { type: 'image'; image: string | Uint8Array | Buffer | URL; mimeType?: string }
+          > = [];
+
+          if (msg.content) {
+            parts.push({ type: 'text', text: msg.content });
+          }
+
+          for (const att of msg.attachments) {
+            if (att.type === 'image') {
+              if (att.data) {
+                parts.push({
+                  type: 'image',
+                  image: att.data,
+                  mimeType: att.mimeType
+                });
+              } else if (att.path) {
+                try {
+                  const buf = fs.readFileSync(att.path);
+                  parts.push({
+                    type: 'image',
+                    image: buf,
+                    mimeType: att.mimeType
+                  });
+                } catch {
+                  if (att.url) {
+                    try {
+                      parts.push({
+                        type: 'image',
+                        image: new URL(att.url),
+                        mimeType: att.mimeType
+                      });
+                    } catch {}
+                  }
+                }
+              } else if (att.url) {
+                try {
+                  parts.push({
+                    type: 'image',
+                    image: new URL(att.url),
+                    mimeType: att.mimeType
+                  });
+                } catch {}
+              }
+            }
+          }
+
+          coreMessages.push({
+            role: 'user',
+            content: parts.length > 0 ? parts : (msg.content ?? '')
+          } as CoreUserMessage);
+        } else {
+          coreMessages.push({
+            role: 'user',
+            content: msg.content ?? ''
+          } as CoreUserMessage);
+        }
       } else if (msg.role === 'assistant') {
         if (msg.toolCalls && msg.toolCalls.length > 0) {
           const parts: Array<

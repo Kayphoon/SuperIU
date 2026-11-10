@@ -24,7 +24,8 @@ import {
   type ReasoningEffort,
   type RunnerCallbacks,
   type SessionDescriptor,
-  type ToolCallItem
+  type ToolCallItem,
+  type MessageAttachment
 } from '@agent/core';
 import type { PermissionVerdict, ReviewResult } from '@agent/core';
 import { AuthLayer, authModeFromEnv } from './auth/middleware.js';
@@ -1909,9 +1910,88 @@ const API_METHODS: Record<string, string[]> = {
   '/api/mcp/reload': ['POST'],
   '/api/mcp/raw': ['POST'],
   '/api/mcp/delete': ['POST'],
+  '/api/upload': ['POST'],
   '/api/chat': ['POST'],
   '/api/chat/stream': ['GET']
 };
+
+async function saveAttachment(
+  workspaceDir: string,
+  payload: { name?: string; type?: string; data: string }
+): Promise<MessageAttachment> {
+  let mimeType = payload.type || 'image/png';
+  let base64Data = payload.data;
+
+  const match = /^data:([^;]+);base64,(.+)$/.exec(payload.data);
+  if (match) {
+    mimeType = match[1];
+    base64Data = match[2];
+  }
+
+  const buffer = Buffer.from(base64Data, 'base64');
+  const id = crypto.randomUUID().replace(/-/g, '').slice(0, 12);
+  let ext = '.png';
+  if (mimeType.includes('jpeg') || mimeType.includes('jpg')) ext = '.jpg';
+  else if (mimeType.includes('webp')) ext = '.webp';
+  else if (mimeType.includes('gif')) ext = '.gif';
+  else if (mimeType.includes('svg')) ext = '.svg';
+
+  const safeOriginalName = payload.name
+    ? path.basename(payload.name).replace(/[^a-zA-Z0-9._-]/g, '_')
+    : `image${ext}`;
+  const filename = `${id}_${safeOriginalName}`;
+  const dir = path.join(workspaceDir, '.superiu', 'attachments');
+  await fs.promises.mkdir(dir, { recursive: true });
+  const filePath = path.join(dir, filename);
+  await fs.promises.writeFile(filePath, buffer);
+
+  return {
+    id,
+    type: 'image',
+    name: payload.name || safeOriginalName,
+    mimeType,
+    size: buffer.length,
+    url: `/api/attachments/${filename}`,
+    path: filePath
+  };
+}
+
+async function handleGetAttachment(
+  res: http.ServerResponse,
+  filename: string
+): Promise<boolean> {
+  const safeFilename = path.basename(filename);
+  if (!safeFilename || safeFilename !== filename) {
+    sendError(res, 400, 'Invalid attachment filename');
+    return true;
+  }
+  const filePath = path.join(activeWorkspaceDir, '.superiu', 'attachments', safeFilename);
+  try {
+    const stat = await fs.promises.stat(filePath);
+    if (!stat.isFile()) {
+      sendError(res, 404, 'Attachment not found');
+      return true;
+    }
+    const ext = path.extname(safeFilename).toLowerCase();
+    let contentType = 'application/octet-stream';
+    if (ext === '.png') contentType = 'image/png';
+    else if (ext === '.jpg' || ext === '.jpeg') contentType = 'image/jpeg';
+    else if (ext === '.webp') contentType = 'image/webp';
+    else if (ext === '.gif') contentType = 'image/gif';
+    else if (ext === '.svg') contentType = 'image/svg+xml';
+
+    res.writeHead(200, {
+      'Content-Type': contentType,
+      'Content-Length': stat.size,
+      'Cache-Control': 'public, max-age=31536000, immutable'
+    });
+    fs.createReadStream(filePath).pipe(res);
+    return true;
+  } catch {
+    sendError(res, 404, 'Attachment not found');
+    return true;
+  }
+}
 
 async function handleApi(
   req: http.IncomingMessage,
@@ -1924,6 +2004,45 @@ async function handleApi(
   if (allowed && !allowed.includes(method)) {
     res.setHeader('Allow', allowed.join(', '));
     sendError(res, 405, `Method not allowed: ${method} ${pathname} (allowed: ${allowed.join(', ')})`);
+    return true;
+  }
+
+  if (pathname.startsWith('/api/attachments/')) {
+    if (method !== 'GET' && method !== 'HEAD') {
+      res.setHeader('Allow', 'GET, HEAD');
+      sendError(res, 405, `Method not allowed: ${method} ${pathname} (allowed: GET, HEAD)`);
+      return true;
+    }
+    const filename = pathname.slice('/api/attachments/'.length);
+    await handleGetAttachment(res, filename);
+    return true;
+  }
+
+  if (pathname === '/api/upload' && method === 'POST') {
+    let body: Record<string, unknown>;
+    try {
+      body = await readJsonBody(req);
+    } catch (err) {
+      sendError(res, 400, errorMessage(err));
+      return true;
+    }
+
+    const data = typeof body.data === 'string' ? body.data : '';
+    if (!data) {
+      sendError(res, 400, 'Missing required field: data');
+      return true;
+    }
+
+    try {
+      const att = await saveAttachment(activeWorkspaceDir, {
+        name: typeof body.name === 'string' ? body.name : undefined,
+        type: typeof body.type === 'string' ? body.type : undefined,
+        data
+      });
+      sendJson(res, 200, att);
+    } catch (err) {
+      sendError(res, 500, `Failed to save attachment: ${errorMessage(err)}`);
+    }
     return true;
   }
 
@@ -2747,9 +2866,39 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
   }
 
   const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
-  if (!prompt) {
+  const rawAttachments = Array.isArray(body.attachments)
+    ? (body.attachments as Array<Record<string, unknown>>)
+    : [];
+
+  if (!prompt && rawAttachments.length === 0) {
     sendError(res, 400, 'Missing required field: prompt');
     return;
+  }
+
+  const turnAttachments: MessageAttachment[] = [];
+  for (const raw of rawAttachments) {
+    if (typeof raw.data === 'string' && raw.data) {
+      try {
+        const saved = await saveAttachment(activeWorkspaceDir, {
+          name: typeof raw.name === 'string' ? raw.name : undefined,
+          type: typeof raw.mimeType === 'string' ? raw.mimeType : undefined,
+          data: raw.data
+        });
+        turnAttachments.push(saved);
+      } catch (err) {
+        process.stderr.write(`superiu-server: failed to save attachment: ${errorMessage(err)}\n`);
+      }
+    } else if (typeof raw.url === 'string' && raw.url.startsWith('/api/attachments/')) {
+      const safeFilename = path.basename(raw.url);
+      turnAttachments.push({
+        id: typeof raw.id === 'string' ? raw.id : safeFilename,
+        type: 'image',
+        mimeType: typeof raw.mimeType === 'string' ? raw.mimeType : 'image/png',
+        name: typeof raw.name === 'string' ? raw.name : safeFilename,
+        url: raw.url,
+        path: path.join(activeWorkspaceDir, '.superiu', 'attachments', safeFilename)
+      });
+    }
   }
 
   // Per-turn pin: overrides the main route for this turn only, never persisted.
@@ -2847,7 +2996,8 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
     target: AgentRunner,
     turnPrompt: string,
     phase: string,
-    modelOverride?: string
+    modelOverride?: string,
+    attachments?: MessageAttachment[]
   ): Promise<string> => {
     // Resolved once per turn, from the same runner the turn runs on: the
     // credential that runner will actually send, not the one settings imply.
@@ -2886,7 +3036,10 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
         write({ type: 'error', message: redactSecrets(err.message, USER_FACING_ERROR_CHARS, secrets), phase });
       }
     };
-    return target.run(turnPrompt, callbacks, modelOverride ? { model: modelOverride } : {});
+    return target.run(turnPrompt, callbacks, {
+      ...(modelOverride ? { model: modelOverride } : {}),
+      ...(attachments && attachments.length > 0 ? { attachments } : {})
+    });
   };
 
   const finish = (finalText: string): void => {
@@ -2914,7 +3067,7 @@ async function handleChat(req: http.IncomingMessage, res: http.ServerResponse): 
   approvalSink = write;
 
   try {
-    const finalText = await runTurn(runner, prompt, 'main', turnModel);
+    const finalText = await runTurn(runner, prompt, 'main', turnModel, turnAttachments);
     turn.settled = true;
     finish(finalText);
   } catch (err) {

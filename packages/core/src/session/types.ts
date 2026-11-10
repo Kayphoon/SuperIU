@@ -24,6 +24,17 @@ export interface SessionEntryBase {
   timestamp: string;
 }
 
+export interface MessageAttachment {
+  id: string;
+  type: 'image';
+  mimeType: string;
+  name?: string;
+  size?: number;
+  url?: string;
+  data?: string;
+  path?: string;
+}
+
 /**
  * Persisted message payload.
  *
@@ -36,6 +47,7 @@ export interface PersistedMessage {
   content?: string;
   toolCalls?: ToolCallItem[];
   toolResults?: ToolResultItem[];
+  attachments?: MessageAttachment[];
   createdAt: number;
 }
 

@@ -367,7 +367,7 @@ const JS_TYPE_NAMES = new Set(['bigint', 'boolean', 'false', 'function', 'null',
 
 /** Values of `input.type` / `style.textAlign`-style DOM enums. */
 const DOM_TOKEN_NAMES = new Set([
-  'auto', 'center', 'checkbox', 'color', 'date', 'datetime-local', 'email', 'file', 'hidden', 'left', 'month',
+  'auto', 'center', 'checkbox', 'color', 'date', 'datetime-local', 'email', 'file', 'hidden', 'lazy', 'left', 'month',
   'none', 'password', 'radio', 'range', 'reset', 'right', 'search', 'submit', 'tel', 'text', 'time', 'url', 'week'
 ]);
 
@@ -409,7 +409,7 @@ const ARIA_ROLE_NAMES = new Set([
 const ENUM_TOKENS = new Set([
   'aborted', 'about', 'approval_request', 'approved', 'assistant', 'auto', 'badge', 'baseline', 'chunk',
   'clear', 'complete', 'completed', 'content', 'critical', 'custom', 'danger', 'dark', 'degraded', 'denied', 'details',
-  'done', 'en', 'error', 'focus', 'general', 'granted', 'high', 'idle', 'info', 'light', 'low', 'main',
+  'done', 'en', 'error', 'focus', 'general', 'granted', 'high', 'idle', 'image', 'info', 'light', 'low', 'main',
   'medium', 'message', 'more', 'new', 'notify', 'off', 'offline', 'ok', 'on', 'online', 'pairing', 'palette', 'pending', 'prompt',
   'providers', 'quit', 'reasoning', 'rejected', 'review', 'role', 'running', 'session', 'sessions', 'settings',
   'stale', 'status', 'step', 'streaming', 'summary', 'system', 'thinking', 'toast', 'tool', 'tool_call',

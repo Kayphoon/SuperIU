@@ -31,6 +31,7 @@ export interface SessionAppendMessage {
   content?: string;
   toolCalls?: ContextMessage['toolCalls'];
   toolResults?: ContextMessage['toolResults'];
+  attachments?: ContextMessage['attachments'];
   id?: string;
   createdAt?: number;
 }
@@ -271,6 +272,7 @@ export class SessionManager {
           content: message.content,
           toolCalls: message.toolCalls,
           toolResults: message.toolResults,
+          attachments: message.attachments,
           createdAt: message.createdAt ?? Date.now()
         }
       },
@@ -359,6 +361,7 @@ export class SessionManager {
       content: entry.message.content,
       toolCalls: entry.message.toolCalls,
       toolResults: entry.message.toolResults,
+      attachments: entry.message.attachments,
       createdAt: entry.message.createdAt
     };
   }

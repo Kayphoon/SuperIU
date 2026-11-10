@@ -138,8 +138,12 @@ export class AgentLoopEngine {
     // underneath a turn that is already running.
     const turnStepCaller = this.stepCallerFor(options);
 
-    if (prompt && prompt.trim()) {
-      this.session.appendMessage({ role: 'user', content: prompt.trim() });
+    if ((prompt && prompt.trim()) || (options.attachments && options.attachments.length > 0)) {
+      this.session.appendMessage({
+        role: 'user',
+        content: prompt ? prompt.trim() : '',
+        attachments: options.attachments
+      });
     }
 
     let stepIndex = 0;
