@@ -1890,9 +1890,10 @@ const API_METHODS: Record<string, string[]> = {
   '/api/models/fetch': ['POST'],
   '/api/model': ['POST'],
   '/api/settings': ['GET', 'POST'],
-  '/api/sessions': ['GET'],
+  '/api/sessions': ['GET', 'DELETE'],
   '/api/sessions/new': ['POST'],
   '/api/sessions/load': ['POST'],
+  '/api/sessions/delete': ['POST'],
   '/api/messages': ['GET'],
   '/api/clear': ['POST'],
   '/api/history': ['GET'],
@@ -2202,6 +2203,53 @@ async function handleApi(
 
     sendJson(res, 200, { status: buildStatus(), messages: serializeMessages(runner.getMessages()) });
     return true;
+  }
+
+  if (
+    (pathname === '/api/sessions/delete' && method === 'POST') ||
+    (pathname === '/api/sessions' && method === 'DELETE')
+  ) {
+    let reference = '';
+    const reqUrl = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`);
+    const queryRef = reqUrl.searchParams.get('sessionIdOrPath') || reqUrl.searchParams.get('id');
+    if (queryRef) {
+      reference = queryRef.trim();
+    } else {
+      let body: Record<string, unknown> = {};
+      try {
+        body = await readJsonBody(req);
+      } catch {
+        // Body-less DELETE fallback
+      }
+      const bodyRef =
+        typeof body.sessionIdOrPath === 'string'
+          ? body.sessionIdOrPath
+          : typeof body.id === 'string'
+            ? body.id
+            : '';
+      reference = bodyRef.trim();
+    }
+
+    if (!reference) {
+      sendError(res, 400, 'Missing required field: sessionIdOrPath');
+      return true;
+    }
+
+    try {
+      const result = runner.deleteSession(reference);
+      sendJson(res, 200, {
+        ok: true,
+        deletedId: result.deletedId,
+        activeDeleted: result.activeDeleted,
+        status: buildStatus(),
+        messages: serializeMessages(runner.getMessages())
+      });
+      return true;
+    } catch (err) {
+      console.error(`[server] session delete failed: ${redactSecrets(errorMessage(err), 300)}`);
+      sendError(res, 404, `Session '${reference}' not found.`);
+      return true;
+    }
   }
 
   if (pathname === '/api/clear' && method === 'POST') {

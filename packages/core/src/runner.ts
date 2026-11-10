@@ -3,6 +3,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createGoogleGenerativeAI } from '@ai-sdk/google';
 import type { LanguageModelV1 } from 'ai';
 import * as dotenv from 'dotenv';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type {
   AgentStatus,
@@ -860,6 +861,61 @@ export class AgentRunner {
       })
     );
     return this.session;
+  }
+
+  /**
+   * Delete a session by file path, file name, session id, or id prefix.
+   * If the session is currently active, it is closed, removed from disk, and a fresh
+   * unstarted draft session is created.
+   */
+  public deleteSession(reference: string): { deletedId: string; activeDeleted: boolean } {
+    const workspaceDir = this.config.workspaceDir ?? process.cwd();
+    const resolved = resolveSessionFile(reference, workspaceDir, workspaceDir);
+    const activeSessionId = this.session.getSessionId();
+    const activeFilePath = this.session.getFilePath();
+
+    const isActive =
+      activeSessionId === reference ||
+      (resolved !== null && activeFilePath !== null && path.resolve(activeFilePath) === path.resolve(resolved));
+
+    if (!resolved) {
+      if (isActive) {
+        this.session.close();
+        this.createSession();
+        return { deletedId: activeSessionId, activeDeleted: true };
+      }
+      throw new Error(`Session '${reference}' not found`);
+    }
+
+    let deletedId = reference;
+    try {
+      const firstLine = fs.readFileSync(resolved, 'utf-8').split('\n', 1)[0];
+      if (firstLine) {
+        const header = JSON.parse(firstLine);
+        if (header?.id) deletedId = header.id;
+      }
+    } catch {
+      // Keep reference as deletedId fallback
+    }
+
+    if (isActive) {
+      this.session.close();
+    }
+
+    try {
+      if (fs.existsSync(resolved)) {
+        fs.unlinkSync(resolved);
+      }
+    } catch (err) {
+      throw new Error(`Failed to delete session file: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    if (isActive) {
+      this.createSession();
+      return { deletedId, activeDeleted: true };
+    }
+
+    return { deletedId, activeDeleted: false };
   }
 
   public getMessages(limit?: number): ContextMessage[] {

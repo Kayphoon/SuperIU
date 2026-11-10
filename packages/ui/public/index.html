@@ -882,7 +882,7 @@
         display: flex;
         flex-direction: column;
         gap: 2px;
-        padding: 8px 12px 8px 14px;
+        padding: 8px 30px 8px 14px;
         border-radius: var(--siu-radius-lg);
         border: 1px solid transparent;
         cursor: pointer;
@@ -908,6 +908,42 @@
         width: 3px;
         border-radius: 999px;
         background: var(--siu-accent);
+      }
+      .siu-session-item-delete {
+        position: absolute;
+        top: 6px;
+        right: 6px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 22px;
+        height: 22px;
+        padding: 0;
+        border: 1px solid transparent;
+        border-radius: var(--siu-radius-md);
+        background: transparent;
+        color: var(--siu-text-muted);
+        cursor: pointer;
+        opacity: 0;
+        pointer-events: none;
+        transition: all var(--siu-dur-fast) var(--siu-ease-out);
+      }
+      .siu-session-item:hover .siu-session-item-delete,
+      .siu-session-item:focus-within .siu-session-item-delete,
+      .siu-session-item-delete:focus {
+        opacity: 1;
+        pointer-events: auto;
+      }
+      .siu-session-item-delete:hover {
+        background: var(--siu-danger-bg);
+        color: var(--siu-danger-fg);
+        border-color: var(--siu-danger-bd);
+      }
+      /* Non-geometric :active style as required by SuperIU UI design system */
+      .siu-session-item-delete:active {
+        background: var(--siu-danger-bg);
+        color: var(--siu-danger-fg);
+        filter: brightness(0.85);
       }
       .siu-session-item-title {
         font-size: 13px;
@@ -4437,6 +4473,12 @@
         .siu-complete-item {
           min-height: 44px;
         }
+        .siu-session-item-delete {
+          opacity: 0.7;
+          pointer-events: auto;
+          min-width: 36px;
+          min-height: 36px;
+        }
         .siu-popover-star {
           min-width: 44px;
           min-height: 44px;
@@ -7698,6 +7740,10 @@
         '<path d="M21 12h-8"/><path d="M21 6H8"/><path d="M21 18h-8"/>' +
         '<path d="M3 6v4c0 1.1.9 2 2 2h3"/><path d="M3 10v6c0 1.1.9 2 2 2h3"/></svg>';
 
+      const TRASH_GLYPH =
+        '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+        '<path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/><line x1="10" x2="10" y1="11" y2="17"/><line x1="14" x2="14" y1="11" y2="17"/></svg>';
+
       // =======================================================================
       // Transcript primitives
       // =======================================================================
@@ -8680,9 +8726,35 @@
               if (session.summary) item.appendChild(el('div', 'siu-session-item-summary', session.summary));
               item.appendChild(metaEl);
 
-              item.addEventListener('click', () => {
+              const delBtn = el('button', 'siu-session-item-delete');
+              delBtn.type = 'button';
+              delBtn.title = tr('sidebar.delete');
+              delBtn.setAttribute('aria-label', tr('sidebar.delete'));
+              delBtn.innerHTML = TRASH_GLYPH;
+              delBtn.addEventListener('click', (event) => {
+                event.stopPropagation();
+                event.preventDefault();
+                void deleteSession(session.id);
+              });
+              delBtn.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.stopPropagation();
+                  event.preventDefault();
+                  void deleteSession(session.id);
+                }
+              });
+              item.appendChild(delBtn);
+
+              const activate = () => {
                 closeMobileSidebar();
                 void switchSession(session.id);
+              };
+              item.addEventListener('click', activate);
+              item.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  activate();
+                }
               });
               list.appendChild(item);
             }
@@ -13997,6 +14069,29 @@
           await refreshComposerSettings();
           if (state.lastStatus) renderComposerControls(state.lastStatus);
           toast(tr('toast.loadedSession', { id: reference.slice(0, 8) }), 'ok');
+          await refreshSessions();
+        } catch (err) {
+          toast(err.message, 'error');
+          await refreshSessions();
+        }
+      }
+
+      async function deleteSession(reference) {
+        if (!reference) return;
+        if (state.running) {
+          toast(tr('toast.abortFirst'), 'error');
+          return;
+        }
+        if (!confirm(tr('sidebar.delete.confirm'))) return;
+        try {
+          const payload = await postJson('/api/sessions/delete', { sessionIdOrPath: reference });
+          toast(tr('toast.sessionDeleted'), 'ok');
+          if (payload.activeDeleted) {
+            renderStatus(payload.status);
+            renderMessages(payload.messages || []);
+            await refreshComposerSettings();
+            if (state.lastStatus) renderComposerControls(state.lastStatus);
+          }
           await refreshSessions();
         } catch (err) {
           toast(err.message, 'error');

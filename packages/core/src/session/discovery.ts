@@ -203,3 +203,24 @@ export function resolveSessionFile(
 
   return null;
 }
+
+/**
+ * Delete a session file resolved by reference (absolute path, file name, session id, or prefix).
+ * Returns true if the session file was resolved and successfully removed, false otherwise.
+ */
+export function deleteSessionFile(
+  reference: string,
+  cwd: string = process.cwd(),
+  workspaceDir?: string
+): boolean {
+  const resolved = resolveSessionFile(reference, cwd, workspaceDir);
+  if (!resolved) return false;
+  try {
+    if (fs.existsSync(resolved)) {
+      fs.unlinkSync(resolved);
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
