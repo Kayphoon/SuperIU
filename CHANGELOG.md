@@ -14,6 +14,30 @@ SuperIU 的重要变更均记录于此。每个版本小节必须同时包含中
 
 - No new changes yet; the rolling `latest` channel currently ships the most recent tagged release.
 
+## v0.2.80 (2026-11-11)
+
+### 中文
+
+- **新增：桌面端与远程守护进程协议兼容性校验与版本状态透明感知**：
+  - `@agent/protocol` 引入 `GATEWAY_PROTOCOL_VERSION` 与 `isProtocolCompatible` 契约校验：兼容未带协议字段的历史节点，仅在协议大版本（Major）破坏性不匹配时以关闭码 `4002` 阻断握手，避免弱网或开发构建陷入死锁；
+  - `RemoteConnectionManager` 在连接探测与机会主义升级后记录并暴露 `versionStatus`（`synced` / `remote_ahead` / `remote_stale` / `upgrade_failed`），升级失败时保留原始错误而非静默吞没；
+  - 桌面端 IPC 广播与顶栏连接状态 Badge 联动：远程升级未完成时亮起提示状态并在 Tooltip 显式标明双端版本，远端领先时给出更新提示。
+- **新增：Web / 移动端图片上传、附件预览与多模态上下文注入**：
+  - 输入区支持通过附件按钮、剪贴板粘贴及拖拽添加图片（含超限大小校验），在输入区和消息流中渲染图片缩略图、大图预览及移除操作；
+  - 服务端新增 `POST /api/upload` 与 `GET /api/attachments/:filename` 接口，持久化存储于工作区 `.superiu/attachments` 并附带不可变缓存头；
+  - `AgentRunner` 与 `ContextAssembler` 贯通 `MessageAttachment` 多模态消息组装，将图片附件直接传递给模型推理。
+
+### English
+
+- **Feature: desktop-remote protocol compatibility guard and transparent version status**:
+  - Added `GATEWAY_PROTOCOL_VERSION` and `isProtocolCompatible` in `@agent/protocol`: stays backwards-compatible with legacy nodes omitting `protocolVersion`, and blocks handshakes with close code `4002` only on breaking major protocol mismatches rather than deadlocking offline or dev environments;
+  - `RemoteConnectionManager` tracks and exposes `versionStatus` (`synced` / `remote_ahead` / `remote_stale` / `upgrade_failed`), surfacing opportunistic upgrade failures instead of silently swallowing them;
+  - Wired version status through desktop IPC into the topbar connection badge tooltip and warning indicator when remote upgrades fail or when the remote daemon is ahead.
+- **Feature: Web / mobile image upload, attachment preview, and multimodal context assembly**:
+  - Added image attachment selection, clipboard paste, and drag-and-drop upload in the composer with size validation, chip previews, removal, and full-image viewing in the transcript;
+  - Added `POST /api/upload` and `GET /api/attachments/:filename` endpoints storing attachments under `<workspace>/.superiu/attachments` with immutable cache headers;
+  - Extended `AgentRunner` and `ContextAssembler` to carry `MessageAttachment` image parts into multimodal user messages.
+
 ## v0.2.79 (2026-11-10)
 
 ### 中文
