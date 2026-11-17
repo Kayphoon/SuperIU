@@ -25,7 +25,11 @@ final class CaptureAppDelegate: NSObject, NSApplicationDelegate {
     private let ocr = OCRService()
     private let notice = CopyNotice()
     private var ocrTask: Task<Void, Never>?
-    private var pendingInput = ""
+    private var pendingInput = Data()
+    private var discardingInput = false
+    private var settings = NativeSettings()
+    private var captureItem: NSMenuItem?
+    private var historyItem: NSMenuItem?
     private var persistenceItem: NSMenuItem?
     private var clearItem: NSMenuItem?
     private var resetClear: DispatchWorkItem?
@@ -36,6 +40,7 @@ final class CaptureAppDelegate: NSObject, NSApplicationDelegate {
                                                      appropriateFor: nil, create: false)
             let store = try ClipboardStore(directory: caches.appendingPathComponent("com.superiu.capture", isDirectory: true))
             self.store = store
+            settings.imagePersistenceEnabled = store.imagePersistenceEnabled
             monitor = PasteboardMonitor(store: store)
             store.onError = { [weak self] error in self?.show(error) }
             monitor?.onError = { [weak self] error in self?.show(error) }
@@ -49,24 +54,29 @@ final class CaptureAppDelegate: NSObject, NSApplicationDelegate {
             installMenu()
             keys.capture = { [weak self] in self?.capture() }
             keys.history = { [weak self] in self?.showHistory() }
-            do { try keys.start() } catch {
-                fputs("SuperIU Capture: \(error.localizedDescription)\n", stderr)
-                announce(error.localizedDescription)
+            let hosted = CommandLine.arguments.contains("--hosted")
+            if !hosted {
+                do { try keys.start() } catch {
+                    fputs("SuperIU Capture: \(error.localizedDescription)\n", stderr)
+                    announce(error.localizedDescription)
+                }
             }
             monitor?.start()
-            if CommandLine.arguments.contains("--hosted") {
+            if hosted {
                 FileHandle.standardInput.readabilityHandler = { [weak self] handle in
-                    let data = handle.availableData
+                    let data: Data
+                    do { data = try handle.read(upToCount: 4096) ?? Data() } catch {
+                        fputs("SuperIU Capture stdin: \(error.localizedDescription)\n", stderr)
+                        DispatchQueue.main.async { NSApp.terminate(nil) }
+                        return
+                    }
                     DispatchQueue.main.async {
                         guard let self else { return }
                         if data.isEmpty {
                             NSApp.terminate(nil)
                             return
                         }
-                        self.pendingInput += String(decoding: data, as: UTF8.self)
-                        if self.pendingInput.contains("quit\n") || self.pendingInput.utf8.count > 1024 {
-                            NSApp.terminate(nil)
-                        }
+                        self.receiveInput(data)
                     }
                 }
             }
@@ -78,12 +88,90 @@ final class CaptureAppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private func receiveInput(_ data: Data) {
+        for byte in data {
+            if byte == 10 {
+                if discardingInput {
+                    discardingInput = false
+                    continue
+                }
+                if pendingInput.last == 13 { pendingInput.removeLast() }
+                let line = pendingInput
+                pendingInput.removeAll(keepingCapacity: true)
+                if line == Data("quit".utf8) {
+                    NSApp.terminate(nil)
+                    return
+                }
+                handleRequest(line)
+            } else if !discardingInput {
+                guard pendingInput.count < 8192 else {
+                    pendingInput.removeAll(keepingCapacity: true)
+                    discardingInput = true
+                    emit("SUPERIU_NATIVE_RESPONSE ", NativeResponse(id: 0, ok: false,
+                                                                   error: NativeSettingsError.lineTooLong.localizedDescription))
+                    continue
+                }
+                pendingInput.append(byte)
+            }
+        }
+    }
+
+    private func handleRequest(_ data: Data) {
+        let decoder = JSONDecoder()
+        let id = (try? decoder.decode(NativeRequestID.self, from: data).id) ?? 0
+        do {
+            guard id > 0 else { throw NativeSettingsError.invalidRequest }
+            let request = try decoder.decode(NativeRequest.self, from: data)
+            guard let store else { throw NativeSettingsError.unavailable }
+            switch request.action {
+            case "getSettings":
+                break
+            case "configure":
+                guard let configuration = request.settings else { throw NativeSettingsError.invalidRequest }
+                try configuration.validate()
+                try keys.configure(capture: configuration.captureShortcut, history: configuration.historyShortcut) {
+                    try store.setImagePersistenceEnabled(configuration.imagePersistenceEnabled)
+                }
+                settings = configuration
+                updateMenu()
+                history?.reload()
+            case "clearHistory":
+                try store.clear()
+                resetClear?.cancel()
+                clearItem?.title = "清空历史"
+                history?.reload()
+            default:
+                throw NativeSettingsError.invalidRequest
+            }
+            settings.imagePersistenceEnabled = store.imagePersistenceEnabled
+            emit("SUPERIU_NATIVE_RESPONSE ", NativeResponse(id: id, ok: true, settings: settings))
+        } catch {
+            let message = error is DecodingError ? NativeSettingsError.invalidRequest.localizedDescription
+                                                : error.localizedDescription
+            emit("SUPERIU_NATIVE_RESPONSE ", NativeResponse(id: id > 0 ? id : 0, ok: false, error: message))
+        }
+    }
+
+    private func emit<Value: Encodable>(_ prefix: String, _ value: Value) {
+        do {
+            let data = try JSONEncoder().encode(value)
+            print(prefix + String(decoding: data, as: UTF8.self))
+            fflush(stdout)
+        } catch {
+            fputs("SuperIU Capture response: \(error.localizedDescription)\n", stderr)
+        }
+    }
+
     private func installMenu() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         item.button?.image = NSImage(systemSymbolName: "viewfinder", accessibilityDescription: "SuperIU 截图与剪贴板")
         let menu = NSMenu()
-        menu.addItem(action("截图", #selector(capture), key: "2"))
-        menu.addItem(action("剪贴板历史", #selector(showHistory), key: "v"))
+        let capture = action("截图", #selector(capture))
+        menu.addItem(capture)
+        captureItem = capture
+        let history = action("剪贴板历史", #selector(showHistory))
+        menu.addItem(history)
+        historyItem = history
         menu.addItem(.separator())
         let persistence = action("保存图片历史到缓存（最多 25 张 / 50 MB）", #selector(togglePersistence))
         persistence.state = store?.imagePersistenceEnabled == true ? .on : .off
@@ -96,12 +184,20 @@ final class CaptureAppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(action("退出截图与剪贴板", #selector(quit)))
         item.menu = menu
         statusItem = item
+        updateMenu()
     }
 
-    private func action(_ title: String, _ selector: Selector, key: String = "") -> NSMenuItem {
-        let item = NSMenuItem(title: title, action: selector, keyEquivalent: key)
+    private func updateMenu() {
+        captureItem?.keyEquivalent = settings.captureShortcut.keyEquivalent
+        captureItem?.keyEquivalentModifierMask = settings.captureShortcut.menuModifiers
+        historyItem?.keyEquivalent = settings.historyShortcut.keyEquivalent
+        historyItem?.keyEquivalentModifierMask = settings.historyShortcut.menuModifiers
+        persistenceItem?.state = settings.imagePersistenceEnabled ? .on : .off
+    }
+
+    private func action(_ title: String, _ selector: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: selector, keyEquivalent: "")
         item.target = self
-        if !key.isEmpty { item.keyEquivalentModifierMask = [.command, .shift] }
         return item
     }
 
@@ -157,8 +253,10 @@ final class CaptureAppDelegate: NSObject, NSApplicationDelegate {
         guard let store else { return }
         do {
             try store.setImagePersistenceEnabled(!store.imagePersistenceEnabled)
+            settings.imagePersistenceEnabled = store.imagePersistenceEnabled
             persistenceItem?.state = store.imagePersistenceEnabled ? .on : .off
             history?.reload()
+            emit("SUPERIU_NATIVE_SETTINGS ", settings)
         } catch { show(error) }
     }
 

@@ -5551,6 +5551,39 @@
                 <p class="siu-field-hint" data-i18n="settings.theme.hint">选择界面的外观风格或跟随系统设置。</p>
               </div>
 
+              <div id="native-capture-settings" class="space-y-4">
+                <h4 class="siu-toggle-row-title" data-i18n="settings.capture.title">截图与剪贴板</h4>
+                <p id="native-capture-status" class="siu-field-hint" role="status" aria-live="polite"></p>
+                <fieldset id="native-capture-controls" class="m-0 min-w-0 space-y-4 border-0 p-0" disabled>
+                  <div class="siu-toggle-row">
+                    <span class="siu-toggle-row-title flex-1" data-i18n="settings.capture.enabled">启用截图与剪贴板历史</span>
+                    <button id="set-native-capture-enabled" type="button" class="siu-switch" role="switch" aria-checked="false" aria-label="启用截图与剪贴板历史" data-i18n-aria-label="settings.capture.enabled" data-on="false"></button>
+                  </div>
+                  <div>
+                    <label class="siu-field-label" for="set-capture-key" data-i18n="settings.capture.shortcut">截图快捷键</label>
+                    <div class="flex gap-2">
+                      <select id="set-capture-modifiers" class="siu-field min-w-0" data-native-dependent aria-label="截图修饰键" data-i18n-aria-label="settings.capture.modifiers"></select>
+                      <select id="set-capture-key" class="siu-field min-w-0" data-native-dependent></select>
+                    </div>
+                  </div>
+                  <div>
+                    <label class="siu-field-label" for="set-history-key" data-i18n="settings.capture.historyShortcut">剪贴板历史快捷键</label>
+                    <div class="flex gap-2">
+                      <select id="set-history-modifiers" class="siu-field min-w-0" data-native-dependent aria-label="历史修饰键" data-i18n-aria-label="settings.capture.historyModifiers"></select>
+                      <select id="set-history-key" class="siu-field min-w-0" data-native-dependent></select>
+                    </div>
+                  </div>
+                  <button id="native-capture-reset" type="button" class="siu-btn" data-native-dependent data-i18n="settings.capture.reset">恢复默认快捷键</button>
+                  <div class="siu-toggle-row">
+                    <div class="flex-1">
+                      <div class="siu-toggle-row-title" data-i18n="settings.capture.cache">保存图片历史到本机缓存</div>
+                      <p class="siu-toggle-row-hint" data-i18n="settings.capture.cacheHint">默认仅保留内存缩略图。开启后保存原图，最多 25 张 / 50 MB；关闭会删除图片缓存。</p>
+                    </div>
+                    <button id="set-native-capture-cache" type="button" class="siu-switch" data-native-dependent role="switch" aria-checked="false" aria-label="保存图片历史到本机缓存" data-i18n-aria-label="settings.capture.cache" data-on="false"></button>
+                  </div>
+                  <button id="native-capture-clear" type="button" class="siu-btn" data-native-dependent data-i18n="settings.capture.clear">清空剪贴板历史</button>
+                </fieldset>
+              </div>
             </div>
           </section>
 
@@ -10198,6 +10231,7 @@
           section.dataset.active = String(section.dataset.pane === pane);
         }
         toggleProviderAddMenu(false);
+        if (pane === 'general') void loadNativeCaptureSettings();
         if (pane === 'providers') {
           renderProviderList();
           renderProviderDetail();
@@ -11179,6 +11213,146 @@
         });
       }
       renderTitlebarUpdate();
+
+      // These preferences stay on this Mac, even when the UI connects remotely.
+      let nativeCaptureState = null;
+      let nativeCaptureBusy = false;
+      let nativeCaptureMessage = '';
+      const nativeShortcutKeys = [
+        ['A', 0], ['B', 11], ['C', 8], ['D', 2], ['E', 14], ['F', 3], ['G', 5],
+        ['H', 4], ['I', 34], ['J', 38], ['K', 40], ['L', 37], ['M', 46], ['N', 45],
+        ['O', 31], ['P', 35], ['Q', 12], ['R', 15], ['S', 1], ['T', 17], ['U', 32],
+        ['V', 9], ['W', 13], ['X', 7], ['Y', 16], ['Z', 6],
+        ['0', 29], ['1', 18], ['2', 19], ['3', 20], ['4', 21], ['5', 23],
+        ['6', 22], ['7', 26], ['8', 28], ['9', 25],
+        ['F1', 122], ['F2', 120], ['F3', 99], ['F4', 118], ['F5', 96], ['F6', 97],
+        ['F7', 98], ['F8', 100], ['F9', 101], ['F10', 109], ['F11', 103], ['F12', 111],
+        ['←', 123], ['→', 124], ['↓', 125], ['↑', 126],
+        ['␣', 49], ['↩', 36], ['⇥', 48]
+      ];
+      for (const name of ['capture', 'history']) {
+        for (const base of [256, 2048, 4096, 2304, 4352, 6144, 6400]) {
+          for (const modifiers of [base, base | 512]) {
+            const label = [[4096, '⌃'], [2048, '⌥'], [512, '⇧'], [256, '⌘']]
+              .filter(([flag]) => modifiers & flag).map(([, symbol]) => symbol).join('');
+            $(`set-${name}-modifiers`).add(new Option(label, String(modifiers)));
+          }
+        }
+        for (const [label, code] of nativeShortcutKeys) {
+          $(`set-${name}-key`).add(new Option(label, String(code)));
+        }
+      }
+
+      function renderNativeCaptureSettings(message) {
+        if (message !== undefined) nativeCaptureMessage = message;
+        const info = nativeCaptureState;
+        const supported = Boolean(info?.supported);
+        const settings = info?.settings;
+        $('native-capture-controls').disabled = nativeCaptureBusy || !supported;
+        for (const control of $('native-capture-controls').querySelectorAll('[data-native-dependent]')) {
+          control.disabled = !supported || !settings?.enabled || nativeCaptureBusy;
+        }
+        $('native-capture-clear').disabled ||= !info?.running;
+        for (const [id, value] of [
+          ['set-native-capture-enabled', settings?.enabled],
+          ['set-native-capture-cache', settings?.imagePersistenceEnabled]
+        ]) {
+          $(id).dataset.on = String(Boolean(value));
+          $(id).setAttribute('aria-checked', String(Boolean(value)));
+        }
+        if (settings) {
+          for (const [name, shortcut] of [['capture', settings.captureShortcut], ['history', settings.historyShortcut]]) {
+            const key = $(`set-${name}-key`);
+            if (![...key.options].some((option) => Number(option.value) === shortcut.keyCode)) {
+              key.add(new Option(tr('settings.capture.keyCode', { code: shortcut.keyCode }), String(shortcut.keyCode)));
+            }
+            key.value = String(shortcut.keyCode);
+            $(`set-${name}-modifiers`).value = String(shortcut.modifiers);
+          }
+        }
+        $('native-capture-status').dataset.tone = nativeCaptureMessage || info?.error ? 'warn' : '';
+        $('native-capture-status').textContent = nativeCaptureMessage || info?.error ||
+          (nativeCaptureBusy ? tr('settings.capture.saving') :
+            supported ? tr('settings.capture.localHint') : tr('settings.capture.unavailable'));
+      }
+
+      async function loadNativeCaptureSettings() {
+        if (nativeCaptureBusy) return;
+        const bridge = window.superiuDesktop;
+        if (!bridge?.getNativeCaptureSettings) {
+          renderNativeCaptureSettings();
+          return;
+        }
+        nativeCaptureBusy = true;
+        renderNativeCaptureSettings('');
+        let errorMessage;
+        try {
+          nativeCaptureState = await bridge.getNativeCaptureSettings();
+        } catch (error) {
+          errorMessage = error.message;
+        } finally {
+          nativeCaptureBusy = false;
+          renderNativeCaptureSettings(errorMessage || '');
+        }
+      }
+
+      async function saveNativeCaptureSettings(patch) {
+        if (nativeCaptureBusy || !nativeCaptureState?.supported) return;
+        nativeCaptureBusy = true;
+        renderNativeCaptureSettings('');
+        let errorMessage;
+        try {
+          nativeCaptureState = await window.superiuDesktop.setNativeCaptureSettings({
+            ...nativeCaptureState.settings, ...patch
+          });
+        } catch (error) {
+          errorMessage = error.message;
+        } finally {
+          nativeCaptureBusy = false;
+          renderNativeCaptureSettings(errorMessage || '');
+        }
+      }
+
+      $('set-native-capture-enabled').addEventListener('click', () => {
+        void saveNativeCaptureSettings({ enabled: !nativeCaptureState.settings.enabled });
+      });
+      $('set-native-capture-cache').addEventListener('click', () => {
+        void saveNativeCaptureSettings({ imagePersistenceEnabled: !nativeCaptureState.settings.imagePersistenceEnabled });
+      });
+      for (const name of ['capture', 'history']) {
+        for (const field of ['key', 'modifiers']) {
+          $(`set-${name}-${field}`).addEventListener('change', () => {
+            void saveNativeCaptureSettings({
+              [`${name}Shortcut`]: {
+                keyCode: Number($(`set-${name}-key`).value),
+                modifiers: Number($(`set-${name}-modifiers`).value)
+              }
+            });
+          });
+        }
+      }
+      $('native-capture-reset').addEventListener('click', () => {
+        void saveNativeCaptureSettings({
+          captureShortcut: { keyCode: 19, modifiers: 768 },
+          historyShortcut: { keyCode: 9, modifiers: 768 }
+        });
+      });
+      $('native-capture-clear').addEventListener('click', async () => {
+        if (nativeCaptureBusy || !confirm(tr('settings.capture.clearConfirm'))) return;
+        nativeCaptureBusy = true;
+        renderNativeCaptureSettings('');
+        let message;
+        try {
+          await window.superiuDesktop.clearNativeCaptureHistory();
+          message = tr('settings.capture.cleared');
+        } catch (error) {
+          message = error.message;
+        } finally {
+          nativeCaptureBusy = false;
+          renderNativeCaptureSettings(message);
+        }
+      });
+      onChange?.(() => renderNativeCaptureSettings());
 
       async function openSettings(targetPane) {
         void checkPairingAvailability();

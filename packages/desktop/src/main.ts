@@ -66,7 +66,9 @@ import {
   type RemoteStep,
   type SshTunnelState
 } from './remote/index.js';
-import { NativeCapture, isNativeCaptureSupported } from './native_capture.js';
+import { isNativeCaptureSupported } from './native_capture.js';
+import { NativeCaptureService } from './native_capture_service.js';
+import { NativeCaptureSettingsError } from './native_capture_settings.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP_NAME = 'SuperIU';
@@ -105,7 +107,7 @@ let onboardingWindow: BrowserWindow | null = null;
 let serverHandle: ServerHandle | null = null;
 let gatewayClient: GatewayClient | null = null;
 let remoteManager: RemoteConnectionManager | null = null;
-let nativeCapture: NativeCapture | null = null;
+let nativeCapture: NativeCaptureService | null = null;
 let activeRemoteUrl: string | null = null;
 /** URL of the directly-connected custom service, when `mode === 'custom_url'`. */
 let activeCustomUrl: string | null = null;
@@ -2306,6 +2308,19 @@ function installIpcHandlers(): void {
     nativeTheme.themeSource = theme;
   });
 
+  ipcMain.handle(INVOKE.getNativeCaptureSettings, () => {
+    if (!nativeCapture) throw new NativeCaptureSettingsError('Capture service is not ready.');
+    return nativeCapture.getState();
+  });
+  ipcMain.handle(INVOKE.setNativeCaptureSettings, (_event, settings: unknown) => {
+    if (!nativeCapture) throw new NativeCaptureSettingsError('Capture service is not ready.');
+    return nativeCapture.setSettings(settings);
+  });
+  ipcMain.handle(INVOKE.clearNativeCaptureHistory, () => {
+    if (!nativeCapture) throw new NativeCaptureSettingsError('Capture service is not ready.');
+    return nativeCapture.clearHistory();
+  });
+
   ipcMain.handle(INVOKE.getSshHosts, async () => {
     try {
       const entries = await readSshConfig();
@@ -2559,18 +2574,13 @@ async function startNativeCapture(): Promise<void> {
   if (nativeCapture) return;
 
   const systemVersion = process.platform === 'darwin' ? process.getSystemVersion() : '';
-  if (!isNativeCaptureSupported(process.platform, systemVersion)) return;
-
-  const binaryPath = nativeCaptureBinaryPath();
-  const capture = new NativeCapture({ binaryPath });
+  const capture = new NativeCaptureService({
+    binaryPath: nativeCaptureBinaryPath(),
+    settingsPath: path.join(app.getPath('userData'), 'native-capture.json'),
+    supported: isNativeCaptureSupported(process.platform, systemVersion)
+  });
   nativeCapture = capture;
-
-  if (!(await capture.start())) {
-    console.warn(
-      `[superiu] native capture helper unavailable (${binaryPath}); ` +
-        'menu-bar capture and clipboard history are disabled'
-    );
-  }
+  await capture.start();
 }
 
 /** Stop the helper and wait for its exit. Idempotent. */

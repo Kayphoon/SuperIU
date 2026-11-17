@@ -6,6 +6,7 @@
  * The renderer never touches `ipcRenderer`; it only sees the narrow surface
  * exposed on `window.superiuDesktop` by `preload.ts`.
  */
+import type { NativeCaptureSettings, NativeCaptureState } from './native_capture_settings.js';
 
 /** Main → renderer: a native menu item asked the SPA to do something. */
 export const MENU_CHANNEL = 'superiu:menu';
@@ -36,7 +37,10 @@ export const INVOKE = {
   upgradeRemote: 'superiu:upgrade-remote',
   connectCustomUrl: 'superiu:connect-custom-url',
   reconnectTransport: 'superiu:reconnect-transport',
-  reportNetworkFailure: 'superiu:report-network-failure'
+  reportNetworkFailure: 'superiu:report-network-failure',
+  getNativeCaptureSettings: 'superiu:get-native-capture-settings',
+  setNativeCaptureSettings: 'superiu:set-native-capture-settings',
+  clearNativeCaptureHistory: 'superiu:clear-native-capture-history'
 } as const;
 
 export interface CheckForUpdateOptions {
@@ -150,6 +154,9 @@ export interface SuperiuDesktopBridge {
    * and vibrancy material are switched on the main-process side.
    */
   setTheme(theme: string): Promise<void>;
+  getNativeCaptureSettings(): Promise<NativeCaptureState>;
+  setNativeCaptureSettings(settings: NativeCaptureSettings): Promise<NativeCaptureState>;
+  clearNativeCaptureHistory(): Promise<void>;
   getSshHosts?(): Promise<Array<{ alias: string; hostName: string; user?: string }>>;
   connectRemote?(options: {
     alias: string;

@@ -11,6 +11,11 @@
  */
 
 import { spawn, type ChildProcess } from 'node:child_process';
+import {
+  NativeCaptureSettingsError,
+  parseNativeCaptureConfiguration,
+  type NativeCaptureConfiguration
+} from './native_capture_settings.js';
 
 export const NATIVE_READY_LINE = 'SUPERIU_NATIVE_READY';
 
@@ -29,6 +34,7 @@ export interface NativeCaptureOptions {
   readonly readyTimeoutMs?: number;
   readonly stopTimeoutMs?: number;
   readonly log?: (level: NativeCaptureLogLevel, message: string) => void;
+  readonly onSettings?: (configuration: NativeCaptureConfiguration) => void;
 }
 
 /**
@@ -86,12 +92,98 @@ export class NativeCapture {
   private startPromise: Promise<boolean> | null = null;
   private stopPromise: Promise<void> | null = null;
   private settleStart: ((started: boolean) => void) | null = null;
+  private readonly onSettings: NativeCaptureOptions['onSettings'];
+  private nextRequestId = 0;
+  private readonly requests = new Map<number, {
+    readonly resolve: (configuration: NativeCaptureConfiguration) => void;
+    readonly reject: (error: Error) => void;
+    readonly timer: NodeJS.Timeout;
+  }>();
 
   constructor(options: NativeCaptureOptions) {
     this.binaryPath = options.binaryPath;
     this.readyTimeoutMs = options.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS;
     this.stopTimeoutMs = options.stopTimeoutMs ?? DEFAULT_STOP_TIMEOUT_MS;
     this.log = options.log ?? defaultLog;
+    this.onSettings = options.onSettings;
+  }
+
+  get isRunning(): boolean {
+    return this.state === 'running';
+  }
+
+  getSettings(): Promise<NativeCaptureConfiguration> {
+    return this.request('getSettings');
+  }
+
+  configure(configuration: NativeCaptureConfiguration): Promise<NativeCaptureConfiguration> {
+    return this.request('configure', parseNativeCaptureConfiguration(configuration));
+  }
+
+  async clearHistory(): Promise<void> {
+    await this.request('clearHistory');
+  }
+
+  private request(
+    action: 'getSettings' | 'configure' | 'clearHistory',
+    settings?: NativeCaptureConfiguration
+  ): Promise<NativeCaptureConfiguration> {
+    const child = this.child;
+    if (!this.isRunning || !child?.stdin || child.stdin.destroyed) {
+      return Promise.reject(new NativeCaptureSettingsError('Capture helper is not running.'));
+    }
+    const id = ++this.nextRequestId;
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.requests.delete(id);
+        reject(new NativeCaptureSettingsError('Capture helper did not respond to the settings request.'));
+      }, this.readyTimeoutMs);
+      this.requests.set(id, { resolve, reject, timer });
+      child.stdin?.write(JSON.stringify({ id, action, ...(settings ? { settings } : {}) }) + '\n');
+    });
+  }
+
+  private receiveSettings(line: string): void {
+    const responsePrefix = 'SUPERIU_NATIVE_RESPONSE ';
+    const eventPrefix = 'SUPERIU_NATIVE_SETTINGS ';
+    const isResponse = line.startsWith(responsePrefix);
+    if (!isResponse && !line.startsWith(eventPrefix)) return;
+    let request: ReturnType<typeof this.requests.get>;
+    try {
+      const payload: unknown = JSON.parse(line.slice(isResponse ? responsePrefix.length : eventPrefix.length));
+      if (!isResponse) {
+        this.onSettings?.(parseNativeCaptureConfiguration(payload));
+        return;
+      }
+      if (
+        typeof payload !== 'object' || payload === null ||
+        !('id' in payload) || typeof payload.id !== 'number'
+      ) throw new NativeCaptureSettingsError('Invalid capture settings response.');
+      request = this.requests.get(payload.id);
+      if (!request) return;
+      this.requests.delete(payload.id);
+      clearTimeout(request.timer);
+      if ('ok' in payload && payload.ok === true && 'settings' in payload) {
+        request.resolve(parseNativeCaptureConfiguration(payload.settings));
+      } else {
+        request.reject(new NativeCaptureSettingsError(
+          'error' in payload && typeof payload.error === 'string'
+            ? payload.error : 'Capture settings could not be applied.'
+        ));
+      }
+    } catch (error) {
+      const failure = error instanceof Error ? error : new NativeCaptureSettingsError(String(error));
+      if (request) request.reject(failure);
+      this.log('warn', `invalid settings message: ${failure.message}`);
+    }
+  }
+
+  private rejectRequests(): void {
+    for (const request of this.requests.values()) {
+      clearTimeout(request.timer);
+      request.reject(new NativeCaptureSettingsError('Capture helper stopped before applying settings.'));
+    }
+    this.requests.clear();
   }
 
   /**
@@ -149,6 +241,7 @@ export class NativeCapture {
       });
 
       child.once('exit', (code, signal) => {
+        this.rejectRequests();
         if (this.child === child) this.child = null;
         if (this.state !== 'stopping' && this.state !== 'stopped') {
           this.state = 'stopped';
@@ -173,6 +266,7 @@ export class NativeCapture {
             this.log('info', 'helper ready');
             finishStart(true);
           }
+          this.receiveSettings(line);
           newline = stdoutBuffer.indexOf('\n');
         }
       });
@@ -213,6 +307,7 @@ export class NativeCapture {
   }
 
   private async shutdown(): Promise<void> {
+    this.rejectRequests();
     // A close that lands while start is still settling unblocks `start()` now;
     // the ready line, if it still arrives, can no longer claim the state.
     this.settleStart?.(false);

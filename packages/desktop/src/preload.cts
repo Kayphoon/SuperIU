@@ -28,6 +28,7 @@ import type {
   UpdatePayload,
   ConnectionInfoPayload
 } from './ipc.js';
+import type { NativeCaptureSettings, NativeCaptureState } from './native_capture_settings.js';
 
 // Compile-time drift guards: each annotation pins the literal to the exact type
 // declared in the shared contract. Change one side without the other → TS error.
@@ -63,6 +64,12 @@ const CONNECTION_STATE_CHANNEL: typeof import('./ipc.js').CONNECTION_STATE_CHANN
   'superiu:connection-state';
 const REMOTE_PROGRESS_CHANNEL: typeof import('./ipc.js').REMOTE_PROGRESS_CHANNEL = 'superiu:remote-progress';
 const UPDATE_STATE_CHANNEL: typeof import('./ipc.js').UPDATE_STATE_CHANNEL = 'superiu:update-state';
+const GET_NATIVE_CAPTURE_SETTINGS: typeof import('./ipc.js').INVOKE.getNativeCaptureSettings =
+  'superiu:get-native-capture-settings';
+const SET_NATIVE_CAPTURE_SETTINGS: typeof import('./ipc.js').INVOKE.setNativeCaptureSettings =
+  'superiu:set-native-capture-settings';
+const CLEAR_NATIVE_CAPTURE_HISTORY: typeof import('./ipc.js').INVOKE.clearNativeCaptureHistory =
+  'superiu:clear-native-capture-history';
 
 const { contextBridge, ipcRenderer } = require('electron');
 
@@ -118,6 +125,18 @@ const bridge: SuperiuDesktopBridge = {
 
   setTheme(theme: string): Promise<void> {
     return ipcRenderer.invoke(SET_THEME, theme);
+  },
+
+  getNativeCaptureSettings(): Promise<NativeCaptureState> {
+    return ipcRenderer.invoke(GET_NATIVE_CAPTURE_SETTINGS);
+  },
+
+  setNativeCaptureSettings(settings: NativeCaptureSettings): Promise<NativeCaptureState> {
+    return ipcRenderer.invoke(SET_NATIVE_CAPTURE_SETTINGS, settings);
+  },
+
+  clearNativeCaptureHistory(): Promise<void> {
+    return ipcRenderer.invoke(CLEAR_NATIVE_CAPTURE_HISTORY);
   },
 
   getSshHosts(): Promise<any> {
