@@ -1,0 +1,8 @@
+{
+  "headerTimestamp": "2020-01-01T00:00:00.000Z",
+  "lastValidEntry": "2021-01-01T00:00:00.000Z",
+  "actualUpdatedAt": "2021-01-01T00:00:00.000Z",
+  "existingTestExpectsHeader": false,
+  "productionWalksBackToEntry": true
+}
+CLEANUP_ABSENT=true

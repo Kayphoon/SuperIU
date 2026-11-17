@@ -1,0 +1,41 @@
+Swift version 6.0.3 (swift-6.0.3-RELEASE)
+Target: aarch64-unknown-linux-gnu
+PARSE=packages/desktop/native/Tests/SuperClipboardTests/ClipboardTests.swift
+PARSE=packages/desktop/native/Tests/SuperCaptureTests/RendererTests.swift
+PARSE=packages/desktop/native/Tests/SuperCaptureTests/SelectionTests.swift
+PARSE=packages/desktop/native/Package.swift
+PARSE=packages/desktop/native/Sources/SuperClipboard/Monitor/PasteboardMonitor.swift
+PARSE=packages/desktop/native/Sources/SuperClipboard/Storage/ImageDiskCache.swift
+PARSE=packages/desktop/native/Sources/SuperClipboard/Storage/ClipboardStore.swift
+PARSE=packages/desktop/native/Sources/SuperIUNative/CopyNotice.swift
+PARSE=packages/desktop/native/Sources/SuperIUNative/GlobalHotKeys.swift
+PARSE=packages/desktop/native/Sources/SuperIUNative/SuperIUNativeApp.swift
+PARSE=packages/desktop/native/Sources/SuperIUNative/HistoryPanel.swift
+PARSE=packages/desktop/native/Sources/SuperCapture/UI/OverlayWindowController.swift
+PARSE=packages/desktop/native/Sources/SuperCapture/UI/CanvasView.swift
+PARSE=packages/desktop/native/Sources/SuperCapture/Core/ScreenGrabber.swift
+PARSE=packages/desktop/native/Sources/SuperCapture/Core/Selection.swift
+PARSE=packages/desktop/native/Sources/SuperCapture/Core/AnnotationRenderer.swift
+PARSE=packages/desktop/native/Sources/SuperCapture/Service/OCRService.swift
+SWIFT_PARSE_PASS=17
+SWIFT_MANIFEST_PASS
+Test Suite 'All tests' started at 2026-11-16 13:56:27.421
+Test Suite 'tmp.7LuJhE25GL.xctest' started at 2026-11-16 13:56:27.434
+Test Suite 'SelectionTests' started at 2026-11-16 13:56:27.434
+Test Case 'SelectionTests.testReverseDragOnNegativeDisplayCoordinates' started at 2026-11-16 13:56:27.434
+Test Case 'SelectionTests.testReverseDragOnNegativeDisplayCoordinates' passed (0.001 seconds)
+Test Case 'SelectionTests.testAllEightHandlesKeepOppositeEdgesAndClampAtBounds' started at 2026-11-16 13:56:27.435
+Test Case 'SelectionTests.testAllEightHandlesKeepOppositeEdgesAndClampAtBounds' passed (0.001 seconds)
+Test Case 'SelectionTests.testHandleCannotInvertTheSelection' started at 2026-11-16 13:56:27.437
+Test Case 'SelectionTests.testHandleCannotInvertTheSelection' passed (0.0 seconds)
+Test Case 'SelectionTests.testMoveClampsWithoutShrinking' started at 2026-11-16 13:56:27.437
+Test Case 'SelectionTests.testMoveClampsWithoutShrinking' passed (0.0 seconds)
+Test Case 'SelectionTests.testRetinaPixelCropFlipsVerticalOrigin' started at 2026-11-16 13:56:27.437
+Test Case 'SelectionTests.testRetinaPixelCropFlipsVerticalOrigin' passed (0.0 seconds)
+Test Suite 'SelectionTests' passed at 2026-11-16 13:56:27.438
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'tmp.7LuJhE25GL.xctest' passed at 2026-11-16 13:56:27.438
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'All tests' passed at 2026-11-16 13:56:27.438
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+PORTABLE_GEOMETRY_PASS

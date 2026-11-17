@@ -1,0 +1,15 @@
+Receipt recovered from completed monitor bash_3 via bash_output.
+The monitor command's final tee did not wrap the whole shell sequence;
+these are the actual recorded exit lines, not a rerun of passed checks.
+
+status: completed exit_code: 0
+CLEANUP_ABSENT=true
+CHECK_EXIT=scripts/smoke-test.ts:0
+CHECK_EXIT=scripts/check-ui-i18n.mjs:0
+CHECK_EXIT=scripts/check-dict-parity.mjs:0
+CHECK_EXIT=scripts/check-cli-i18n.mjs:0
+CHECK_EXIT=scripts/check-redaction-coverage.mjs:0
+CHECK_EXIT=scripts/check-version-parity.mjs:0
+CHECK_EXIT=scripts/provider-settings-wire.ts:0
+CHECK_EXIT=scripts/extract-changelog.mjs:0
+REMAINING_GATES_EXIT=0 REPRO_EXIT=0

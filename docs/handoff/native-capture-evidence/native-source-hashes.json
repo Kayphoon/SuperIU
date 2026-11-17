@@ -1,0 +1,75 @@
+{
+  "baseline": "b68310d",
+  "toolchain": "Swift6.0.3 Linux arm64",
+  "scope": "Syntax all Swift; Foundation geometry only; no AppKit/Vision/ScreenCaptureKit typecheck or GUI",
+  "files": [
+    {
+      "path": "packages/desktop/native/Package.swift",
+      "sha256": "5a636ec5f200ef4e8dfd40fc50d4ab8a1984f8c2b894bffb485ca5109f549403"
+    },
+    {
+      "path": "packages/desktop/native/Sources/SuperCapture/Core/AnnotationRenderer.swift",
+      "sha256": "f2208ffe63bd77f6d737c15e3241515f9cc69636de394cec18b93cd788a621a0"
+    },
+    {
+      "path": "packages/desktop/native/Sources/SuperCapture/Core/ScreenGrabber.swift",
+      "sha256": "3d96e7e2c8a66550096e0adac44bcb14f008df0c1940c8e87516f5817ac5f3b5"
+    },
+    {
+      "path": "packages/desktop/native/Sources/SuperCapture/Core/Selection.swift",
+      "sha256": "29c70e2837ce3b80caefe25147299b114f74cf3d6d8fbd22510a07fa05523dad"
+    },
+    {
+      "path": "packages/desktop/native/Sources/SuperCapture/Service/OCRService.swift",
+      "sha256": "f8869944b907b3ff418d41ba8751cb88e6f2b9a6a7c34e7ee591a8568c53de36"
+    },
+    {
+      "path": "packages/desktop/native/Sources/SuperCapture/UI/CanvasView.swift",
+      "sha256": "7ae84c97504a8a0be227ee725d86970a68e796c495f4c9d4ae577f4163b4c062"
+    },
+    {
+      "path": "packages/desktop/native/Sources/SuperCapture/UI/OverlayWindowController.swift",
+      "sha256": "3b5f512cd76adf2a23f2664d0c9a83aa4393992610bea051377f0fe3c419aa09"
+    },
+    {
+      "path": "packages/desktop/native/Sources/SuperClipboard/Monitor/PasteboardMonitor.swift",
+      "sha256": "b50e6ccbb7d79140ce55d5c3a873ec59f4980d40dae86a7c18daa524e0d79507"
+    },
+    {
+      "path": "packages/desktop/native/Sources/SuperClipboard/Storage/ClipboardStore.swift",
+      "sha256": "832cb13941521fb185723e563c0bbcf5791df359c98e230f19f42328c651a139"
+    },
+    {
+      "path": "packages/desktop/native/Sources/SuperClipboard/Storage/ImageDiskCache.swift",
+      "sha256": "77fe45fac5fbfbcce42531f10d6f1028925791988434a07d360bd8c5faacc851"
+    },
+    {
+      "path": "packages/desktop/native/Sources/SuperIUNative/CopyNotice.swift",
+      "sha256": "26dee4f9699529962fd32927584e04b7a8c62a182ca29ea2faefa4aa08835d05"
+    },
+    {
+      "path": "packages/desktop/native/Sources/SuperIUNative/GlobalHotKeys.swift",
+      "sha256": "56d0bf141d0ed60f7c3faca9f656d00bbaff1e389891b4a03969c58beadd6df9"
+    },
+    {
+      "path": "packages/desktop/native/Sources/SuperIUNative/HistoryPanel.swift",
+      "sha256": "47bf3e6a7e26753f43b2542c44e49be0691fef479a8187443992ab17dd727471"
+    },
+    {
+      "path": "packages/desktop/native/Sources/SuperIUNative/SuperIUNativeApp.swift",
+      "sha256": "fd1b60a1a7e2723a1beb6bd6f35942033396d6f3c87ef1ba34731416bdf17fbd"
+    },
+    {
+      "path": "packages/desktop/native/Tests/SuperCaptureTests/RendererTests.swift",
+      "sha256": "caca49fa8c9d2be8bbbd46d4135927219349c327581c8d1f7c98df1e2abe52e6"
+    },
+    {
+      "path": "packages/desktop/native/Tests/SuperCaptureTests/SelectionTests.swift",
+      "sha256": "7fabfd352b8d1c4dfddfb1267948dd6154e4bce8ada3dfec87078c4c1a7aad6b"
+    },
+    {
+      "path": "packages/desktop/native/Tests/SuperClipboardTests/ClipboardTests.swift",
+      "sha256": "eed902426753c2b37fc74fc48680e67bc090011ef9b96b13af1854c22eb87ff3"
+    }
+  ]
+}

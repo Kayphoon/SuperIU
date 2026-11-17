@@ -1,0 +1,100 @@
+Scope: all 6 workspace projects
+✓ Lockfile passes supply-chain policies (verified 7d ago)
+Lockfile is up to date, resolution step is skipped
+Already up to date
+Error:   × installing dependencies
+  ╰─▶ Failed to create directory at "/root/SuperIU/.omo/worktrees/native-
+      capture-clipboard/node_modules/.pnpm": workspace hoist directory is not
+      a real directory
+
+[WARN] The install that runs before scripts failed, so your node_modules may be out of sync with your lockfile. Set "verifyDepsBeforeRun: false" to skip this install.
+$ pnpm --filter "@agent/*" run build
+Scope: 5 of 6 workspace projects
+packages/protocol build$ tsc
+packages/protocol build: Done
+packages/core build$ tsc
+packages/core build: Done
+packages/ui build$ tsc
+packages/cli build$ tsc
+packages/cli build: Done
+packages/ui build: Done
+packages/desktop build$ tsc && mkdir -p dist/views && cp -r src/views dist/
+packages/desktop build: Done
+Scope: all 6 workspace projects
+✓ Lockfile passes supply-chain policies (verified 7d ago)
+Lockfile is up to date, resolution step is skipped
+Already up to date
+Error:   × installing dependencies
+  ╰─▶ Failed to create directory at "/root/SuperIU/.omo/worktrees/native-
+      capture-clipboard/node_modules/.pnpm": workspace hoist directory is not
+      a real directory
+
+[WARN] The install that runs before scripts failed, so your node_modules may be out of sync with your lockfile. Set "verifyDepsBeforeRun: false" to skip this install.
+$ pnpm --filter "@agent/*" run typecheck
+Scope: 5 of 6 workspace projects
+packages/protocol typecheck$ tsc --noEmit
+packages/protocol typecheck: Done
+packages/core typecheck$ tsc --noEmit
+packages/core typecheck: Done
+packages/cli typecheck$ tsc --noEmit
+packages/ui typecheck$ tsc --noEmit
+packages/cli typecheck: Done
+packages/ui typecheck: Done
+packages/desktop typecheck$ tsc --noEmit
+packages/desktop typecheck: Done
+Scope: all 6 workspace projects
+✓ Lockfile passes supply-chain policies (verified 7d ago)
+Lockfile is up to date, resolution step is skipped
+Already up to date
+Error:   × installing dependencies
+  ╰─▶ Failed to create directory at "/root/SuperIU/.omo/worktrees/native-
+      capture-clipboard/node_modules/.pnpm": workspace hoist directory is not
+      a real directory
+
+[WARN] The install that runs before scripts failed, so your node_modules may be out of sync with your lockfile. Set "verifyDepsBeforeRun: false" to skip this install.
+$ vitest run && node scripts/smoke-test.ts && node scripts/check-ui-i18n.mjs && node scripts/check-dict-parity.mjs && node scripts/check-cli-i18n.mjs && node scripts/check-redaction-coverage.mjs && node scripts/check-version-parity.mjs && node scripts/provider-settings-wire.ts && node scripts/extract-changelog.mjs --check
+
+ RUN  v5.0.2 /root/SuperIU/.omo/worktrees/native-capture-clipboard
+
+superiu-server: deferring update: daemon busy
+superiu-server: deferring update: daemon busy
+superiu-server: auto-update: could not write update state: ENOSPC: no space left on device
+superiu-server: auto-update: downloaded binary invalid or not newer (0.0.1); backing off
+superiu-server: auto-update: downloaded binary invalid or not newer (0.0.1); backing off
+superiu-server: auto-update: could not write update state: EEXIST: file already exists, mkdir '/tmp/tmp.Do0RCsXcvE/superiu-idle-update-KEgvd4/.superiu'
+superiu-server: auto-update: downloaded binary invalid or not newer (0.0.1); backing off
+superiu-server: auto-update: downloaded binary invalid or not newer (0.0.1); backing off
+superiu-server: auto-update: downloaded binary invalid or not newer (0.0.1); backing off
+superiu-server: auto-update: downloaded binary invalid or not newer (0.0.1); backing off
+ ❯ packages/core/test/session-order.test.ts (4 tests | 1 failed) 71ms
+   ❯ session listing order (4)
+     × falls back to the header timestamp when the tail cannot be parsed 10ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  packages/core/test/session-order.test.ts > session listing order > falls back to the header timestamp when the tail cannot be parsed
+AssertionError: expected 1794835385810 to be 1794835385809 // Object.is equality
+
+- Expected
++ Received
+
+- 1794835385809
++ 1794835385810
+
+ ❯ packages/core/test/session-order.test.ts:120:36
+    118|       timestamp: string;
+    119|     };
+    120|     expect(descriptor.updatedAtMs).toBe(Date.parse(header.timestamp));
+       |                                    ^
+    121|   });
+    122| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed | 36 passed (37)
+      Tests  1 failed | 583 passed (584)
+   Start at  13:22:54
+   Duration  69.49s (tests 89%, import 8%, transform 3%)
+
+[ELIFECYCLE] Test failed. See above for more details.
