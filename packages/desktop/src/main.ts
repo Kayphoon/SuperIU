@@ -66,6 +66,7 @@ import {
   type RemoteStep,
   type SshTunnelState
 } from './remote/index.js';
+import { NativeCapture, isNativeCaptureSupported } from './native_capture.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const APP_NAME = 'SuperIU';
@@ -104,6 +105,7 @@ let onboardingWindow: BrowserWindow | null = null;
 let serverHandle: ServerHandle | null = null;
 let gatewayClient: GatewayClient | null = null;
 let remoteManager: RemoteConnectionManager | null = null;
+let nativeCapture: NativeCapture | null = null;
 let activeRemoteUrl: string | null = null;
 /** URL of the directly-connected custom service, when `mode === 'custom_url'`. */
 let activeCustomUrl: string | null = null;
@@ -2530,6 +2532,59 @@ function installIpcHandlers(): void {
 // Lifecycle
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolve the helper from its two layouts: packaged puts it beside the app's
+ * executable, development uses the explicit `swift build` product.
+ */
+function nativeCaptureBinaryPath(): string {
+  if (app.isPackaged) {
+    return path.resolve(
+      path.dirname(app.getPath('exe')),
+      '..',
+      'Helpers',
+      'SuperIU Capture.app',
+      'Contents',
+      'MacOS',
+      'SuperIUNative'
+    );
+  }
+  return path.resolve(HERE, '..', 'native', '.build', 'release', 'SuperIUNative');
+}
+
+/**
+ * Start the menu-bar helper once the app is ready. It is independent of the
+ * connection mode, so even the onboarding window gets capture.
+ */
+async function startNativeCapture(): Promise<void> {
+  if (nativeCapture) return;
+
+  const systemVersion = process.platform === 'darwin' ? process.getSystemVersion() : '';
+  if (!isNativeCaptureSupported(process.platform, systemVersion)) return;
+
+  const binaryPath = nativeCaptureBinaryPath();
+  const capture = new NativeCapture({ binaryPath });
+  nativeCapture = capture;
+
+  if (!(await capture.start())) {
+    console.warn(
+      `[superiu] native capture helper unavailable (${binaryPath}); ` +
+        'menu-bar capture and clipboard history are disabled'
+    );
+  }
+}
+
+/** Stop the helper and wait for its exit. Idempotent. */
+async function closeNativeCapture(): Promise<void> {
+  const capture = nativeCapture;
+  nativeCapture = null;
+  if (!capture) return;
+  try {
+    await capture.stop();
+  } catch (err) {
+    console.error('[superiu] failed to stop native capture helper:', err);
+  }
+}
+
 /** Tear down the in-process HTTP server + AgentRunner exactly once. */
 async function closeServer(): Promise<void> {
   const handle = serverHandle;
@@ -2545,6 +2600,7 @@ async function closeServer(): Promise<void> {
 /** Tear down whichever transport mode is active, exactly once. */
 async function shutdown(): Promise<void> {
   stopBackgroundUpdateLoop();
+  await closeNativeCapture();
   closeGateway();
   await closeRemote();
   await closeServer();
@@ -2595,6 +2651,8 @@ async function bootstrap(): Promise<void> {
   // the explicit option means the session store never depends on that.
   const workspace = resolveWorkspace();
   process.chdir(workspace);
+
+  await startNativeCapture();
 
   // Resolve the transport first: in gateway/remote mode the shell is a remote
   // workspace/sandbox client for the VPS Gateway and must NOT boot the local

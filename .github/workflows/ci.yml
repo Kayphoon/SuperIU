@@ -65,6 +65,9 @@ jobs:
       - name: Build
         run: pnpm -r build
 
+      - name: Test native helper
+        run: swift test --package-path packages/desktop/native
+
       - name: Package macOS app bundle
         run: pnpm --filter @agent/desktop run package:mac --no-install
 

@@ -75,6 +75,16 @@ const RESOURCES = path.join(CONTENTS, 'Resources');
 const APP_RESOURCES = path.join(RESOURCES, 'app');
 const APP_NODE_MODULES = path.join(APP_RESOURCES, 'node_modules');
 
+const NATIVE_DIR = path.join(PKG_DIR, 'native');
+const NATIVE_PRODUCT = 'SuperIUNative';
+const NATIVE_HELPER_APP = path.join(CONTENTS, 'Helpers', 'SuperIU Capture.app');
+const NATIVE_HELPER_EXECUTABLE = path.join(
+  NATIVE_HELPER_APP,
+  'Contents',
+  'MacOS',
+  NATIVE_PRODUCT
+);
+
 /** Where LaunchServices + Spotlight actually look for user-installed apps. */
 const INSTALL_DIR = path.join(os.homedir(), 'Applications');
 const INSTALLED_APP = path.join(INSTALL_DIR, `${APP_NAME}.app`);
@@ -415,6 +425,76 @@ function writeHelperIdentity(): void {
   log('identity', `${count} helper bundle(s) → ${BUNDLE_ID}.helper*`);
 }
 
+/**
+ * Compile the Swift helper into `Contents/Helpers` before the app is signed.
+ *
+ * The scratch path is private to this run so a developer's `native/.build` is
+ * never reused (and never mutates the shipped bytes), and the temp tree is
+ * removed whether the build succeeds or fails.
+ */
+function buildNativeCapture(version: string): void {
+  const manifest = path.join(NATIVE_DIR, 'Package.swift');
+  if (!fs.existsSync(manifest)) {
+    fail(`Swift package missing: ${manifest}`);
+  }
+
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'superiu-native-build-'));
+  try {
+    log('native', 'swift build -c release');
+    run('swift', [
+      'build',
+      '-c',
+      'release',
+      '--package-path',
+      NATIVE_DIR,
+      '--scratch-path',
+      scratch
+    ]);
+
+    const built = path.join(scratch, 'release', NATIVE_PRODUCT);
+    if (!fs.existsSync(built)) {
+      fail(`Swift build did not produce ${built}`);
+    }
+
+    fs.mkdirSync(path.dirname(NATIVE_HELPER_EXECUTABLE), { recursive: true });
+    fs.copyFileSync(built, NATIVE_HELPER_EXECUTABLE);
+    fs.chmodSync(NATIVE_HELPER_EXECUTABLE, 0o755);
+
+    const plist = path.join(NATIVE_HELPER_APP, 'Contents', 'Info.plist');
+    fs.writeFileSync(
+      plist,
+      `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleDisplayName</key><string>SuperIU Capture</string>
+  <key>CFBundleExecutable</key><string>${NATIVE_PRODUCT}</string>
+  <key>CFBundleIdentifier</key><string>${BUNDLE_ID}.capture</string>
+  <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+  <key>CFBundleName</key><string>SuperIU Capture</string>
+  <key>CFBundlePackageType</key><string>APPL</string>
+  <key>CFBundleShortVersionString</key><string>${version}</string>
+  <key>CFBundleVersion</key><string>${version}</string>
+  <key>LSMinimumSystemVersion</key><string>14.0</string>
+  <key>LSUIElement</key><true/>
+  <key>NSHighResolutionCapable</key><true/>
+  <key>NSScreenCaptureUsageDescription</key><string>SuperIU Capture records the screen area you select for screenshots.</string>
+</dict>
+</plist>
+`,
+      'utf-8'
+    );
+
+    log(
+      'native',
+      `${BUNDLE_ID}.capture → ${path.relative(APP_PATH, NATIVE_HELPER_EXECUTABLE)}`
+    );
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // 5. Contents/Resources/app
 // ---------------------------------------------------------------------------
@@ -667,6 +747,7 @@ function main(): void {
   ensureBuilt();
   ensureIcon();
   assembleBundle(version);
+  buildNativeCapture(version);
   signBundle();
 
   if (INSTALL) {
